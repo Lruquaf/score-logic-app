@@ -1,0 +1,15 @@
+node_modules
+.next
+coverage
+dist
+build
+playwright-report
+test-results
+.turbo
+.DS_Store
+*.log
+.env
+.env.local
+.local
+prisma/dev.db
+prisma/dev.db-journal

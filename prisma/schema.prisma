@@ -1,0 +1,163 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  code      String   @unique @db.VarChar(5)
+  nameEn    String
+  nameTr    String?
+  flagEmoji String?  @db.VarChar(10)
+  continent String?
+  createdAt DateTime @default(now())
+
+  @@index([code])
+  @@map("teams")
+}
+
+model Puzzle {
+  id             String       @id @default(cuid())
+  difficulty     Difficulty
+  inferenceSteps Int
+  teamsConfig    Json
+  standings      Json
+  matchIds       Json
+  solution       Json
+  dailyDate      DateTime?    @unique @db.Date
+  campaignOrder  Int?         @unique
+  isActive       Boolean      @default(true)
+  isTested       Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+
+  progress UserPuzzleProgress[]
+
+  @@index([dailyDate])
+  @@index([campaignOrder])
+  @@index([difficulty])
+  @@map("puzzles")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String?   @unique
+  emailVerified DateTime?
+  name          String?
+  image         String?
+  isAnonymous   Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  lastActiveAt  DateTime  @default(now())
+
+  accounts Account[]
+  sessions Session[]
+  progress UserPuzzleProgress[]
+  streak   DailyStreak?
+  stats    UserStats?
+
+  @@map("users")
+}
+
+model UserPuzzleProgress {
+  id           String       @id @default(cuid())
+  userId       String
+  puzzleId     String
+  status       PuzzleStatus @default(IN_PROGRESS)
+  attempts     Int          @default(0)
+  hintsUsed    Int          @default(0)
+  hintTypes    String[]     @default([])
+  timeTakenSec Int?
+  currentState Json?
+  completedAt  DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  puzzle Puzzle @relation(fields: [puzzleId], references: [id])
+
+  @@unique([userId, puzzleId])
+  @@index([userId, status])
+  @@map("user_puzzle_progress")
+}
+
+model DailyStreak {
+  userId         String   @id
+  currentStreak  Int      @default(0)
+  bestStreak     Int      @default(0)
+  lastPlayedDate String?
+  updatedAt      DateTime @default(now()) @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("daily_streaks")
+}
+
+model UserStats {
+  userId        String @id
+  totalSolved   Int    @default(0)
+  perfectSolves Int    @default(0)
+  totalTimeSec  Int    @default(0)
+  solvedEasy    Int    @default(0)
+  solvedMedium  Int    @default(0)
+  solvedHard    Int    @default(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_stats")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum PuzzleStatus {
+  IN_PROGRESS
+  COMPLETED
+  ABANDONED
+}
+
