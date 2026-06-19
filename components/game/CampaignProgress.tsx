@@ -3,14 +3,21 @@
 import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
 
+import type { Difficulty } from '@/lib/contracts/puzzle'
 import { fetchCampaignPuzzles, fetchUserProgress } from '@/lib/api/client'
-import { formatPuzzleLabel } from '@/lib/utils/format'
 
 const statusTone = {
-  COMPLETED: 'border-[var(--success)]/25 bg-[var(--success-soft)]',
-  IN_PROGRESS: 'border-[var(--warning)]/35 bg-[var(--warning-soft)]',
-  ABANDONED: 'border-[var(--danger)]/25 bg-[var(--danger-soft)]'
+  COMPLETED: 'border-[var(--success)] bg-[var(--success)] text-white',
+  IN_PROGRESS: 'border-[var(--warning)] bg-[var(--warning-soft)] text-[var(--ink)]',
+  ABANDONED: 'border-[var(--danger)] bg-[var(--danger-soft)] text-[var(--danger)]',
+  UNSTARTED: 'border-[var(--line)] bg-white text-[var(--ink-soft)]'
 } as const
+
+const difficultySections: Array<{ difficulty: Difficulty; title: string }> = [
+  { difficulty: 'EASY', title: 'Easy' },
+  { difficulty: 'MEDIUM', title: 'Medium' },
+  { difficulty: 'HARD', title: 'Hard' }
+]
 
 export function CampaignProgress() {
   const campaignQuery = useQuery({
@@ -53,45 +60,59 @@ export function CampaignProgress() {
             Completed <span className="font-mono font-bold text-[var(--ink)]">{completedCount}/{puzzles.length}</span>
           </span>
           <span>
-            Next <span className="font-semibold text-[var(--ink)]">{nextPuzzle ? formatPuzzleLabel(nextPuzzle) : 'All cleared'}</span>
+            Next <span className="font-semibold text-[var(--ink)]">{nextPuzzle?.campaignOrder ? `Puzzle ${nextPuzzle.campaignOrder}` : 'All cleared'}</span>
           </span>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {puzzles.map((puzzle) => {
-            const progress = progressMap.get(puzzle.id)
-            const status = progress?.status ?? 'UNSTARTED'
-            const actionLabel =
-              status === 'COMPLETED' ? 'Review' : status === 'IN_PROGRESS' ? 'Continue' : 'Start'
+        <div className="grid gap-4 lg:grid-cols-3">
+          {difficultySections.map(({ difficulty, title }) => {
+            const sectionPuzzles = puzzles.filter((puzzle) => puzzle.difficulty === difficulty)
+            const sectionCompleted = sectionPuzzles.filter(
+              (puzzle) => progressMap.get(puzzle.id)?.status === 'COMPLETED'
+            ).length
+            const progressPercent = sectionPuzzles.length > 0
+              ? Math.round((sectionCompleted / sectionPuzzles.length) * 100)
+              : 0
 
             return (
               <div
-                key={puzzle.id}
-                className={`rounded-[var(--radius-lg)] border px-4 py-4 ${
-                  status in statusTone
-                    ? statusTone[status as keyof typeof statusTone]
-                    : 'border-[var(--line)] bg-white'
-                }`}
+                key={difficulty}
+                className="rounded-[var(--radius-sm)] border border-[var(--line)] bg-white px-4 py-4"
               >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div className="text-sm font-extrabold text-[var(--ink)]">
-                      {formatPuzzleLabel(puzzle)}
-                    </div>
-                    <div className="mt-1 text-xs text-[var(--muted)]">
-                      {puzzle.difficulty} / {puzzle.inferenceSteps} steps
-                    </div>
-                  </div>
-                  <div className="rounded-full border border-[var(--line)] bg-white/60 px-3 py-1 text-[10px] font-bold uppercase text-[var(--muted)]">
-                    {status}
+                <div className="flex items-baseline justify-between gap-3">
+                  <h3 className="font-[var(--font-display)] text-2xl font-semibold text-[var(--ink)]">
+                    {title}
+                  </h3>
+                  <div className="font-mono text-xs font-bold text-[var(--muted)]">
+                    {sectionCompleted}/{sectionPuzzles.length}
                   </div>
                 </div>
-                <Link
-                  href={`/puzzles/${puzzle.id}`}
-                  className="mt-4 inline-flex rounded-[var(--radius-md)] border border-[var(--line)] bg-white px-3 py-2 text-xs font-bold text-[var(--ink)] transition hover:border-[var(--field)] hover:bg-[var(--field-soft)] hover:text-[var(--field-deep)]"
-                >
-                  {actionLabel}
-                </Link>
+
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--paper-soft)]">
+                  <div
+                    className="h-full bg-[var(--field)] transition-[width]"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+
+                <div className="mt-4 grid grid-cols-5 gap-2 sm:grid-cols-10 lg:grid-cols-5 xl:grid-cols-10">
+                  {sectionPuzzles.map((puzzle) => {
+                    const status = progressMap.get(puzzle.id)?.status ?? 'UNSTARTED'
+                    const tone = statusTone[status as keyof typeof statusTone] ?? statusTone.UNSTARTED
+                    const number = puzzle.campaignOrder ?? 0
+
+                    return (
+                      <Link
+                        key={puzzle.id}
+                        href={`/puzzles/${puzzle.id}`}
+                        aria-label={`${title} puzzle ${number}`}
+                        className={`flex aspect-square min-h-8 items-center justify-center rounded-[var(--radius-sm)] border text-xs font-bold transition hover:border-[var(--field)] hover:bg-[var(--field-soft)] hover:text-[var(--field-deep)] ${tone}`}
+                      >
+                        {number}
+                      </Link>
+                    )
+                  })}
+                </div>
               </div>
             )
           })}
