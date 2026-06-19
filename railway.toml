@@ -1,10 +1,10 @@
 [build]
 builder = "RAILPACK"
-buildCommand = "npm run build"
+buildCommand = "NODE_ENV=production npm run build"
 
 [deploy]
-preDeployCommand = "npm run db:deploy"
-startCommand = "npm run start:standalone"
+preDeployCommand = "NODE_ENV=production npm run db:deploy"
+startCommand = "NODE_ENV=production npm run start:standalone"
 healthcheckPath = "/api/healthz"
 healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"

@@ -15,6 +15,10 @@ Zorunlu:
 - `DATABASE_URL`: PostgreSQL bağlantı dizesi.
 - `AUTH_SECRET`: uzun ve rastgele bir secret.
 
+Eklemeyin:
+
+- `NODE_ENV`: Railway veya Next.js build/runtime bunu kendisi yönetmelidir. `staging`, `preview` gibi özel değerler Next.js build/prerender davranışını bozabilir.
+
 Opsiyonel ama önerilen:
 
 - `AUTH_URL`: uygulamanın dış URL'i.
@@ -108,6 +112,8 @@ Web service için en az şu değişkenleri ekle:
 - `DATABASE_URL=${{Postgres.DATABASE_URL}}`
 - `AUTH_SECRET=<strong-random-secret>`
 - `AUTH_TRUST_HOST=true`
+
+`NODE_ENV` değişkenini Railway Variables içine ekleme. Repository'deki [railway.toml](/Users/yavuzselim/Desktop/Cursor/ScoreLogic/railway.toml) build/start komutları production değerini açıkça set eder.
 
 Custom domain veya Railway public domain kesinleştikten sonra eklenmesi önerilen:
 
