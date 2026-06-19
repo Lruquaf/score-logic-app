@@ -141,15 +141,18 @@ Not:
 
 Railway healthcheck mantığına göre yeni deployment ancak endpoint HTTP `200` döndürdüğünde aktif olur. Ayrıca Railway uygulamanın `PORT` değişkenini dinlemesini bekler. Kaynak: Railway Healthchecks docs.
 
+`/api/healthz` yalnızca process'in ayakta olup olmadığını kontrol eden liveness endpoint'idir ve database sorgusu çalıştırmaz. Database/Redis durumunu görmek için detaylı readiness endpoint'i olan `/api/health` kullanılmalıdır.
+
 ### 3.5 İlk deploy sonrası doğrulama
 
 Deploy tamamlandıktan sonra:
 
-1. `/api/healthz` endpoint'ini aç.
-2. `/daily` ve `/stats` sayfalarını kontrol et.
-3. anonim kullanıcı ilerlemesi kaydı alınıyor mu doğrula.
-4. giriş akışını test et.
-5. dashboard ve API loglarını Railway Metrics/Logs üzerinden kontrol et.
+1. `/api/healthz` endpoint'ini aç ve HTTP `200` döndüğünü doğrula.
+2. `/api/health` endpoint'ini aç ve database durumunun `up` olduğunu doğrula.
+3. `/daily` ve `/stats` sayfalarını kontrol et.
+4. anonim kullanıcı ilerlemesi kaydı alınıyor mu doğrula.
+5. giriş akışını test et.
+6. dashboard ve API loglarını Railway Metrics/Logs üzerinden kontrol et.
 
 ## 4. Production Checklist
 
