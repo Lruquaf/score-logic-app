@@ -1,10 +1,16 @@
 import { loadEnvConfig } from '@next/env'
 import { Prisma, PrismaClient, PuzzleStatus } from '@prisma/client'
 
-import type { MatchSolutionDTO, PuzzlePrivateDTO, TeamDTO } from '../lib/contracts/puzzle'
-import { computeStandings, stripMatchScores } from '../lib/engine/generator'
-import { SAMPLE_IDS, sampleDailyPuzzlePrivate, sampleProgressState } from '../lib/fixtures/samplePuzzle'
-import { createSeededRandom, selectTeamsFromPool, TEAM_POOLS, type TeamPoolKey } from '../lib/fixtures/teamPools'
+import type { PuzzlePrivateDTO } from '../lib/contracts/puzzle'
+import { SAMPLE_IDS, sampleProgressState } from '../lib/fixtures/samplePuzzle'
+import { TEAM_POOLS } from '../lib/fixtures/teamPools'
+import {
+  generateCampaignPuzzleDefinitions,
+  generateDailyPuzzleDefinition,
+  isoDateString,
+  puzzleTableShapeSignature,
+  toDatabaseDate
+} from '../lib/puzzles/factory'
 
 loadEnvConfig(process.cwd())
 
@@ -12,144 +18,6 @@ const prisma = new PrismaClient()
 
 function toJson(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue
-}
-
-function todayIsoDate() {
-  return new Date().toISOString().slice(0, 10)
-}
-
-function toDbDate(value: string) {
-  return new Date(`${value}T00:00:00.000Z`)
-}
-
-function buildPuzzle(params: {
-  id: string
-  mode: 'daily' | 'campaign'
-  pool: TeamPoolKey
-  teamSeed: string
-  scores: Array<[number, number]>
-  difficulty: PuzzlePrivateDTO['difficulty']
-  inferenceSteps: number
-  dailyDate: string | null
-  campaignOrder: number | null
-}): PuzzlePrivateDTO {
-  const teams = selectTeamsFromPool(params.pool, 4, createSeededRandom(params.teamSeed))
-  const solution = solutionFromTeamOrder(teams, params.scores)
-
-  return {
-    id: params.id,
-    mode: params.mode,
-    difficulty: params.difficulty,
-    inferenceSteps: params.inferenceSteps,
-    teams,
-    standings: computeStandings(teams, solution),
-    matches: stripMatchScores(solution),
-    solution,
-    dailyDate: params.dailyDate,
-    campaignOrder: params.campaignOrder
-  }
-}
-
-function solutionFromTeamOrder(
-  teams: TeamDTO[],
-  scores: Array<[number, number]>
-): MatchSolutionDTO[] {
-  const pairs: Array<[number, number]> = [
-    [0, 1],
-    [0, 2],
-    [0, 3],
-    [1, 2],
-    [1, 3],
-    [2, 3]
-  ]
-
-  return pairs.map(([homeIndex, awayIndex], index) => ({
-    id: `m${index + 1}`,
-    homeTeamId: teams[homeIndex].id,
-    awayTeamId: teams[awayIndex].id,
-    homeScore: scores[index][0],
-    awayScore: scores[index][1]
-  }))
-}
-
-const campaignPuzzleDefinitions = [
-  buildPuzzle({
-    id: 'ckscorepuzzlecamp000000001',
-    mode: 'campaign',
-    pool: 'champions-league',
-    teamSeed: 'campaign-1-champions-league',
-    difficulty: 'EASY',
-    inferenceSteps: 7,
-    dailyDate: null,
-    campaignOrder: 1,
-    scores: [
-      [2, 0],
-      [1, 1],
-      [3, 1],
-      [1, 0],
-      [2, 2],
-      [2, 1]
-    ]
-  }),
-  buildPuzzle({
-    id: 'ckscorepuzzlecamp000000002',
-    mode: 'campaign',
-    pool: 'fictional',
-    teamSeed: 'campaign-2-fictional',
-    difficulty: 'MEDIUM',
-    inferenceSteps: 10,
-    dailyDate: null,
-    campaignOrder: 2,
-    scores: [
-      [1, 1],
-      [0, 2],
-      [2, 2],
-      [3, 1],
-      [0, 1],
-      [2, 0]
-    ]
-  }),
-  buildPuzzle({
-    id: 'ckscorepuzzlecamp000000003',
-    mode: 'campaign',
-    pool: 'world-cup',
-    teamSeed: 'campaign-3-world-cup',
-    difficulty: 'HARD',
-    inferenceSteps: 13,
-    dailyDate: null,
-    campaignOrder: 3,
-    scores: [
-      [0, 0],
-      [2, 3],
-      [4, 2],
-      [2, 2],
-      [1, 3],
-      [1, 0]
-    ]
-  })
-]
-
-function dailyPuzzleDefinition() {
-  const dailyDate = todayIsoDate()
-
-  return buildPuzzle({
-    id: sampleDailyPuzzlePrivate.id,
-    mode: 'daily',
-    pool: 'world-cup',
-    teamSeed: `daily-${dailyDate}-world-cup`,
-    difficulty: sampleDailyPuzzlePrivate.difficulty,
-    inferenceSteps: sampleDailyPuzzlePrivate.inferenceSteps,
-    dailyDate,
-    campaignOrder: null,
-    scores: [
-      [2, 2],
-      [0, 1],
-      [2, 4],
-      [0, 0],
-      [3, 5],
-      [3, 0]
-    ]
-  })
 }
 
 async function seedTeams() {
@@ -176,72 +44,76 @@ async function seedTeams() {
   }
 }
 
-async function seedPuzzles() {
-  const dailyPuzzle = dailyPuzzleDefinition()
-  const dailyDate = dailyPuzzle.dailyDate ?? todayIsoDate()
+async function writePuzzle(puzzle: PuzzlePrivateDTO) {
+  const dailyDate = puzzle.dailyDate ? toDatabaseDate(puzzle.dailyDate) : null
+  const data = {
+    difficulty: puzzle.difficulty,
+    inferenceSteps: puzzle.inferenceSteps,
+    teamsConfig: toJson(puzzle.teams),
+    standings: toJson(puzzle.standings),
+    matchIds: toJson(puzzle.matches),
+    solution: toJson(puzzle.solution),
+    dailyDate,
+    campaignOrder: puzzle.campaignOrder,
+    isActive: true,
+    isTested: true
+  }
 
-  await prisma.puzzle.upsert({
-    where: { id: dailyPuzzle.id },
-    update: {
-      difficulty: dailyPuzzle.difficulty,
-      inferenceSteps: dailyPuzzle.inferenceSteps,
-      teamsConfig: toJson(dailyPuzzle.teams),
-      standings: toJson(dailyPuzzle.standings),
-      matchIds: toJson(dailyPuzzle.matches),
-      solution: toJson(dailyPuzzle.solution),
-      dailyDate: toDbDate(dailyDate),
-      campaignOrder: null,
-      isActive: true,
-      isTested: true
-    },
+  if (dailyDate) {
+    const record = await prisma.puzzle.upsert({
+      where: { dailyDate },
+      update: data,
+      create: {
+        id: puzzle.id,
+        ...data
+      },
+      select: {
+        id: true
+      }
+    })
+
+    return record.id
+  }
+
+  const record = await prisma.puzzle.upsert({
+    where: { id: puzzle.id },
+    update: data,
     create: {
-      id: dailyPuzzle.id,
-      difficulty: dailyPuzzle.difficulty,
-      inferenceSteps: dailyPuzzle.inferenceSteps,
-      teamsConfig: toJson(dailyPuzzle.teams),
-      standings: toJson(dailyPuzzle.standings),
-      matchIds: toJson(dailyPuzzle.matches),
-      solution: toJson(dailyPuzzle.solution),
-      dailyDate: toDbDate(dailyDate),
-      campaignOrder: null,
-      isActive: true,
-      isTested: true
+      id: puzzle.id,
+      ...data
+    },
+    select: {
+      id: true
     }
   })
 
+  return record.id
+}
+
+async function seedPuzzles() {
+  const campaignPuzzleDefinitions = await generateCampaignPuzzleDefinitions()
+  const excludedTableSignatures = new Set(
+    campaignPuzzleDefinitions.map((puzzle) => puzzleTableShapeSignature(puzzle))
+  )
+  const dailyPuzzle = await generateDailyPuzzleDefinition({
+    date: isoDateString(),
+    excludedTableSignatures
+  })
+  const dailyDate = dailyPuzzle.dailyDate ?? isoDateString()
+
+  const dailyPuzzleId = await writePuzzle(dailyPuzzle)
+
   for (const puzzle of campaignPuzzleDefinitions) {
-    await prisma.puzzle.upsert({
-      where: { id: puzzle.id },
-      update: {
-        difficulty: puzzle.difficulty,
-        inferenceSteps: puzzle.inferenceSteps,
-        teamsConfig: toJson(puzzle.teams),
-        standings: toJson(puzzle.standings),
-        matchIds: toJson(puzzle.matches),
-        solution: toJson(puzzle.solution),
-        dailyDate: null,
-        campaignOrder: puzzle.campaignOrder,
-        isActive: true,
-        isTested: true
-      },
-      create: {
-        id: puzzle.id,
-        difficulty: puzzle.difficulty,
-        inferenceSteps: puzzle.inferenceSteps,
-        teamsConfig: toJson(puzzle.teams),
-        standings: toJson(puzzle.standings),
-        matchIds: toJson(puzzle.matches),
-        solution: toJson(puzzle.solution),
-        dailyDate: null,
-        campaignOrder: puzzle.campaignOrder,
-        isActive: true,
-        isTested: true
-      }
-    })
+    await writePuzzle(puzzle)
+  }
+
+  return {
+    dailyPuzzleId,
+    dailyDate
   }
 }
 
-async function seedAnonymousUser() {
+async function seedAnonymousUser(dailyPuzzleId: string) {
   await prisma.user.upsert({
     where: { id: SAMPLE_IDS.users.anonymous },
     update: {
@@ -259,7 +131,7 @@ async function seedAnonymousUser() {
     where: {
       userId_puzzleId: {
         userId: SAMPLE_IDS.users.anonymous,
-        puzzleId: SAMPLE_IDS.puzzles.daily
+        puzzleId: dailyPuzzleId
       }
     },
     update: {
@@ -267,16 +139,22 @@ async function seedAnonymousUser() {
       attempts: 0,
       hintsUsed: 0,
       hintTypes: [],
-      currentState: toJson(sampleProgressState)
+      currentState: toJson({
+        ...sampleProgressState,
+        puzzleId: dailyPuzzleId
+      })
     },
     create: {
       userId: SAMPLE_IDS.users.anonymous,
-      puzzleId: SAMPLE_IDS.puzzles.daily,
+      puzzleId: dailyPuzzleId,
       status: PuzzleStatus.IN_PROGRESS,
       attempts: 0,
       hintsUsed: 0,
       hintTypes: [],
-      currentState: toJson(sampleProgressState)
+      currentState: toJson({
+        ...sampleProgressState,
+        puzzleId: dailyPuzzleId
+      })
     }
   })
 
@@ -312,8 +190,8 @@ async function seedAnonymousUser() {
 
 async function main() {
   await seedTeams()
-  await seedPuzzles()
-  await seedAnonymousUser()
+  const { dailyPuzzleId } = await seedPuzzles()
+  await seedAnonymousUser(dailyPuzzleId)
 }
 
 main()

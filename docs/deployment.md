@@ -27,6 +27,7 @@ Opsiyonel ama önerilen:
 - `AUTH_GOOGLE_SECRET`
 - `AUTH_RESEND_KEY`
 - `AUTH_RESEND_FROM`
+- `DAILY_TIME_ZONE`: daily puzzle gün sınırı. Varsayılan `Europe/Istanbul`.
 - `UPSTASH_REDIS_REST_URL`
 - `UPSTASH_REDIS_REST_TOKEN`
 
@@ -88,7 +89,7 @@ Bu akış `.next/standalone/server.js` üzerinden çalışır.
 Repository içinde bulunan [railway.toml](/Users/yavuzselim/Desktop/Cursor/ScoreLogic/railway.toml) dosyası şu davranışları tanımlar:
 
 - build command: `npm run build`
-- pre-deploy command: `npm run db:deploy`
+- pre-deploy command: `npm run db:setup`
 - start command: `npm run start:standalone`
 - healthcheck path: `/api/healthz`
 
@@ -170,7 +171,8 @@ Deploy tamamlandıktan sonra:
 
 - Railway config as code yalnızca deploy anındaki ayarları override eder; dashboard ayarlarını kalıcı olarak değiştirmez. Bu yüzden `railway.toml` repository içinde canonical deploy manifest olarak tutulmalıdır.
 - Next.js standalone output etkin olduğu için Railway start command doğrudan minimal standalone server'ı başlatır.
-- Prisma baseline migration repo içinde tutuluyor ve deploy sırasında `prisma migrate deploy` çalıştırılıyor.
+- Prisma baseline migration repo içinde tutuluyor ve deploy sırasında `db:setup` ile migration ve idempotent seed akışı çalıştırılıyor.
+- Seed akışı 20 kolay, 20 orta ve 20 zor campaign puzzle'ı ile bugünün daily puzzle'ını hazırlar.
 
 ## 6. Referanslar
 

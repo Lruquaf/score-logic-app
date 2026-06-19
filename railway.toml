@@ -3,7 +3,7 @@ builder = "RAILPACK"
 buildCommand = "NODE_ENV=production npm run build"
 
 [deploy]
-preDeployCommand = "NODE_ENV=production npm run db:deploy"
+preDeployCommand = "NODE_ENV=production npm run db:setup"
 startCommand = "NODE_ENV=production npm run start:standalone"
 healthcheckPath = "/api/healthz"
 healthcheckTimeout = 120
