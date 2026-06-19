@@ -1,4 +1,4 @@
-import type { HintType, PuzzleProgressState, ScoreInput } from '@/lib/contracts/progress'
+import type { HintType, MatchNote, PuzzleProgressState, ScoreInput } from '@/lib/contracts/progress'
 
 function dedupe(values: string[]) {
   return [...new Set(values)]
@@ -13,6 +13,7 @@ export function computeCompletedMatchIds(inputs: Record<string, ScoreInput>) {
 export function buildProgressState(params: {
   puzzleId: string
   inputs: Record<string, ScoreInput>
+  notes?: Record<string, MatchNote>
   hintsUsed: number
   hintTypes: HintType[]
   startedAt?: string | null
@@ -27,6 +28,7 @@ export function buildProgressState(params: {
   return {
     puzzleId: params.puzzleId,
     inputs: params.inputs,
+    notes: params.notes ?? {},
     completedMatchIds: dedupe([...(params.completedMatchIds ?? []), ...derivedCompleted]),
     revealedMatchIds: dedupe(params.revealedMatchIds ?? []),
     hintsUsed: params.hintsUsed,
@@ -36,4 +38,3 @@ export function buildProgressState(params: {
     lastSubmittedAt: params.lastSubmittedAt ?? null
   }
 }
-

@@ -116,11 +116,7 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
         visibleErrors={visibleViolations.length}
       />
 
-      <section className="grid items-stretch gap-5 xl:grid-cols-[minmax(520px,1fr)_minmax(420px,0.9fr)]">
-        <div className="flex min-w-0 flex-col gap-5">
-          <FixtureGrid puzzle={puzzle} violations={visibleViolations} className="h-full" />
-        </div>
-
+      <section className="grid items-stretch gap-5 xl:grid-cols-[minmax(420px,0.9fr)_minmax(520px,1fr)]">
         <div className="flex min-w-0 flex-col gap-5">
           <StandingsTable
             puzzle={puzzle}
@@ -128,6 +124,10 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
             highlightTeamId={visibleViolations[0]?.teamId ?? null}
             className="h-full"
           />
+        </div>
+
+        <div className="flex min-w-0 flex-col gap-5">
+          <FixtureGrid puzzle={puzzle} violations={visibleViolations} className="h-full" />
         </div>
       </section>
 

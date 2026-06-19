@@ -62,6 +62,7 @@ export async function POST(
     const currentState = buildProgressState({
       puzzleId,
       inputs: body.inputs,
+      notes: existing?.currentState?.notes ?? {},
       hintsUsed: existing?.hintsUsed ?? 0,
       hintTypes: existing?.hintTypes ?? [],
       startedAt: existing?.currentState?.startedAt ?? null,
@@ -79,6 +80,7 @@ export async function POST(
         currentState: buildProgressState({
           puzzleId,
           inputs: body.inputs,
+          notes: existing.currentState?.notes ?? {},
           hintsUsed: existing.hintsUsed,
           hintTypes: existing.hintTypes,
           startedAt: nowIso,

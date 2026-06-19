@@ -94,6 +94,7 @@ export const sampleProgressState: PuzzleProgressState = {
     m1: { home: 2, away: 2 },
     m2: { home: 0, away: 1 }
   },
+  notes: {},
   completedMatchIds: ['m1', 'm2'],
   revealedMatchIds: [],
   hintsUsed: 0,

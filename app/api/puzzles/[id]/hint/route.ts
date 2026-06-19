@@ -41,6 +41,7 @@ function buildHintCurrentState(
       ...(existingState?.inputs ?? {}),
       ...currentInputs
     },
+    notes: existingState?.notes ?? {},
     hintsUsed,
     hintTypes,
     startedAt: existingState?.startedAt ?? null,

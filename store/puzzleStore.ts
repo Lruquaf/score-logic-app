@@ -3,7 +3,7 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware'
 
-import type { HintType, PuzzleProgressEnvelope, PuzzleProgressState, ScoreInput } from '@/lib/contracts/progress'
+import type { HintType, MatchNote, PuzzleProgressEnvelope, PuzzleProgressState, ScoreInput } from '@/lib/contracts/progress'
 import type { PuzzlePublicDTO } from '@/lib/contracts/puzzle'
 import type { ConstraintViolation } from '@/lib/engine/types'
 import { validatePartialSolution } from '@/lib/engine/validator'
@@ -33,6 +33,7 @@ export interface PuzzleStoreState {
   status: 'IN_PROGRESS' | 'COMPLETED' | 'ABANDONED'
   isReplayMode: boolean
   inputs: Record<string, ScoreInput>
+  notes: Record<string, MatchNote>
   violations: ConstraintViolation[]
   selectedCell: CellState | null
   completedMatchIds: string[]
@@ -55,6 +56,7 @@ export interface PuzzleStoreState {
   selectCell: (cell: CellState | null) => void
   moveSelection: (direction: 'left' | 'right' | 'up' | 'down') => void
   setScoreCell: (cell: CellState, value: number | null) => void
+  setNote: (matchId: string, target: keyof MatchNote, value: string) => void
   inputDigit: (digit: number) => void
   deleteDigit: () => void
   confirmScore: (matchId: string) => void
@@ -100,10 +102,20 @@ function cloneInputs(inputs: Record<string, ScoreInput>) {
   )
 }
 
+function cloneNotes(notes: Record<string, MatchNote>) {
+  return Object.fromEntries(
+    Object.entries(notes).map(([matchId, note]) => [
+      matchId,
+      { home: note.home, match: note.match, away: note.away }
+    ])
+  )
+}
+
 function createEmptyDraft(puzzleId: string, timestamp: string): PersistedPuzzleDraft {
   return {
     puzzleId,
     inputs: {},
+    notes: {},
     completedMatchIds: [],
     revealedMatchIds: [],
     hintsUsed: 0,
@@ -125,6 +137,7 @@ function draftFromProgress(
     return {
       ...progress.currentState,
       inputs: cloneInputs(progress.currentState.inputs),
+      notes: cloneNotes(progress.currentState.notes ?? {}),
       completedMatchIds: [...progress.currentState.completedMatchIds],
       revealedMatchIds: [...progress.currentState.revealedMatchIds],
       hintTypes: [...progress.currentState.hintTypes]
@@ -220,6 +233,7 @@ function buildDraftFromRuntime(state: Pick<
   PuzzleStoreState,
   | 'puzzle'
   | 'inputs'
+  | 'notes'
   | 'hintsUsed'
   | 'hintTypes'
   | 'startedAt'
@@ -233,6 +247,7 @@ function buildDraftFromRuntime(state: Pick<
   return buildProgressState({
     puzzleId: state.puzzle.id,
     inputs: cloneInputs(state.inputs),
+    notes: cloneNotes(state.notes),
     hintsUsed: state.hintsUsed,
     hintTypes: [...state.hintTypes],
     startedAt: state.startedAt,
@@ -247,6 +262,7 @@ export function selectCurrentProgressState(state: Pick<
   PuzzleStoreState,
   | 'puzzle'
   | 'inputs'
+  | 'notes'
   | 'hintsUsed'
   | 'hintTypes'
   | 'startedAt'
@@ -265,6 +281,7 @@ function createInitialPuzzleData() {
     status: 'IN_PROGRESS' as const,
     isReplayMode: false,
     inputs: {},
+    notes: {},
     violations: [],
     selectedCell: null,
     completedMatchIds: [],
@@ -304,6 +321,7 @@ export function createPuzzleStore() {
             const nextDraft = {
               ...preferredDraft,
               inputs: cloneInputs(preferredDraft.inputs),
+              notes: cloneNotes(preferredDraft.notes ?? {}),
               completedMatchIds: [...preferredDraft.completedMatchIds],
               revealedMatchIds: [...preferredDraft.revealedMatchIds],
               hintTypes: [...preferredDraft.hintTypes]
@@ -317,6 +335,7 @@ export function createPuzzleStore() {
               status: nextStatus,
               isReplayMode: false,
               inputs: nextDraft.inputs,
+              notes: nextDraft.notes,
               violations: getViolations(puzzle, nextDraft.inputs),
               selectedCell: nextStatus === 'COMPLETED' ? null : findNextCell(puzzle, nextDraft.completedMatchIds),
               completedMatchIds: nextDraft.completedMatchIds,
@@ -351,6 +370,43 @@ export function createPuzzleStore() {
               selectedCell: moveCellSelection(state.puzzle, state.selectedCell, direction)
             }
           }),
+        setNote: (matchId, target, value) =>
+          set((state) => {
+            const { puzzle, status, isReplayMode } = state
+            if (!puzzle || (status === 'COMPLETED' && !isReplayMode)) {
+              return state
+            }
+
+            const timestamp = new Date().toISOString()
+            const nextNotes = cloneNotes(state.notes)
+            const currentNote = nextNotes[matchId] ?? { home: '', match: '', away: '' }
+            currentNote[target] = value.slice(0, target === 'match' ? 180 : 120)
+            nextNotes[matchId] = currentNote
+            const nextDraft = buildProgressState({
+              puzzleId: puzzle.id,
+              inputs: cloneInputs(state.inputs),
+              notes: nextNotes,
+              hintsUsed: state.hintsUsed,
+              hintTypes: [...state.hintTypes],
+              startedAt: state.startedAt,
+              updatedAt: timestamp,
+              lastSubmittedAt: state.lastSubmittedAt,
+              revealedMatchIds: [...state.revealedMatchIds],
+              completedMatchIds: [...state.completedMatchIds]
+            })
+
+            return {
+              ...state,
+              notes: nextNotes,
+              updatedAt: nextDraft.updatedAt,
+              saveState: 'idle',
+              saveError: null,
+              drafts: {
+                ...state.drafts,
+                ...(isReplayMode ? {} : { [puzzle.id]: nextDraft })
+              }
+            }
+          }),
         setScoreCell: (cell, value) =>
           set((state) => {
             const { puzzle, revealedMatchIds, status, isReplayMode } = state
@@ -368,6 +424,7 @@ export function createPuzzleStore() {
             const nextDraft = buildProgressState({
               puzzleId: puzzle.id,
               inputs: nextInputs,
+              notes: cloneNotes(state.notes),
               hintsUsed: state.hintsUsed,
               hintTypes: [...state.hintTypes],
               startedAt: state.startedAt,
@@ -382,6 +439,7 @@ export function createPuzzleStore() {
               phase: 'ACTIVE',
               selectedCell: cell,
               inputs: nextInputs,
+              notes: state.notes,
               violations: getViolations(puzzle, nextInputs),
               completedMatchIds: nextDraft.completedMatchIds,
               updatedAt: nextDraft.updatedAt,
@@ -423,6 +481,7 @@ export function createPuzzleStore() {
             const nextDraft = buildProgressState({
               puzzleId: puzzle.id,
               inputs: nextInputs,
+              notes: cloneNotes(state.notes),
               hintsUsed: state.hintsUsed,
               hintTypes: [...state.hintTypes],
               startedAt: state.startedAt,
@@ -436,6 +495,7 @@ export function createPuzzleStore() {
               ...state,
               phase: 'ACTIVE',
               inputs: nextInputs,
+              notes: state.notes,
               violations: getViolations(puzzle, nextInputs),
               completedMatchIds: nextDraft.completedMatchIds,
               updatedAt: nextDraft.updatedAt,
@@ -478,6 +538,7 @@ export function createPuzzleStore() {
             const nextDraft = buildProgressState({
               puzzleId: puzzle.id,
               inputs: nextInputs,
+              notes: cloneNotes(state.notes),
               hintsUsed: state.hintsUsed,
               hintTypes: [...state.hintTypes],
               startedAt: state.startedAt,
@@ -491,6 +552,7 @@ export function createPuzzleStore() {
               ...state,
               phase: 'ACTIVE',
               inputs: nextInputs,
+              notes: state.notes,
               violations: getViolations(puzzle, nextInputs),
               completedMatchIds: nextDraft.completedMatchIds,
               updatedAt: nextDraft.updatedAt,
@@ -521,6 +583,7 @@ export function createPuzzleStore() {
             const nextDraft = buildProgressState({
               puzzleId: puzzle.id,
               inputs: cloneInputs(state.inputs),
+              notes: cloneNotes(state.notes),
               hintsUsed: state.hintsUsed,
               hintTypes: [...state.hintTypes],
               startedAt: state.startedAt,
@@ -561,6 +624,7 @@ export function createPuzzleStore() {
             const nextDraft = buildProgressState({
               puzzleId: puzzle.id,
               inputs: nextInputs,
+              notes: cloneNotes(state.notes),
               hintsUsed: patch.hintsUsed,
               hintTypes: [...patch.hintTypes],
               startedAt: state.startedAt,
@@ -574,6 +638,7 @@ export function createPuzzleStore() {
               ...state,
               phase: 'HINT_SHOWN',
               inputs: nextInputs,
+              notes: state.notes,
               violations: getViolations(puzzle, nextInputs),
               completedMatchIds: nextDraft.completedMatchIds,
               revealedMatchIds: nextDraft.revealedMatchIds,
@@ -609,6 +674,7 @@ export function createPuzzleStore() {
               status: progress.status,
               isReplayMode: false,
               inputs: cloneInputs(nextDraft.inputs),
+              notes: cloneNotes(nextDraft.notes ?? {}),
               violations: getViolations(state.puzzle, nextDraft.inputs),
               selectedCell:
                 progress.status === 'COMPLETED'
@@ -649,6 +715,7 @@ export function createPuzzleStore() {
               status: result.progress.status,
               isReplayMode: state.isReplayMode && !result.isCorrect,
               inputs: cloneInputs(nextDraft.inputs),
+              notes: cloneNotes(nextDraft.notes ?? {}),
               violations: result.isCorrect ? [] : result.violations,
               selectedCell: result.isCorrect ? null : state.selectedCell,
               completedMatchIds: [...nextDraft.completedMatchIds],
@@ -686,6 +753,7 @@ export function createPuzzleStore() {
               status: isCompletedReplay ? 'COMPLETED' : 'IN_PROGRESS',
               isReplayMode: isCompletedReplay,
               inputs: {},
+              notes: {},
               violations: [],
               selectedCell: findNextCell(state.puzzle, []),
               completedMatchIds: [],

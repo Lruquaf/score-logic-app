@@ -9,9 +9,16 @@ export interface ScoreInput {
   away: number | null
 }
 
+export interface MatchNote {
+  home: string
+  match: string
+  away: string
+}
+
 export interface PuzzleProgressState {
   puzzleId: string
   inputs: Record<string, ScoreInput>
+  notes: Record<string, MatchNote>
   completedMatchIds: string[]
   revealedMatchIds: string[]
   hintsUsed: number
@@ -31,4 +38,3 @@ export interface PuzzleProgressEnvelope {
   completedAt: string | null
   currentState: PuzzleProgressState | null
 }
-

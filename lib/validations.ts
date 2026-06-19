@@ -67,9 +67,16 @@ export const scoreInputSchema = z.object({
   away: z.number().int().min(0).max(20).nullable()
 })
 
+export const matchNoteSchema = z.object({
+  home: z.string().max(120),
+  match: z.string().max(180),
+  away: z.string().max(120)
+})
+
 export const puzzleProgressStateSchema = z.object({
   puzzleId: puzzleIdSchema,
   inputs: z.record(scoreInputSchema),
+  notes: z.record(matchNoteSchema).default({}),
   completedMatchIds: z.array(matchIdSchema),
   revealedMatchIds: z.array(matchIdSchema),
   hintsUsed: z.number().int().min(0),
@@ -113,4 +120,3 @@ export const hintRequestSchema = z.object({
     })
   )
 })
-
