@@ -9,6 +9,7 @@
     "local:down": "node scripts/local-down.mjs",
     "local:status": "node scripts/local-status.mjs",
     "build": "next build",
+    "postbuild": "node scripts/prepare-standalone.mjs",
     "start": "next start",
     "start:local": "next start --hostname 127.0.0.1 --port 3007",
     "start:standalone": "node scripts/start-standalone.mjs",
