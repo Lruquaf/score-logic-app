@@ -8,6 +8,7 @@
     "local:up": "node scripts/local-up.mjs",
     "local:down": "node scripts/local-down.mjs",
     "local:status": "node scripts/local-status.mjs",
+    "prebuild": "node scripts/guard-build.mjs",
     "build": "next build",
     "postbuild": "node scripts/prepare-standalone.mjs",
     "start": "next start",

@@ -29,14 +29,14 @@ export function ScoreCell({
   const isSelected = selectedCell?.matchId === matchId && selectedCell.side === side
 
   const tone = hasError
-    ? 'border-[var(--danger)] bg-[var(--danger-soft)] text-[var(--danger)]'
+    ? 'border-[var(--danger)] bg-[var(--danger-soft)] text-[var(--danger)] shadow-[inset_0_0_0_1px_rgba(183,67,63,0.10)]'
     : isRevealed
-      ? 'border-[var(--blue)] bg-[var(--blue-soft)] text-[var(--ink)]'
+      ? 'border-[var(--blue)] bg-[var(--blue-soft)] text-[var(--ink)] shadow-[inset_0_0_0_1px_rgba(49,95,141,0.10)]'
       : isCompleted
-        ? 'border-[var(--field)] bg-[var(--field-soft)] text-[var(--ink)]'
+        ? 'border-[var(--field-line)] bg-[var(--field-soft)] text-[var(--field-deep)] shadow-[inset_0_0_0_1px_rgba(57,209,123,0.12)]'
         : isSelected
           ? 'border-[var(--field)] bg-white text-[var(--ink)]'
-          : 'border-[var(--line)] bg-white text-[var(--muted)]'
+          : 'border-[var(--line)] bg-white/86 text-[var(--muted)]'
 
   return (
     <motion.input
@@ -45,8 +45,8 @@ export function ScoreCell({
       max={19}
       inputMode="numeric"
       value={value ?? ''}
-      className={`h-11 w-14 rounded-[var(--radius-sm)] border text-center font-mono text-xl font-semibold outline-none transition [appearance:textfield] placeholder:text-[var(--faint)] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none ${tone} ${
-        isSelected ? 'shadow-[0_0_0_3px_var(--light-glow)]' : ''
+      className={`h-11 w-14 rounded-[var(--radius-sm)] border text-center font-mono text-xl font-bold outline-none transition [appearance:textfield] placeholder:text-[var(--faint)] focus:ring-0 max-sm:h-10 max-sm:w-[52px] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none ${tone} ${
+        isSelected ? 'shadow-[0_0_0_3px_var(--light-glow),0_0_18px_rgba(57,209,123,0.16)]' : ''
       }`}
       placeholder="-"
       onFocus={() => selectCell({ matchId, side })}

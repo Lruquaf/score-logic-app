@@ -116,9 +116,9 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
         visibleErrors={visibleViolations.length}
       />
 
-      <section className="grid gap-5 xl:grid-cols-[minmax(520px,1fr)_minmax(420px,0.9fr)]">
+      <section className="grid items-stretch gap-5 xl:grid-cols-[minmax(520px,1fr)_minmax(420px,0.9fr)]">
         <div className="flex min-w-0 flex-col gap-5">
-          <FixtureGrid puzzle={puzzle} violations={visibleViolations} />
+          <FixtureGrid puzzle={puzzle} violations={visibleViolations} className="h-full" />
         </div>
 
         <div className="flex min-w-0 flex-col gap-5">
@@ -126,78 +126,79 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
             puzzle={puzzle}
             violationTeamIds={violationTeamIds}
             highlightTeamId={visibleViolations[0]?.teamId ?? null}
+            className="h-full"
           />
-
-          {(saveError || submitError || hintError || lastHintMessage || phase === 'FAILED' || phase === 'SOLVED') && (
-            <section className="panel px-5 py-5">
-              <div className="space-y-3">
-                {phase === 'FAILED' ? (
-                  <div className="rounded-[var(--radius-lg)] border border-[var(--danger)]/25 bg-[var(--danger-soft)] px-3 py-3 text-sm text-[var(--danger)]">
-                    <div className="font-bold">Some scores do not fit the table yet.</div>
-                    <p className="mt-1 text-[var(--ink-soft)]">Check the highlighted teams and adjust the scorelines.</p>
-                  </div>
-                ) : null}
-                {saveError ? (
-                  <div className="rounded-[var(--radius-lg)] border border-[var(--danger)]/25 bg-[var(--danger-soft)] px-3 py-3 text-sm text-[var(--danger)]">
-                    We could not save your progress. Your local board is still safe.
-                  </div>
-                ) : null}
-                {submitError ? (
-                  <div className="rounded-[var(--radius-lg)] border border-[var(--danger)]/25 bg-[var(--danger-soft)] px-3 py-3 text-sm text-[var(--danger)]">
-                    {submitError}
-                  </div>
-                ) : null}
-                {hintError ? (
-                  <div className="rounded-[var(--radius-lg)] border border-[var(--danger)]/25 bg-[var(--danger-soft)] px-3 py-3 text-sm text-[var(--danger)]">
-                    {hintError}
-                  </div>
-                ) : null}
-                {lastHintMessage ? (
-                  <div className="rounded-[var(--radius-lg)] border border-[var(--blue)]/25 bg-[var(--blue-soft)] px-3 py-3 text-sm text-[var(--ink)]">
-                    <span className="font-bold">Hint:</span> {lastHintMessage}
-                  </div>
-                ) : null}
-                {phase === 'SOLVED' ? (
-                  <div className="rounded-[var(--radius-lg)] border border-[var(--success)]/25 bg-[var(--success-soft)] px-3 py-3 text-sm text-[var(--ink)]">
-                    <div className="font-bold">Solved.</div>
-                    <p className="mt-1 text-[var(--ink-soft)]">Every score fits the final table.</p>
-                  </div>
-                ) : null}
-              </div>
-
-              {visibleViolations.length > 0 ? (
-                <ul className="mt-3 space-y-2" aria-live="assertive">
-                  {visibleViolations.slice(0, 4).map((violation, index) => (
-                    <li
-                      key={`${violation.teamId}-${violation.type}-${index}`}
-                      className="rounded-[var(--radius-lg)] border border-[var(--danger)]/20 bg-[var(--danger-soft)] px-3 py-3 text-sm font-semibold text-[var(--danger)]"
-                      role="alert"
-                      data-testid="constraint-error"
-                    >
-                      {friendlyViolationMessage(
-                        violation.message,
-                        teamCodeMap.get(violation.teamId) ?? 'Team'
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-
-              <button
-                type="button"
-                className="btn-secondary mt-5 w-full"
-                onClick={() => {
-                  resetCurrentPuzzle()
-                  setPhase('ACTIVE')
-                  setIsVictoryOpen(false)
-                }}
-              >
-                Reset Board
-              </button>
-            </section>
-          )}
         </div>
       </section>
+
+      {(saveError || submitError || hintError || lastHintMessage || phase === 'FAILED' || phase === 'SOLVED') && (
+        <section className="panel px-5 py-5">
+          <div className="space-y-3">
+            {phase === 'FAILED' ? (
+              <div className="rounded-[var(--radius-lg)] border border-[var(--danger)]/25 bg-[var(--danger-soft)] px-3 py-3 text-sm text-[var(--danger)]">
+                <div className="font-bold">Some scores do not fit the table yet.</div>
+                <p className="mt-1 text-[var(--ink-soft)]">Check the highlighted teams and adjust the scorelines.</p>
+              </div>
+            ) : null}
+            {saveError ? (
+              <div className="rounded-[var(--radius-lg)] border border-[var(--danger)]/25 bg-[var(--danger-soft)] px-3 py-3 text-sm text-[var(--danger)]">
+                We could not save your progress. Your local board is still safe.
+              </div>
+            ) : null}
+            {submitError ? (
+              <div className="rounded-[var(--radius-lg)] border border-[var(--danger)]/25 bg-[var(--danger-soft)] px-3 py-3 text-sm text-[var(--danger)]">
+                {submitError}
+              </div>
+            ) : null}
+            {hintError ? (
+              <div className="rounded-[var(--radius-lg)] border border-[var(--danger)]/25 bg-[var(--danger-soft)] px-3 py-3 text-sm text-[var(--danger)]">
+                {hintError}
+              </div>
+            ) : null}
+            {lastHintMessage ? (
+              <div className="rounded-[var(--radius-lg)] border border-[var(--blue)]/25 bg-[var(--blue-soft)] px-3 py-3 text-sm text-[var(--ink)]">
+                <span className="font-bold">Hint:</span> {lastHintMessage}
+              </div>
+            ) : null}
+            {phase === 'SOLVED' ? (
+              <div className="rounded-[var(--radius-lg)] border border-[var(--success)]/25 bg-[var(--success-soft)] px-3 py-3 text-sm text-[var(--ink)]">
+                <div className="font-bold">Solved.</div>
+                <p className="mt-1 text-[var(--ink-soft)]">Every score fits the final table.</p>
+              </div>
+            ) : null}
+          </div>
+
+          {visibleViolations.length > 0 ? (
+            <ul className="mt-3 space-y-2" aria-live="assertive">
+              {visibleViolations.slice(0, 4).map((violation, index) => (
+                <li
+                  key={`${violation.teamId}-${violation.type}-${index}`}
+                  className="rounded-[var(--radius-lg)] border border-[var(--danger)]/20 bg-[var(--danger-soft)] px-3 py-3 text-sm font-semibold text-[var(--danger)]"
+                  role="alert"
+                  data-testid="constraint-error"
+                >
+                  {friendlyViolationMessage(
+                    violation.message,
+                    teamCodeMap.get(violation.teamId) ?? 'Team'
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          <button
+            type="button"
+            className="btn-secondary mt-5 w-full"
+            onClick={() => {
+              resetCurrentPuzzle()
+              setPhase('ACTIVE')
+              setIsVictoryOpen(false)
+            }}
+          >
+            Reset Board
+          </button>
+        </section>
+      )}
 
       <HintModal
         isOpen={isHintOpen}

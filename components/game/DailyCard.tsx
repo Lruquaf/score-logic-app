@@ -64,9 +64,6 @@ export function DailyCard() {
           >
             {isCompleted ? 'Review Today' : completedMatches > 0 ? 'Continue Today' : 'Play Today'}
           </Link>
-          <div className="rounded-[var(--radius-md)] border border-[var(--line)] px-4 py-3 text-xs font-semibold text-[var(--muted)]">
-            Steps <span className="font-mono text-[var(--ink)]">{puzzle.inferenceSteps}</span>
-          </div>
         </div>
       </div>
     </section>

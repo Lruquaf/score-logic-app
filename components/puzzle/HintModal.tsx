@@ -75,7 +75,7 @@ export function HintModal({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="rounded-[var(--radius-md)] border border-[var(--line)] px-3 py-2 text-xs font-bold text-[var(--muted)] transition hover:bg-[var(--paper-soft)]"
+                  className="btn-secondary min-h-9 px-3 py-2 text-xs"
                 >
                   Close
                 </button>
@@ -92,7 +92,7 @@ export function HintModal({
                   type="button"
                   onClick={() => onRequestHint(option.type)}
                   disabled={isPending}
-                  className={`rounded-[var(--radius-lg)] border px-4 py-5 text-left transition disabled:cursor-wait disabled:opacity-60 ${option.accent}`}
+                  className={`rounded-[var(--radius-lg)] border px-4 py-5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.66)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_26px_rgba(31,85,53,0.10)] disabled:cursor-wait disabled:opacity-60 disabled:hover:translate-y-0 ${option.accent}`}
                 >
                   <div className="text-lg font-bold text-[var(--ink)]">{option.title}</div>
                   <p className="mt-2 text-sm font-semibold text-[var(--muted)]">{option.description}</p>

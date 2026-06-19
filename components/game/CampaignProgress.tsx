@@ -77,7 +77,7 @@ export function CampaignProgress() {
             return (
               <div
                 key={difficulty}
-                className="rounded-[var(--radius-sm)] border border-[var(--line)] bg-white px-4 py-4"
+                className="panel rounded-[var(--radius-sm)] px-4 py-4"
               >
                 <div className="flex items-baseline justify-between gap-3">
                   <h3 className="font-[var(--font-display)] text-2xl font-semibold text-[var(--ink)]">

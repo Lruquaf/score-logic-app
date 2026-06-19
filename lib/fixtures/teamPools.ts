@@ -96,7 +96,7 @@ export const TEAM_POOLS: Record<TeamPoolKey, TeamDTO[]> = {
     team('fictional', 'BLA', 'Blackstone Athletic'),
     team('fictional', 'GLA', 'Glacier United'),
     team('fictional', 'SOL', 'Solstice FC'),
-    team('fictional', 'NOVA', 'Nova Rangers'),
+    team('fictional', 'NOV', 'Nova Rangers'),
     team('fictional', 'AST', 'Astral Town'),
     team('fictional', 'FRO', 'Frostvale'),
     team('fictional', 'CRN', 'Crownwell'),

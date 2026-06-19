@@ -30,7 +30,7 @@ export function NumPad() {
           <motion.button
             key={digit}
             type="button"
-            className="rounded-[var(--radius-md)] border border-[var(--line)] bg-white px-4 py-3 text-base font-semibold text-[var(--ink)] transition hover:border-[var(--field)] hover:bg-[var(--field-soft)]"
+            className="rounded-[var(--radius-md)] border border-[rgba(31,85,53,0.28)] bg-white/88 px-4 py-3 font-mono text-base font-bold text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] transition hover:border-[rgba(47,111,69,0.46)] hover:bg-[var(--field-soft)] hover:text-[var(--field-deep)]"
             onClick={() => inputDigit(digit)}
             whileTap={{ scale: 0.95 }}
             aria-label={`Enter ${digit}`}
@@ -40,7 +40,7 @@ export function NumPad() {
         ))}
         <motion.button
           type="button"
-          className="rounded-[var(--radius-md)] border border-[var(--line)] bg-white px-4 py-3 text-base font-semibold text-[var(--ink)] transition hover:border-[var(--field)] hover:bg-[var(--field-soft)]"
+          className="rounded-[var(--radius-md)] border border-[rgba(31,85,53,0.28)] bg-white/88 px-4 py-3 font-mono text-base font-bold text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] transition hover:border-[rgba(47,111,69,0.46)] hover:bg-[var(--field-soft)] hover:text-[var(--field-deep)]"
           onClick={() => inputDigit(0)}
           whileTap={{ scale: 0.95 }}
           aria-label="Enter 0"
@@ -49,7 +49,7 @@ export function NumPad() {
         </motion.button>
         <motion.button
           type="button"
-          className="col-span-2 rounded-[var(--radius-md)] border border-[var(--line)] bg-white px-4 py-3 text-sm font-semibold text-[var(--muted)] transition hover:border-[var(--danger)]/40 hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]"
+          className="col-span-2 rounded-[var(--radius-md)] border border-[rgba(31,85,53,0.24)] bg-white/88 px-4 py-3 text-sm font-bold text-[var(--muted)] shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] transition hover:border-[var(--danger)]/40 hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]"
           onClick={() => deleteDigit()}
           whileTap={{ scale: 0.98 }}
           aria-label="Delete last digit"
@@ -58,17 +58,17 @@ export function NumPad() {
         </motion.button>
         <motion.button
           type="button"
-          className={`col-span-3 rounded-[var(--radius-md)] px-4 py-3 text-sm font-semibold transition ${
+          className={`col-span-3 px-4 py-3 text-sm ${
             canConfirm
-              ? 'bg-[var(--field)] text-white hover:bg-[var(--field-deep)]'
-              : 'cursor-not-allowed border border-[var(--line)] bg-[var(--paper-soft)] text-[var(--faint)]'
+              ? 'btn-primary'
+              : 'rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface-warm)] font-bold text-[var(--faint)]'
           }`}
           onClick={() => selectedCell && canConfirm && confirmScore(selectedCell.matchId)}
           disabled={!canConfirm}
           whileTap={canConfirm ? { scale: 0.98 } : undefined}
-          aria-label="Confirm current score"
+          aria-label="Move to next fixture"
         >
-          Lock score
+          Next fixture
         </motion.button>
       </div>
     </div>
