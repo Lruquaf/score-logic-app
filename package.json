@@ -24,7 +24,7 @@
     "db:deploy": "prisma migrate deploy",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
-    "db:setup": "npm run db:deploy && npm run db:seed",
+    "db:setup": "node scripts/db-setup.mjs",
     "db:seed": "tsx prisma/seed.ts"
   },
   "prisma": {
