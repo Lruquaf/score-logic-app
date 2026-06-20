@@ -14,32 +14,6 @@ interface HintModalProps {
   hintsUsed: number
 }
 
-const hintOptions: Array<{
-  type: HintType
-  title: string
-  description: string
-  accent: string
-}> = [
-  {
-    type: 'direction',
-    title: 'Direction',
-    description: 'A small nudge.',
-    accent: 'border-[var(--blue)]/25 bg-[var(--blue-soft)]'
-  },
-  {
-    type: 'team_focus',
-    title: 'Team',
-    description: 'Focus one team.',
-    accent: 'border-[var(--warning)]/35 bg-[var(--warning-soft)]'
-  },
-  {
-    type: 'reveal',
-    title: 'Reveal',
-    description: 'Show one score.',
-    accent: 'border-[var(--success)]/25 bg-[var(--success-soft)]'
-  }
-]
-
 export function HintModal({
   isOpen,
   onClose,
@@ -85,19 +59,18 @@ export function HintModal({
               </p>
             </div>
 
-            <div className="grid gap-4 px-5 py-5 md:grid-cols-3">
-              {hintOptions.map((option) => (
-                <button
-                  key={option.type}
-                  type="button"
-                  onClick={() => onRequestHint(option.type)}
-                  disabled={isPending}
-                  className={`rounded-[var(--radius-lg)] border px-4 py-5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.66)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_26px_rgba(31,85,53,0.10)] disabled:cursor-wait disabled:opacity-60 disabled:hover:translate-y-0 ${option.accent}`}
-                >
-                  <div className="text-lg font-bold text-[var(--ink)]">{option.title}</div>
-                  <p className="mt-2 text-sm font-semibold text-[var(--muted)]">{option.description}</p>
-                </button>
-              ))}
+            <div className="px-5 py-5">
+              <button
+                type="button"
+                onClick={() => onRequestHint('reveal')}
+                disabled={isPending}
+                className="w-full rounded-[var(--radius-lg)] border border-[var(--success)]/25 bg-[var(--success-soft)] px-4 py-5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.66)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_26px_rgba(31,85,53,0.10)] disabled:cursor-wait disabled:opacity-60 disabled:hover:translate-y-0"
+              >
+                <div className="text-lg font-bold text-[var(--ink)]">Reveal score cell</div>
+                <p className="mt-2 text-sm font-semibold text-[var(--muted)]">
+                  Opens one home or away score cell and locks that cell.
+                </p>
+              </button>
             </div>
 
             <div className="space-y-3 px-5 pb-5">

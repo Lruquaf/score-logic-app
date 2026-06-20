@@ -43,6 +43,7 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
   } = useDailyPuzzle({ puzzleId })
   const inputs = usePuzzleStore((state) => state.inputs)
   const revealedMatchIds = usePuzzleStore((state) => state.revealedMatchIds)
+  const revealedCells = usePuzzleStore((state) => state.revealedCells)
   const setPhase = usePuzzleStore((state) => state.setPhase)
   const resetCurrentPuzzle = usePuzzleStore((state) => state.resetCurrentPuzzle)
   const stats = useUserStore((state) => state.stats)
@@ -229,6 +230,7 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
         hintsUsed={hintsUsed}
         inputs={inputs}
         revealedMatchIds={revealedMatchIds}
+        revealedCells={revealedCells}
       />
     </main>
   )

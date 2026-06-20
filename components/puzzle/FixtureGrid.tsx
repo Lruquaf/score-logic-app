@@ -15,9 +15,28 @@ interface FixtureGridProps {
   className?: string
 }
 
+type MatchStatus = 'Check' | 'Hinted' | 'Entered' | 'Open'
+
+function statusBadgeClass(status: MatchStatus) {
+  const base =
+    'h-5 rounded-full border px-1.5 text-center font-mono text-[9px] font-bold uppercase leading-[18px] tracking-[0.08em]'
+
+  switch (status) {
+    case 'Check':
+      return `${base} border-[var(--danger)]/30 bg-[var(--danger-soft)] text-[var(--danger)]`
+    case 'Hinted':
+      return `${base} border-[var(--blue)]/28 bg-[var(--blue-soft)] text-[var(--blue)]`
+    case 'Entered':
+      return `${base} border-[var(--field-line)] bg-[var(--field-soft)] text-[var(--field-deep)]`
+    case 'Open':
+      return `${base} border-[var(--line)] bg-white/58 text-[var(--muted)]`
+  }
+}
+
 export function FixtureGrid({ puzzle, violations, className = '' }: FixtureGridProps) {
   const completedMatchIds = usePuzzleStore((state) => state.completedMatchIds)
   const revealedMatchIds = usePuzzleStore((state) => state.revealedMatchIds)
+  const revealedCells = usePuzzleStore((state) => state.revealedCells)
   const selectedCell = usePuzzleStore((state) => state.selectedCell)
   const notes = usePuzzleStore((state) => state.notes)
   const setNote = usePuzzleStore((state) => state.setNote)
@@ -46,12 +65,16 @@ export function FixtureGrid({ puzzle, violations, className = '' }: FixtureGridP
           const away = teamMap.get(match.awayTeamId)
           const isSelected = selectedCell?.matchId === match.id
           const isCompleted = completedMatchIds.includes(match.id)
-          const isRevealed = revealedMatchIds.includes(match.id)
+          const isHomeRevealed = revealedMatchIds.includes(match.id) ||
+            revealedCells.some((cell) => cell.matchId === match.id && cell.side === 'home')
+          const isAwayRevealed = revealedMatchIds.includes(match.id) ||
+            revealedCells.some((cell) => cell.matchId === match.id && cell.side === 'away')
+          const isRevealed = isHomeRevealed || isAwayRevealed
           const matchNotes = notes[match.id] ?? { home: '', match: '', away: '' }
           const matchViolations = violations.filter(
             (violation) => violation.teamId === match.homeTeamId || violation.teamId === match.awayTeamId
           )
-          const status = matchViolations.length > 0
+          const status: MatchStatus = matchViolations.length > 0
             ? 'Check'
             : isRevealed
               ? 'Hinted'
@@ -66,7 +89,7 @@ export function FixtureGrid({ puzzle, violations, className = '' }: FixtureGridP
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: puzzle.matches.indexOf(match) * 0.05, duration: 0.2 }}
-              className={`rounded-[var(--radius-md)] border px-3 py-2.5 transition ${
+              className={`relative rounded-[var(--radius-md)] border px-3 py-2.5 transition ${
                 isSelected
                   ? 'border-[var(--field)] bg-[var(--field-soft)] shadow-[inset_0_0_0_1px_rgba(57,209,123,0.22),0_0_22px_rgba(57,209,123,0.10)]'
                   : matchViolations.length > 0
@@ -89,7 +112,7 @@ export function FixtureGrid({ puzzle, violations, className = '' }: FixtureGridP
                     matchId={match.id}
                     side="home"
                     isCompleted={completedMatchIds.includes(match.id)}
-                    isRevealed={revealedMatchIds.includes(match.id)}
+                    isRevealed={isHomeRevealed}
                     hasError={matchViolations.length > 0}
                     ariaLabel={`${home?.nameEn ?? home?.code ?? match.homeTeamId} home score against ${away?.nameEn ?? away?.code ?? match.awayTeamId}`}
                   />
@@ -98,7 +121,7 @@ export function FixtureGrid({ puzzle, violations, className = '' }: FixtureGridP
                     matchId={match.id}
                     side="away"
                     isCompleted={completedMatchIds.includes(match.id)}
-                    isRevealed={revealedMatchIds.includes(match.id)}
+                    isRevealed={isAwayRevealed}
                     hasError={matchViolations.length > 0}
                     ariaLabel={`${away?.nameEn ?? away?.code ?? match.awayTeamId} away score against ${home?.nameEn ?? home?.code ?? match.homeTeamId}`}
                   />
@@ -110,15 +133,7 @@ export function FixtureGrid({ puzzle, violations, className = '' }: FixtureGridP
                     <div className="truncate text-xs text-[var(--muted)]">{away?.nameEn}</div>
                   </div>
 
-                  <div
-                    className={`rounded-[var(--radius-sm)] border px-2 py-1 text-center font-mono text-[10px] font-bold uppercase max-sm:hidden ${
-                      matchViolations.length > 0
-                        ? 'border-[var(--danger)]/25 bg-white/70 text-[var(--danger)]'
-                        : isCompleted
-                          ? 'border-[var(--field-line)] bg-white/70 text-[var(--field-deep)]'
-                          : 'border-[var(--line)] bg-white/62 text-[var(--muted)]'
-                    }`}
-                  >
+                  <div className={`${statusBadgeClass(status)} justify-self-end max-sm:hidden`}>
                     {status}
                   </div>
                 </div>

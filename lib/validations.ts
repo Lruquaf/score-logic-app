@@ -12,6 +12,12 @@ export const difficultySchema = z.enum(DIFFICULTY_VALUES)
 export const puzzleModeSchema = z.enum(PUZZLE_MODE_VALUES)
 export const hintTypeSchema = z.enum(HINT_TYPE_VALUES)
 export const puzzleProgressStatusSchema = z.enum(PUZZLE_PROGRESS_STATUS_VALUES)
+const hintTypesSchema = z.array(z.string()).default([]).transform((values) =>
+  values.flatMap((value) => {
+    const result = hintTypeSchema.safeParse(value)
+    return result.success ? [result.data] : []
+  })
+)
 
 export const teamSchema = z.object({
   id: teamIdSchema,
@@ -73,14 +79,20 @@ export const matchNoteSchema = z.object({
   away: z.string().max(120)
 })
 
+export const revealedScoreCellSchema = z.object({
+  matchId: matchIdSchema,
+  side: z.enum(['home', 'away'])
+})
+
 export const puzzleProgressStateSchema = z.object({
   puzzleId: puzzleIdSchema,
   inputs: z.record(scoreInputSchema),
   notes: z.record(matchNoteSchema).default({}),
   completedMatchIds: z.array(matchIdSchema),
-  revealedMatchIds: z.array(matchIdSchema),
+  revealedMatchIds: z.array(matchIdSchema).default([]),
+  revealedCells: z.array(revealedScoreCellSchema).default([]),
   hintsUsed: z.number().int().min(0),
-  hintTypes: z.array(hintTypeSchema),
+  hintTypes: hintTypesSchema,
   startedAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   lastSubmittedAt: z.string().datetime().nullable()
@@ -91,7 +103,7 @@ export const puzzleProgressEnvelopeSchema = z.object({
   status: puzzleProgressStatusSchema,
   attempts: z.number().int().min(0),
   hintsUsed: z.number().int().min(0),
-  hintTypes: z.array(hintTypeSchema),
+  hintTypes: hintTypesSchema,
   timeTakenSec: z.number().int().min(0).max(7200).nullable(),
   completedAt: z.string().datetime().nullable(),
   currentState: puzzleProgressStateSchema.nullable()
@@ -113,10 +125,5 @@ export const submitPuzzleSchema = z.object({
 
 export const hintRequestSchema = z.object({
   hintType: hintTypeSchema,
-  currentInputs: z.record(
-    z.object({
-      home: z.number().int().min(0).max(20),
-      away: z.number().int().min(0).max(20)
-    })
-  )
+  currentInputs: z.record(scoreInputSchema)
 })

@@ -1,5 +1,5 @@
 import type { ConstraintViolation } from '@/lib/engine/types'
-import type { HintType, PuzzleProgressEnvelope, PuzzleProgressState } from '@/lib/contracts/progress'
+import type { HintType, PuzzleProgressEnvelope, PuzzleProgressState, RevealedScoreCell, ScoreInput } from '@/lib/contracts/progress'
 import type { PuzzlePublicDTO } from '@/lib/contracts/puzzle'
 import type { UserProgressSummary, UserStatsSummary } from '@/lib/contracts/user'
 
@@ -53,14 +53,14 @@ export interface HintResponse {
     type: HintType
     message: string
     targetMatchId?: string
-    targetTeamId?: string
-    revealedScore?: { home: number; away: number }
+    revealedCell?: RevealedScoreCell
+    revealedScore?: number
   }
   progressPatch: {
     hintsUsed: number
     hintTypes: HintType[]
-    revealedMatchIds?: string[]
-    revealedInputs?: Record<string, { home: number; away: number }>
+    revealedCells?: RevealedScoreCell[]
+    revealedInputs?: Record<string, Partial<Record<'home' | 'away', number>>>
   }
 }
 
@@ -144,7 +144,7 @@ export function requestPuzzleHint(
   puzzleId: string,
   body: {
     hintType: HintType
-    currentInputs: Record<string, { home: number; away: number }>
+    currentInputs: Record<string, ScoreInput>
   }
 ) {
   return requestJson<HintResponse>(`/api/puzzles/${puzzleId}/hint`, {

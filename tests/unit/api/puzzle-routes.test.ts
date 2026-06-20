@@ -220,6 +220,56 @@ describe('puzzle API routes', () => {
     expect('solution' in json).toBe(false)
   })
 
+  it('accepts any complete score set that satisfies the final table', async () => {
+    const { ensureRequestUser } = await import('@/lib/auth/anonymous')
+    const { getPuzzlePrivateById } = await import('@/lib/db/queries/puzzles')
+    const { getPuzzleProgress, upsertPuzzleProgress } = await import('@/lib/db/queries/progress')
+    const { POST } = await import('@/app/api/puzzles/[id]/submit/route')
+
+    vi.mocked(ensureRequestUser).mockResolvedValue({
+      userId: 'user-1',
+      isAnonymous: true
+    })
+    vi.mocked(getPuzzlePrivateById).mockResolvedValue({
+      ...sampleDailyPuzzlePrivate,
+      solution: sampleDailyPuzzlePrivate.solution.map((match, index) =>
+        index === 0
+          ? { ...match, homeScore: match.homeScore + 1 }
+          : match
+      )
+    })
+    vi.mocked(getPuzzleProgress).mockResolvedValue(sampleProgressEnvelope)
+    vi.mocked(upsertPuzzleProgress).mockResolvedValue({
+      ...sampleProgressEnvelope,
+      status: 'COMPLETED',
+      timeTakenSec: 120,
+      completedAt: '2026-06-17T12:00:00.000Z'
+    })
+
+    const inputs = Object.fromEntries(
+      sampleDailyPuzzlePrivate.solution.map((match) => [
+        match.id,
+        { home: match.homeScore, away: match.awayScore }
+      ])
+    )
+
+    const request = new NextRequest(`http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/submit`, {
+      method: 'POST',
+      body: JSON.stringify({
+        inputs,
+        timeTakenSec: 120
+      })
+    })
+
+    const response = await POST(request, {
+      params: Promise.resolve({ id: sampleDailyPuzzlePrivate.id })
+    })
+    const json = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(json.isCorrect).toBe(true)
+  })
+
   it('checks a completed puzzle replay without overwriting progress or stats', async () => {
     const { ensureRequestUser } = await import('@/lib/auth/anonymous')
     const { getPuzzlePrivateById } = await import('@/lib/db/queries/puzzles')
@@ -297,6 +347,9 @@ describe('puzzle API routes', () => {
 
     expect(response.status).toBe(200)
     expect(json.hint.type).toBe('reveal')
+    expect(json.hint.revealedCell).toBeDefined()
+    expect(json.progressPatch.revealedCells).toHaveLength(1)
+    expect(json.progressPatch.revealedInputs).toBeDefined()
     expect(json.progressPatch.hintsUsed).toBeGreaterThan(0)
   })
 })

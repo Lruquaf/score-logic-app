@@ -3,7 +3,7 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { useState } from 'react'
 
-import type { ScoreInput } from '@/lib/contracts/progress'
+import type { RevealedScoreCell, ScoreInput } from '@/lib/contracts/progress'
 import { formatDuration, formatPuzzleLabel } from '@/lib/utils/format'
 import { generateShareText } from '@/lib/utils/share'
 
@@ -18,6 +18,7 @@ interface VictoryScreenProps {
   hintsUsed: number
   inputs: Record<string, ScoreInput>
   revealedMatchIds: string[]
+  revealedCells: RevealedScoreCell[]
 }
 
 export function VictoryScreen({
@@ -27,13 +28,15 @@ export function VictoryScreen({
   timeTakenSec,
   hintsUsed,
   inputs,
-  revealedMatchIds
+  revealedMatchIds,
+  revealedCells
 }: VictoryScreenProps) {
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle')
   const shareText = generateShareText({
     puzzleLabel: formatPuzzleLabel(puzzleLabel),
     inputs,
     revealedMatchIds,
+    revealedCells,
     hintsUsed
   })
   const isPerfect = hintsUsed === 0

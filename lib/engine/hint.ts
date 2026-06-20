@@ -1,4 +1,4 @@
-import type { HintType } from '@/lib/contracts/progress'
+import type { HintType, RevealedScoreCell } from '@/lib/contracts/progress'
 import type { Match, Standing } from '@/lib/engine/types'
 import { enumerateFeasibleScores, type ScoreMap, type ScoreValue } from '@/lib/engine/scoring'
 
@@ -6,67 +6,53 @@ export interface Hint {
   type: HintType
   message: string
   targetMatchId?: string
-  targetTeamId?: string
-  revealedScore?: ScoreValue
+  revealedCell?: RevealedScoreCell
+  revealedScore?: number
 }
 
-function getRemainingMatches(matches: Match[], userInputs: ReadonlyMap<string, ScoreValue>) {
-  return matches.filter((match) => !userInputs.has(match.id))
+function cellKey(cell: RevealedScoreCell) {
+  return `${cell.matchId}:${cell.side}`
 }
 
-function chooseMostConstrainedMatch(
+function isCellRevealed(cell: RevealedScoreCell, revealedCells: ReadonlySet<string>) {
+  return revealedCells.has(cellKey(cell))
+}
+
+function getUnrevealedCellsForMatch(
+  match: Match,
+  revealedCells: ReadonlySet<string>
+): RevealedScoreCell[] {
+  return (['home', 'away'] as const)
+    .map((side) => ({ matchId: match.id, side }))
+    .filter((cell) => !isCellRevealed(cell, revealedCells))
+}
+
+function chooseMostConstrainedRevealCell(
   standings: Standing[],
   matches: Match[],
-  userInputs: ReadonlyMap<string, ScoreValue>
+  userInputs: ReadonlyMap<string, ScoreValue>,
+  revealedCells: ReadonlyArray<RevealedScoreCell>
 ) {
-  const remainingMatches = getRemainingMatches(matches, userInputs)
-
-  if (remainingMatches.length === 0) {
-    return null
-  }
-
-  const candidates = remainingMatches.map((match) => ({
-    match,
-    candidateCount: enumerateFeasibleScores(standings, matches, userInputs, match).length
-  }))
-
-  candidates.sort((left, right) => left.candidateCount - right.candidateCount)
-  return candidates[0]?.match ?? null
-}
-
-function findMostConstrainedTeam(
-  standings: Standing[],
-  matches: Match[],
-  userInputs: ReadonlyMap<string, ScoreValue>
-) {
-  const remainingMatches = getRemainingMatches(matches, userInputs)
-
-  if (remainingMatches.length === 0) {
-    return standings[0]?.teamId
-  }
-
-  const teamScores = standings.map((standing) => {
-    const relevantMatches = remainingMatches.filter(
-      (match) =>
-        match.homeTeamId === standing.teamId || match.awayTeamId === standing.teamId
-    )
-    const freedom = relevantMatches.reduce((sum, match) => {
-      return sum + enumerateFeasibleScores(standings, matches, userInputs, match).length
-    }, 0)
+  const revealedSet = new Set(revealedCells.map(cellKey))
+  const candidates = matches.flatMap((match) => {
+    const cells = getUnrevealedCellsForMatch(match, revealedSet)
+    if (cells.length === 0) return []
 
     return {
-      teamId: standing.teamId,
-      freedom,
-      remainingMatches: relevantMatches.length
+      match,
+      cells,
+      candidateCount: enumerateFeasibleScores(standings, matches, userInputs, match).length
     }
   })
 
-  teamScores.sort(
-    (left, right) =>
-      left.freedom - right.freedom || left.remainingMatches - right.remainingMatches
-  )
+  candidates.sort((left, right) => left.candidateCount - right.candidateCount)
+  const candidate = candidates[0]
+  if (!candidate) return null
 
-  return teamScores[0]?.teamId
+  return {
+    match: candidate.match,
+    cell: candidate.cells[0]
+  }
 }
 
 export function generateHint(
@@ -74,70 +60,30 @@ export function generateHint(
   matches: Match[],
   userInputs: ScoreMap,
   hintType: HintType,
-  solution: ReadonlyMap<string, ScoreValue>
+  solution: ReadonlyMap<string, ScoreValue>,
+  revealedCells: ReadonlyArray<RevealedScoreCell> = []
 ): Hint {
-  const remainingMatches = getRemainingMatches(matches, userInputs)
+  const target = chooseMostConstrainedRevealCell(standings, matches, userInputs, revealedCells)
 
-  if (remainingMatches.length === 0) {
+  if (!target) {
     return {
       type: hintType,
-      message: 'Tum mac skorlarina zaten sahipsin.'
+      message: 'Tum skor haneleri zaten acildi.'
     }
   }
 
-  switch (hintType) {
-    case 'direction': {
-      const teamId = findMostConstrainedTeam(standings, matches, userInputs)
-      return {
-        type: 'direction',
-        message: `${teamId} kalan kisitlarin merkezinde. Once bu takimin maclarina odaklan.`,
-        targetTeamId: teamId
-      }
-    }
+  const solutionScore = solution.get(target.match.id)
+  if (!solutionScore) {
+    throw new Error(`Missing solution for match ${target.match.id}`)
+  }
 
-    case 'team_focus': {
-      const targetMatch = chooseMostConstrainedMatch(standings, matches, userInputs)
-      if (!targetMatch) {
-        return { type: 'team_focus', message: 'Odaklanilacak mac kalmadi.' }
-      }
+  const revealedScore = solutionScore[target.cell.side]
 
-      const solutionScore = solution.get(targetMatch.id)
-      if (!solutionScore) {
-        throw new Error(`Missing solution for match ${targetMatch.id}`)
-      }
-
-      const outcome =
-        solutionScore.home > solutionScore.away
-          ? 'kazandi'
-          : solutionScore.home < solutionScore.away
-            ? 'kaybetti'
-            : 'berabere kaldi'
-
-      return {
-        type: 'team_focus',
-        message: `Bu macta ev sahibi takim ${outcome}.`,
-        targetMatchId: targetMatch.id
-      }
-    }
-
-    case 'reveal': {
-      const targetMatch = chooseMostConstrainedMatch(standings, matches, userInputs)
-      if (!targetMatch) {
-        return { type: 'reveal', message: 'Gosterilecek bos mac kalmadi.' }
-      }
-
-      const solutionScore = solution.get(targetMatch.id)
-      if (!solutionScore) {
-        throw new Error(`Missing solution for match ${targetMatch.id}`)
-      }
-
-      return {
-        type: 'reveal',
-        message: `Bu macin skoru ${solutionScore.home} - ${solutionScore.away}.`,
-        targetMatchId: targetMatch.id,
-        revealedScore: solutionScore
-      }
-    }
+  return {
+    type: 'reveal',
+    message: `${target.cell.side === 'home' ? 'Ev sahibi' : 'Deplasman'} skor hanesi ${revealedScore}.`,
+    targetMatchId: target.match.id,
+    revealedCell: target.cell,
+    revealedScore
   }
 }
-

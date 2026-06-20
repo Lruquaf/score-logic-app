@@ -13,8 +13,7 @@ import {
   enforceRateLimit,
   getClientIdentifier
 } from '@/lib/security/rate-limit'
-import { scoreMapFromSolution } from '@/lib/engine/scoring'
-import { toScoreMap, validateCompleteSolution, validateExactSolution } from '@/lib/engine/validator'
+import { toScoreMap, validateCompleteSolution } from '@/lib/engine/validator'
 import { buildProgressState } from '@/lib/utils/progress-state'
 import { puzzleIdSchema, submitPuzzleSchema } from '@/lib/validations'
 
@@ -55,8 +54,7 @@ export async function POST(
     const existing = await getPuzzleProgress(user.userId!, puzzleId)
     const inputMap = toScoreMap(body.inputs)
     const validation = validateCompleteSolution(puzzle.standings, puzzle.matches, inputMap)
-    const exactMatch = validateExactSolution(inputMap, scoreMapFromSolution(puzzle.solution))
-    const isCorrect = validation.isCorrect && exactMatch
+    const isCorrect = validation.isCorrect
     const nowIso = new Date().toISOString()
 
     const currentState = buildProgressState({
@@ -69,6 +67,7 @@ export async function POST(
       updatedAt: nowIso,
       lastSubmittedAt: nowIso,
       revealedMatchIds: existing?.currentState?.revealedMatchIds ?? [],
+      revealedCells: existing?.currentState?.revealedCells ?? [],
       completedMatchIds: existing?.currentState?.completedMatchIds ?? []
     })
 
@@ -87,6 +86,7 @@ export async function POST(
           updatedAt: nowIso,
           lastSubmittedAt: nowIso,
           revealedMatchIds: [],
+          revealedCells: [],
           completedMatchIds: []
         })
       }

@@ -3,7 +3,14 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware'
 
-import type { HintType, MatchNote, PuzzleProgressEnvelope, PuzzleProgressState, ScoreInput } from '@/lib/contracts/progress'
+import type {
+  HintType,
+  MatchNote,
+  PuzzleProgressEnvelope,
+  PuzzleProgressState,
+  RevealedScoreCell,
+  ScoreInput
+} from '@/lib/contracts/progress'
 import type { PuzzlePublicDTO } from '@/lib/contracts/puzzle'
 import type { ConstraintViolation } from '@/lib/engine/types'
 import { validatePartialSolution } from '@/lib/engine/validator'
@@ -38,6 +45,7 @@ export interface PuzzleStoreState {
   selectedCell: CellState | null
   completedMatchIds: string[]
   revealedMatchIds: string[]
+  revealedCells: RevealedScoreCell[]
   hintsUsed: number
   hintTypes: HintType[]
   startedAt: string | null
@@ -65,7 +73,8 @@ export interface PuzzleStoreState {
       hintsUsed: number
       hintTypes: HintType[]
       revealedMatchIds?: string[]
-      revealedInputs?: Record<string, { home: number; away: number }>
+      revealedCells?: RevealedScoreCell[]
+      revealedInputs?: Record<string, Partial<Record<'home' | 'away', number>>>
     },
     message: string
   ) => void
@@ -111,6 +120,44 @@ function cloneNotes(notes: Record<string, MatchNote>) {
   )
 }
 
+function cloneRevealedCells(cells: RevealedScoreCell[] = []) {
+  return cells.map((cell) => ({ matchId: cell.matchId, side: cell.side }))
+}
+
+function revealedCellsFromMatchIds(matchIds: string[]) {
+  return matchIds.flatMap((matchId) => [
+    { matchId, side: 'home' as const },
+    { matchId, side: 'away' as const }
+  ])
+}
+
+function normalizeRevealedCells(params: {
+  revealedCells?: RevealedScoreCell[]
+  revealedMatchIds?: string[]
+}) {
+  const seen = new Set<string>()
+  return [
+    ...cloneRevealedCells(params.revealedCells ?? []),
+    ...revealedCellsFromMatchIds(params.revealedMatchIds ?? [])
+  ].filter((cell) => {
+    const key = `${cell.matchId}:${cell.side}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function isScoreCellRevealed(
+  cell: CellState,
+  revealedCells: RevealedScoreCell[],
+  revealedMatchIds: string[]
+) {
+  return (
+    revealedMatchIds.includes(cell.matchId) ||
+    revealedCells.some((revealedCell) => revealedCell.matchId === cell.matchId && revealedCell.side === cell.side)
+  )
+}
+
 function createEmptyDraft(puzzleId: string, timestamp: string): PersistedPuzzleDraft {
   return {
     puzzleId,
@@ -118,6 +165,7 @@ function createEmptyDraft(puzzleId: string, timestamp: string): PersistedPuzzleD
     notes: {},
     completedMatchIds: [],
     revealedMatchIds: [],
+    revealedCells: [],
     hintsUsed: 0,
     hintTypes: [],
     startedAt: timestamp,
@@ -140,6 +188,10 @@ function draftFromProgress(
       notes: cloneNotes(progress.currentState.notes ?? {}),
       completedMatchIds: [...progress.currentState.completedMatchIds],
       revealedMatchIds: [...progress.currentState.revealedMatchIds],
+      revealedCells: normalizeRevealedCells({
+        revealedCells: progress.currentState.revealedCells,
+        revealedMatchIds: progress.currentState.revealedMatchIds
+      }),
       hintTypes: [...progress.currentState.hintTypes]
     }
   }
@@ -240,6 +292,7 @@ function buildDraftFromRuntime(state: Pick<
   | 'updatedAt'
   | 'lastSubmittedAt'
   | 'revealedMatchIds'
+  | 'revealedCells'
   | 'completedMatchIds'
 >) {
   if (!state.puzzle) return null
@@ -254,6 +307,7 @@ function buildDraftFromRuntime(state: Pick<
     updatedAt: state.updatedAt ?? new Date().toISOString(),
     lastSubmittedAt: state.lastSubmittedAt,
     revealedMatchIds: [...state.revealedMatchIds],
+    revealedCells: cloneRevealedCells(state.revealedCells),
     completedMatchIds: [...state.completedMatchIds]
   })
 }
@@ -269,6 +323,7 @@ export function selectCurrentProgressState(state: Pick<
   | 'updatedAt'
   | 'lastSubmittedAt'
   | 'revealedMatchIds'
+  | 'revealedCells'
   | 'completedMatchIds'
 >) {
   return buildDraftFromRuntime(state)
@@ -286,6 +341,7 @@ function createInitialPuzzleData() {
     selectedCell: null,
     completedMatchIds: [],
     revealedMatchIds: [],
+    revealedCells: [],
     hintsUsed: 0,
     hintTypes: [] as HintType[],
     startedAt: null,
@@ -324,6 +380,10 @@ export function createPuzzleStore() {
               notes: cloneNotes(preferredDraft.notes ?? {}),
               completedMatchIds: [...preferredDraft.completedMatchIds],
               revealedMatchIds: [...preferredDraft.revealedMatchIds],
+              revealedCells: normalizeRevealedCells({
+                revealedCells: preferredDraft.revealedCells,
+                revealedMatchIds: preferredDraft.revealedMatchIds
+              }),
               hintTypes: [...preferredDraft.hintTypes]
             }
             const nextStatus = progress?.status ?? 'IN_PROGRESS'
@@ -340,6 +400,7 @@ export function createPuzzleStore() {
               selectedCell: nextStatus === 'COMPLETED' ? null : findNextCell(puzzle, nextDraft.completedMatchIds),
               completedMatchIds: nextDraft.completedMatchIds,
               revealedMatchIds: nextDraft.revealedMatchIds,
+              revealedCells: nextDraft.revealedCells,
               hintsUsed: nextDraft.hintsUsed,
               hintTypes: nextDraft.hintTypes,
               startedAt: nextDraft.startedAt,
@@ -392,6 +453,7 @@ export function createPuzzleStore() {
               updatedAt: timestamp,
               lastSubmittedAt: state.lastSubmittedAt,
               revealedMatchIds: [...state.revealedMatchIds],
+              revealedCells: cloneRevealedCells(state.revealedCells),
               completedMatchIds: [...state.completedMatchIds]
             })
 
@@ -409,9 +471,13 @@ export function createPuzzleStore() {
           }),
         setScoreCell: (cell, value) =>
           set((state) => {
-            const { puzzle, revealedMatchIds, status, isReplayMode } = state
+            const { puzzle, revealedMatchIds, revealedCells, status, isReplayMode } = state
 
-            if (!puzzle || (status === 'COMPLETED' && !isReplayMode) || revealedMatchIds.includes(cell.matchId)) {
+            if (
+              !puzzle ||
+              (status === 'COMPLETED' && !isReplayMode) ||
+              isScoreCellRevealed(cell, revealedCells, revealedMatchIds)
+            ) {
               return state
             }
 
@@ -431,6 +497,7 @@ export function createPuzzleStore() {
               updatedAt: timestamp,
               lastSubmittedAt: state.lastSubmittedAt,
               revealedMatchIds: [...state.revealedMatchIds],
+              revealedCells: cloneRevealedCells(state.revealedCells),
               completedMatchIds: [...state.completedMatchIds]
             })
 
@@ -453,13 +520,13 @@ export function createPuzzleStore() {
           }),
         inputDigit: (digit) =>
           set((state) => {
-            const { selectedCell, puzzle, revealedMatchIds, status, isReplayMode } = state
+            const { selectedCell, puzzle, revealedMatchIds, revealedCells, status, isReplayMode } = state
 
             if (!selectedCell || !puzzle || (status === 'COMPLETED' && !isReplayMode)) {
               return state
             }
 
-            if (revealedMatchIds.includes(selectedCell.matchId)) {
+            if (isScoreCellRevealed(selectedCell, revealedCells, revealedMatchIds)) {
               return state
             }
 
@@ -488,6 +555,7 @@ export function createPuzzleStore() {
               updatedAt: timestamp,
               lastSubmittedAt: state.lastSubmittedAt,
               revealedMatchIds: [...state.revealedMatchIds],
+              revealedCells: cloneRevealedCells(state.revealedCells),
               completedMatchIds: [...state.completedMatchIds]
             })
 
@@ -509,13 +577,13 @@ export function createPuzzleStore() {
           }),
         deleteDigit: () =>
           set((state) => {
-            const { selectedCell, puzzle, revealedMatchIds, status, isReplayMode } = state
+            const { selectedCell, puzzle, revealedMatchIds, revealedCells, status, isReplayMode } = state
 
             if (!selectedCell || !puzzle || (status === 'COMPLETED' && !isReplayMode)) {
               return state
             }
 
-            if (revealedMatchIds.includes(selectedCell.matchId)) {
+            if (isScoreCellRevealed(selectedCell, revealedCells, revealedMatchIds)) {
               return state
             }
 
@@ -545,6 +613,7 @@ export function createPuzzleStore() {
               updatedAt: timestamp,
               lastSubmittedAt: state.lastSubmittedAt,
               revealedMatchIds: [...state.revealedMatchIds],
+              revealedCells: cloneRevealedCells(state.revealedCells),
               completedMatchIds: [...state.completedMatchIds]
             })
 
@@ -590,6 +659,7 @@ export function createPuzzleStore() {
               updatedAt: timestamp,
               lastSubmittedAt: state.lastSubmittedAt,
               revealedMatchIds: [...state.revealedMatchIds],
+              revealedCells: cloneRevealedCells(state.revealedCells),
               completedMatchIds
             })
 
@@ -618,8 +688,17 @@ export function createPuzzleStore() {
             const nextInputs = cloneInputs(state.inputs)
 
             for (const [matchId, score] of Object.entries(patch.revealedInputs ?? {})) {
-              nextInputs[matchId] = { home: score.home, away: score.away }
+              const currentInput = nextInputs[matchId] ?? { home: null, away: null }
+              nextInputs[matchId] = {
+                home: score.home ?? currentInput.home,
+                away: score.away ?? currentInput.away
+              }
             }
+
+            const nextRevealedCells = normalizeRevealedCells({
+              revealedCells: patch.revealedCells ?? state.revealedCells,
+              revealedMatchIds: patch.revealedMatchIds ?? state.revealedMatchIds
+            })
 
             const nextDraft = buildProgressState({
               puzzleId: puzzle.id,
@@ -631,6 +710,7 @@ export function createPuzzleStore() {
               updatedAt: timestamp,
               lastSubmittedAt: state.lastSubmittedAt,
               revealedMatchIds: patch.revealedMatchIds ?? state.revealedMatchIds,
+              revealedCells: nextRevealedCells,
               completedMatchIds: state.completedMatchIds
             })
 
@@ -642,6 +722,7 @@ export function createPuzzleStore() {
               violations: getViolations(puzzle, nextInputs),
               completedMatchIds: nextDraft.completedMatchIds,
               revealedMatchIds: nextDraft.revealedMatchIds,
+              revealedCells: nextDraft.revealedCells,
               hintsUsed: patch.hintsUsed,
               hintTypes: [...patch.hintTypes],
               updatedAt: nextDraft.updatedAt,
@@ -682,6 +763,7 @@ export function createPuzzleStore() {
                   : findNextCell(state.puzzle, nextDraft.completedMatchIds),
               completedMatchIds: [...nextDraft.completedMatchIds],
               revealedMatchIds: [...nextDraft.revealedMatchIds],
+              revealedCells: cloneRevealedCells(nextDraft.revealedCells),
               hintsUsed: nextDraft.hintsUsed,
               hintTypes: [...nextDraft.hintTypes],
               startedAt: nextDraft.startedAt,
@@ -720,6 +802,7 @@ export function createPuzzleStore() {
               selectedCell: result.isCorrect ? null : state.selectedCell,
               completedMatchIds: [...nextDraft.completedMatchIds],
               revealedMatchIds: [...nextDraft.revealedMatchIds],
+              revealedCells: cloneRevealedCells(nextDraft.revealedCells),
               hintsUsed: nextDraft.hintsUsed,
               hintTypes: [...nextDraft.hintTypes],
               startedAt: nextDraft.startedAt,
@@ -758,6 +841,7 @@ export function createPuzzleStore() {
               selectedCell: findNextCell(state.puzzle, []),
               completedMatchIds: [],
               revealedMatchIds: [],
+              revealedCells: [],
               hintsUsed: 0,
               hintTypes: [],
               startedAt: nextDraft.startedAt,

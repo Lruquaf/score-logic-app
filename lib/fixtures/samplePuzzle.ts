@@ -97,6 +97,7 @@ export const sampleProgressState: PuzzleProgressState = {
   notes: {},
   completedMatchIds: ['m1', 'm2'],
   revealedMatchIds: [],
+  revealedCells: [],
   hintsUsed: 0,
   hintTypes: [],
   startedAt: '2026-06-17T09:00:00.000Z',

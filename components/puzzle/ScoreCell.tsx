@@ -1,6 +1,7 @@
 'use client'
 
 import { motion } from 'framer-motion'
+import { useEffect, useRef } from 'react'
 
 import { usePuzzleStore } from '@/store/puzzleStore'
 
@@ -21,6 +22,7 @@ export function ScoreCell({
   hasError,
   ariaLabel
 }: ScoreCellProps) {
+  const inputRef = useRef<HTMLInputElement>(null)
   const value = usePuzzleStore((state) => state.inputs[matchId]?.[side] ?? null)
   const selectedCell = usePuzzleStore((state) => state.selectedCell)
   const selectCell = usePuzzleStore((state) => state.selectCell)
@@ -38,8 +40,21 @@ export function ScoreCell({
           ? 'border-[var(--field)] bg-white text-[var(--ink)]'
           : 'border-[var(--line)] bg-white/86 text-[var(--muted)]'
 
+  useEffect(() => {
+    if (!isSelected || !inputRef.current) return
+
+    const isFinePointer = window.matchMedia('(pointer: fine)').matches
+    if (!isFinePointer && document.activeElement !== inputRef.current) return
+
+    if (document.activeElement !== inputRef.current) {
+      inputRef.current.focus({ preventScroll: true })
+      inputRef.current.select()
+    }
+  }, [isSelected])
+
   return (
     <motion.input
+      ref={inputRef}
       type="number"
       min={0}
       max={19}

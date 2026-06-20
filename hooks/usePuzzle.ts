@@ -128,8 +128,8 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
   const hintMutation = useMutation({
     mutationFn: (payload: {
       puzzleId: string
-      hintType: 'direction' | 'team_focus' | 'reveal'
-      currentInputs: Record<string, { home: number; away: number }>
+      hintType: 'reveal'
+      currentInputs: PuzzleProgressState['inputs']
     }) => requestPuzzleHint(payload.puzzleId, payload),
     onSuccess: (response) => {
       applyHintPatch(response.progressPatch, response.hint.message)
@@ -228,26 +228,17 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       false,
     isHintPending: hintMutation.isPending,
     isSubmitPending: submitMutation.isPending,
-    requestHint: (hintType: 'direction' | 'team_focus' | 'reveal') => {
+    requestHint: (hintType: 'reveal') => {
       if (!puzzle) return
       if (isReplayMode) {
         setHintError('This puzzle is already solved. You can replay it locally.')
         return
       }
 
-      const currentInputs = Object.fromEntries(
-        Object.entries(inputs)
-          .filter(([, score]) => score.home !== null && score.away !== null)
-          .map(([matchId, score]) => [
-            matchId,
-            { home: score.home as number, away: score.away as number }
-          ])
-      )
-
       hintMutation.mutate({
         puzzleId: puzzle.id,
         hintType,
-        currentInputs
+        currentInputs: inputs
       })
     },
     submit: () => {

@@ -22,7 +22,10 @@ function toIsoDateTimeString(value: Date | null): string | null {
 }
 
 function mapHintTypes(values: string[]): HintType[] {
-  return values.map((value) => hintTypeSchema.parse(value))
+  return values.flatMap((value) => {
+    const result = hintTypeSchema.safeParse(value)
+    return result.success ? [result.data] : []
+  })
 }
 
 function mapProgressStatus(value: PuzzleStatus): PuzzleProgressEnvelope['status'] {
@@ -67,4 +70,3 @@ export function mapUserPuzzleProgressRecord(
 export function serializeProgressState(value: PuzzleProgressState): Prisma.InputJsonValue {
   return puzzleProgressStateSchema.parse(value) as Prisma.InputJsonValue
 }
-
