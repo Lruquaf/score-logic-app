@@ -66,7 +66,7 @@ export default function HomePage() {
           </p>
           <div className="mt-7 flex flex-wrap gap-3">
             <Link className="btn-primary px-5" href="/daily">
-              Play Today's Puzzle
+              Play Today&apos;s Puzzle
             </Link>
             <a className="btn-secondary px-5" href="#how-it-works">
               How It Works
