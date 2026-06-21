@@ -30,6 +30,6 @@ export interface GeneratedPuzzle {
   matches: MatchSolution[]
   isValid: boolean
   solutionCount: number
+  difficultyScore: number
   inferenceSteps: number
 }
-

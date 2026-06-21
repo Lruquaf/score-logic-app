@@ -1,6 +1,6 @@
 import type { HintType, RevealedScoreCell } from '@/lib/contracts/progress'
 import type { Match, Standing } from '@/lib/engine/types'
-import { enumerateFeasibleScores, type ScoreMap, type ScoreValue } from '@/lib/engine/scoring'
+import type { ScoreMap, ScoreValue } from '@/lib/engine/scoring'
 
 export interface Hint {
   type: HintType
@@ -18,41 +18,26 @@ function isCellRevealed(cell: RevealedScoreCell, revealedCells: ReadonlySet<stri
   return revealedCells.has(cellKey(cell))
 }
 
-function getUnrevealedCellsForMatch(
-  match: Match,
-  revealedCells: ReadonlySet<string>
-): RevealedScoreCell[] {
+function getUnrevealedCellsForMatch(match: Match, revealedCells: ReadonlySet<string>): RevealedScoreCell[] {
   return (['home', 'away'] as const)
     .map((side) => ({ matchId: match.id, side }))
     .filter((cell) => !isCellRevealed(cell, revealedCells))
 }
 
-function chooseMostConstrainedRevealCell(
-  standings: Standing[],
+function chooseRandomRevealCell(
   matches: Match[],
-  userInputs: ReadonlyMap<string, ScoreValue>,
-  revealedCells: ReadonlyArray<RevealedScoreCell>
+  revealedCells: ReadonlyArray<RevealedScoreCell>,
+  random: () => number
 ) {
   const revealedSet = new Set(revealedCells.map(cellKey))
-  const candidates = matches.flatMap((match) => {
-    const cells = getUnrevealedCellsForMatch(match, revealedSet)
-    if (cells.length === 0) return []
+  const cells = matches.flatMap((match) => getUnrevealedCellsForMatch(match, revealedSet))
 
-    return {
-      match,
-      cells,
-      candidateCount: enumerateFeasibleScores(standings, matches, userInputs, match).length
-    }
-  })
+  if (cells.length === 0) return null
 
-  candidates.sort((left, right) => left.candidateCount - right.candidateCount)
-  const candidate = candidates[0]
-  if (!candidate) return null
+  const cell = cells[Math.floor(random() * cells.length)] ?? cells[0]
+  const match = matches.find((candidate) => candidate.id === cell.matchId)
 
-  return {
-    match: candidate.match,
-    cell: candidate.cells[0]
-  }
+  return match ? { match, cell } : null
 }
 
 export function generateHint(
@@ -61,9 +46,12 @@ export function generateHint(
   userInputs: ScoreMap,
   hintType: HintType,
   solution: ReadonlyMap<string, ScoreValue>,
-  revealedCells: ReadonlyArray<RevealedScoreCell> = []
+  revealedCells: ReadonlyArray<RevealedScoreCell> = [],
+  random: () => number = Math.random
 ): Hint {
-  const target = chooseMostConstrainedRevealCell(standings, matches, userInputs, revealedCells)
+  const target = chooseRandomRevealCell(matches, revealedCells, random)
+  void standings
+  void userInputs
 
   if (!target) {
     return {

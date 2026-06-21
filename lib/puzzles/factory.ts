@@ -1,4 +1,5 @@
 import type { Difficulty, PuzzlePrivateDTO, StandingDTO } from '@/lib/contracts/puzzle'
+import { classifyDifficulty } from '@/lib/engine/difficulty'
 import { generatePuzzleFromPool, stripMatchScores } from '@/lib/engine/generator'
 import { createSeededRandom, type TeamPoolKey } from '@/lib/fixtures/teamPools'
 
@@ -6,16 +7,11 @@ export const CAMPAIGN_PUZZLES_PER_DIFFICULTY = 20
 
 const CAMPAIGN_DIFFICULTIES: Difficulty[] = ['EASY', 'MEDIUM', 'HARD']
 const TEAM_POOL_ROTATION: TeamPoolKey[] = ['world-cup', 'champions-league', 'fictional']
-const MAX_UNIQUE_GENERATION_ATTEMPTS = 3_000
+const MAX_GENERATION_ATTEMPTS = 3_000
 const MAX_ENGINE_ATTEMPTS_PER_CANDIDATE = 160
 const DEFAULT_DAILY_TIME_ZONE = process.env.DAILY_TIME_ZONE ?? 'Europe/Istanbul'
-const DIFFICULTY_STEP_RANGES: Record<Difficulty, { min: number; max: number }> = {
-  EASY: { min: 1, max: 8 },
-  MEDIUM: { min: 9, max: 10 },
-  HARD: { min: 11, max: Number.POSITIVE_INFINITY }
-}
 
-interface GenerateUniquePuzzleInput {
+interface GeneratePuzzleDefinitionInput {
   id: string
   mode: 'daily' | 'campaign'
   seed: string
@@ -69,18 +65,7 @@ export function puzzleTableShapeSignature(puzzle: Pick<PuzzlePrivateDTO, 'standi
   return tableShapeSignature(puzzle.standings)
 }
 
-function difficultyFromInferenceSteps(inferenceSteps: number): Difficulty {
-  if (inferenceSteps <= DIFFICULTY_STEP_RANGES.EASY.max) return 'EASY'
-  if (inferenceSteps <= DIFFICULTY_STEP_RANGES.MEDIUM.max) return 'MEDIUM'
-  return 'HARD'
-}
-
-function matchesTargetDifficulty(inferenceSteps: number, difficulty: Difficulty) {
-  const range = DIFFICULTY_STEP_RANGES[difficulty]
-  return inferenceSteps >= range.min && inferenceSteps <= range.max
-}
-
-async function generateUniquePuzzleDefinition({
+async function generatePuzzleDefinition({
   id,
   mode,
   seed,
@@ -88,8 +73,8 @@ async function generateUniquePuzzleDefinition({
   dailyDate,
   campaignOrder,
   excludedTableSignatures
-}: GenerateUniquePuzzleInput): Promise<PuzzlePrivateDTO> {
-  for (let attempt = 0; attempt < MAX_UNIQUE_GENERATION_ATTEMPTS; attempt += 1) {
+}: GeneratePuzzleDefinitionInput): Promise<PuzzlePrivateDTO> {
+  for (let attempt = 0; attempt < MAX_GENERATION_ATTEMPTS; attempt += 1) {
     const pool = TEAM_POOL_ROTATION[attempt % TEAM_POOL_ROTATION.length]
     const random = createSeededRandom(`${seed}-${attempt}-${pool}`)
     const generated = await generatePuzzleFromPool(
@@ -102,12 +87,12 @@ async function generateUniquePuzzleDefinition({
       continue
     }
 
-    const difficulty = difficultyFromInferenceSteps(generated.puzzle.inferenceSteps)
+    const difficulty = classifyDifficulty(
+      generated.puzzle.inferenceSteps,
+      generated.puzzle.solutionCount
+    )
 
-    if (
-      targetDifficulty &&
-      !matchesTargetDifficulty(generated.puzzle.inferenceSteps, targetDifficulty)
-    ) {
+    if (targetDifficulty && difficulty !== targetDifficulty) {
       continue
     }
 
@@ -134,7 +119,7 @@ async function generateUniquePuzzleDefinition({
   }
 
   throw new Error(
-    `Could not generate a unique ${targetDifficulty ?? 'any'} ${mode} puzzle after ${MAX_UNIQUE_GENERATION_ATTEMPTS} attempts.`
+    `Could not generate a ${targetDifficulty ?? 'any'} ${mode} puzzle after ${MAX_GENERATION_ATTEMPTS} attempts.`
   )
 }
 
@@ -146,7 +131,7 @@ export async function generateCampaignPuzzleDefinitions() {
   for (const difficulty of CAMPAIGN_DIFFICULTIES) {
     for (let index = 0; index < CAMPAIGN_PUZZLES_PER_DIFFICULTY; index += 1) {
       puzzles.push(
-        await generateUniquePuzzleDefinition({
+        await generatePuzzleDefinition({
           id: campaignPuzzleIdForOrder(campaignOrder),
           mode: 'campaign',
           seed: `campaign-${difficulty.toLowerCase()}-${index + 1}`,
@@ -172,7 +157,7 @@ export async function generateDailyPuzzleDefinition(params: {
     : isoDateString(params.date ?? new Date())
   const excludedTableSignatures = params.excludedTableSignatures ?? new Set<string>()
 
-  return generateUniquePuzzleDefinition({
+  return generatePuzzleDefinition({
     id: dailyPuzzleIdForDate(dailyDate),
     mode: 'daily',
     seed: `daily-${dailyDate}`,

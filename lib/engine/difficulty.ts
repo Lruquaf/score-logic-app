@@ -5,9 +5,26 @@ import {
   type ScoreMap
 } from '@/lib/engine/scoring'
 
-export function classifyDifficulty(inferenceSteps: number): 'EASY' | 'MEDIUM' | 'HARD' {
-  if (inferenceSteps <= 5) return 'EASY'
-  if (inferenceSteps <= 12) return 'MEDIUM'
+export function solutionCountDifficultyOffset(solutionCount: number): number {
+  if (solutionCount <= 1) return 0
+  if (solutionCount <= 2) return 1
+  if (solutionCount <= 4) return 2
+  if (solutionCount <= 8) return 3
+  return 4
+}
+
+export function difficultyScore(inferenceSteps: number, solutionCount = 1): number {
+  return Math.max(1, inferenceSteps - solutionCountDifficultyOffset(solutionCount))
+}
+
+export function classifyDifficulty(
+  inferenceSteps: number,
+  solutionCount = 1
+): 'EASY' | 'MEDIUM' | 'HARD' {
+  const score = difficultyScore(inferenceSteps, solutionCount)
+
+  if (score <= 8) return 'EASY'
+  if (score <= 10) return 'MEDIUM'
   return 'HARD'
 }
 
@@ -76,4 +93,3 @@ export function countInferenceSteps(
 
   return Math.max(1, steps)
 }
-

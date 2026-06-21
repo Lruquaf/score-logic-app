@@ -1,12 +1,21 @@
-import { classifyDifficulty, countInferenceSteps } from '@/lib/engine/difficulty'
+import { classifyDifficulty, countInferenceSteps, difficultyScore } from '@/lib/engine/difficulty'
 import { sampleDailyPuzzlePrivate } from '@/lib/fixtures/samplePuzzle'
 
 describe('difficulty', () => {
   it('classifies inference steps by thresholds', () => {
-    expect(classifyDifficulty(5)).toBe('EASY')
-    expect(classifyDifficulty(6)).toBe('MEDIUM')
-    expect(classifyDifficulty(12)).toBe('MEDIUM')
-    expect(classifyDifficulty(13)).toBe('HARD')
+    expect(classifyDifficulty(8)).toBe('EASY')
+    expect(classifyDifficulty(9)).toBe('MEDIUM')
+    expect(classifyDifficulty(10)).toBe('MEDIUM')
+    expect(classifyDifficulty(11)).toBe('HARD')
+  })
+
+  it('uses solution count as an openness adjustment', () => {
+    expect(difficultyScore(11, 1)).toBe(11)
+    expect(difficultyScore(11, 2)).toBe(10)
+    expect(difficultyScore(11, 9)).toBe(7)
+    expect(classifyDifficulty(11, 1)).toBe('HARD')
+    expect(classifyDifficulty(11, 2)).toBe('MEDIUM')
+    expect(classifyDifficulty(11, 9)).toBe('EASY')
   })
 
   it('produces a stable positive inference step count for the seeded puzzle', () => {

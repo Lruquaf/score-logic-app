@@ -1,9 +1,10 @@
 import type { GeneratedPuzzle, Match, MatchSolution, Standing, Team } from '@/lib/engine/types'
-import { countInferenceSteps } from '@/lib/engine/difficulty'
+import { countInferenceSteps, difficultyScore } from '@/lib/engine/difficulty'
 import { solve } from '@/lib/engine/solver'
 import { selectTeamsFromPool, type TeamPoolKey } from '@/lib/fixtures/teamPools'
 
 const DEFAULT_MAX_ATTEMPTS = 500
+const MAX_SOLUTION_COUNT_ANALYSIS = 12
 const TYPICAL_GOAL_AVERAGE = 2.5
 const GOAL_AVERAGE_TOLERANCE = 1.2
 
@@ -18,6 +19,37 @@ export function weightedGoalSample(random: () => number = Math.random): number {
   }
 
   return 0
+}
+
+export function randomizeFixturePresentation(
+  matches: MatchSolution[],
+  random: () => number = Math.random
+): MatchSolution[] {
+  const randomized = matches.map((match) => {
+    if (random() >= 0.5) {
+      return { ...match }
+    }
+
+    return {
+      ...match,
+      homeTeamId: match.awayTeamId,
+      awayTeamId: match.homeTeamId,
+      homeScore: match.awayScore,
+      awayScore: match.homeScore
+    }
+  })
+
+  for (let index = randomized.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(random() * (index + 1))
+    const current = randomized[index]
+    randomized[index] = randomized[swapIndex]
+    randomized[swapIndex] = current
+  }
+
+  return randomized.map((match, index) => ({
+    ...match,
+    id: `m${index + 1}`
+  }))
 }
 
 export function generateRoundRobinMatches(
@@ -39,7 +71,7 @@ export function generateRoundRobinMatches(
     }
   }
 
-  return matches
+  return randomizeFixturePresentation(matches, random)
 }
 
 export function computeStandings(teams: Team[], matches: MatchSolution[]): Standing[] {
@@ -144,18 +176,22 @@ export async function generatePuzzle(
 
     const standings = computeStandings(teams, solutionMatches)
     const publicMatches = stripMatchScores(solutionMatches)
-    const solutions = solve(standings, publicMatches, 2)
+    const solutions = solve(standings, publicMatches, MAX_SOLUTION_COUNT_ANALYSIS)
 
-    if (solutions.length !== 1) {
+    if (solutions.length < 1) {
       continue
     }
+
+    const inferenceSteps = countInferenceSteps(standings, solutionMatches)
+    const solutionCount = solutions.length
 
     return {
       standings,
       matches: solutionMatches,
       isValid: true,
-      solutionCount: 1,
-      inferenceSteps: countInferenceSteps(standings, solutionMatches)
+      solutionCount,
+      difficultyScore: difficultyScore(inferenceSteps, solutionCount),
+      inferenceSteps
     }
   }
 
