@@ -3,9 +3,16 @@ import { expect, test } from '@playwright/test'
 test('home page renders the editorial puzzle entry', async ({ page }) => {
   await page.goto('/')
 
-  await expect(page.getByRole('heading', { name: 'Find the hidden scores behind the table.' })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Play Today' }).first()).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Practice puzzles' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Read the standings. Deduce the hidden scores.' })).toBeVisible()
+  await expect(page.getByRole('link', { name: "Play Today's Puzzle" }).first()).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'The game uses simple logic' })).toBeVisible()
+})
+
+test('campaign page renders the practice puzzle list', async ({ page }) => {
+  await page.goto('/campaign')
+
+  await expect(page.getByRole('heading', { name: 'Practice puzzles', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Easy', exact: true })).toBeVisible()
 })
 
 test('daily puzzle renders the playable board', async ({ page }) => {

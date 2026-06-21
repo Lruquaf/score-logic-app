@@ -23,6 +23,12 @@ export function Header() {
             Home
           </Link>
           <Link
+            href={'/campaign' as Route}
+            className="transition-colors hover:text-[var(--field-deep)]"
+          >
+            Campaign
+          </Link>
+          <Link
             href="/daily"
             className="transition-colors hover:text-[var(--field-deep)]"
           >
