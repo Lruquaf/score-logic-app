@@ -1,7 +1,7 @@
 'use client'
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import {
   ApiError,
@@ -89,6 +89,15 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [hintError, setHintError] = useState<string | null>(null)
   const [displayElapsedTimeSec, setDisplayElapsedTimeSec] = useState(0)
+  const latestTimerRef = useRef<{
+    puzzleId: string | null
+    elapsedTimeSec: number
+    canPause: boolean
+  }>({
+    puzzleId: null,
+    elapsedTimeSec: 0,
+    canPause: false
+  })
 
   useEffect(() => {
     if (puzzleQuery.data) {
@@ -105,60 +114,73 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
   useEffect(() => {
     if (!puzzle || !startedAt || phase === 'IDLE' || status === 'COMPLETED') {
       setDisplayElapsedTimeSec(0)
+      latestTimerRef.current = {
+        puzzleId: puzzle?.id ?? null,
+        elapsedTimeSec: timeTakenSec ?? 0,
+        canPause: false
+      }
       return
     }
 
     const startedAtMs = new Date(startedAt).getTime()
-    let pausedElapsed: number | null = document.visibilityState === 'hidden'
-      ? elapsedBaseSec
-      : null
-    let timer: number | null = null
     const currentElapsed = () => (
-      pausedElapsed ?? elapsedBaseSec + Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000))
+      document.visibilityState === 'hidden'
+        ? elapsedBaseSec
+        : elapsedBaseSec + Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000))
     )
     const update = () => {
-      setDisplayElapsedTimeSec(currentElapsed())
-    }
-    const clearTimer = () => {
-      if (timer !== null) {
-        window.clearInterval(timer)
-        timer = null
+      const elapsed = currentElapsed()
+      latestTimerRef.current = {
+        puzzleId: puzzle.id,
+        elapsedTimeSec: elapsed,
+        canPause: true
       }
+      setDisplayElapsedTimeSec(elapsed)
     }
-    const startTimer = () => {
-      if (document.visibilityState === 'hidden') {
-        setDisplayElapsedTimeSec(currentElapsed())
+
+    if (document.visibilityState === 'hidden') {
+      update()
+      return
+    }
+
+    update()
+    const timer = window.setInterval(update, 1000)
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [elapsedBaseSec, phase, puzzle?.id, startedAt, status, timeTakenSec])
+
+  useEffect(() => {
+    const pauseVisibleTimer = () => {
+      const latest = latestTimerRef.current
+      if (!latest.puzzleId || !latest.canPause) {
         return
       }
 
-      update()
-      timer = window.setInterval(update, 1000)
-    }
-    const pauseCurrentTimer = () => {
-      clearTimer()
-      pausedElapsed = currentElapsed()
-      setDisplayElapsedTimeSec(pausedElapsed)
-      pauseTimer(puzzle.id, pausedElapsed)
+      pauseTimer(latest.puzzleId, latest.elapsedTimeSec)
     }
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
-        pauseCurrentTimer()
+      const latest = latestTimerRef.current
+      if (!latest.puzzleId || !latest.canPause) {
         return
       }
 
-      resumeTimer(puzzle.id)
+      if (document.visibilityState === 'hidden') {
+        pauseVisibleTimer()
+        return
+      }
+
+      resumeTimer(latest.puzzleId)
     }
 
-    startTimer()
     document.addEventListener('visibilitychange', handleVisibilityChange)
-    window.addEventListener('pagehide', pauseCurrentTimer)
+    window.addEventListener('pagehide', pauseVisibleTimer)
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
-      window.removeEventListener('pagehide', pauseCurrentTimer)
-      clearTimer()
-      pauseTimer(puzzle.id, currentElapsed())
+      window.removeEventListener('pagehide', pauseVisibleTimer)
+      pauseVisibleTimer()
     }
-  }, [elapsedBaseSec, pauseTimer, phase, puzzle?.id, resumeTimer, startedAt, status])
+  }, [pauseTimer, resumeTimer])
 
   const saveMutation = useMutation({
     mutationFn: (payload: { puzzleId: string; progress: PuzzleProgressState }) =>
@@ -170,6 +192,15 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       markSaved(response.progress.currentState?.updatedAt ?? null)
     },
     onError: (error) => {
+      if (
+        error instanceof ApiError &&
+        error.status === 409 &&
+        (error.message.includes('stale') || error.code === 'CONFLICT')
+      ) {
+        markSaved(lastSyncedAt)
+        return
+      }
+
       markSaveError(getErrorMessage(error))
     }
   })
