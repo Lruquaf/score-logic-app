@@ -248,7 +248,7 @@ describe('puzzle store', () => {
     expect(store.getState().submitFeedback).toBeNull()
   })
 
-  it('applies answer reveal results and locks the solved board state', () => {
+  it('applies answer reveal results and allows reset into a fresh attempt', () => {
     const store = createPuzzleStore()
     const revealedAt = '2026-06-17T10:30:00.000Z'
     const fullInputs = Object.fromEntries(
@@ -280,6 +280,7 @@ describe('puzzle store', () => {
     }
 
     store.getState().initializePuzzle(sampleDailyPuzzlePublic, sampleProgressEnvelope)
+    store.getState().pauseTimer(sampleDailyPuzzlePublic.id, 62)
     store.getState().applyAnswerReveal({
       answer: {
         solution: [],
@@ -289,16 +290,22 @@ describe('puzzle store', () => {
       },
       progress
     })
+    expect(store.getState().answerRevealed).toBe(true)
+    expect(store.getState().elapsedBaseSec).toBe(62)
+    expect(store.getState().startedAt).toBeNull()
+
     store.getState().setScoreCell({ matchId: 'm1', side: 'home' }, 9)
     store.getState().resetCurrentPuzzle()
 
     const state = store.getState()
-    expect(state.answerRevealed).toBe(true)
-    expect(state.answerRevealedAt).toBe(revealedAt)
-    expect(state.completedMatchIds).toHaveLength(sampleDailyPuzzlePublic.matches.length)
-    expect(state.revealedMatchIds).toHaveLength(sampleDailyPuzzlePublic.matches.length)
-    expect(state.inputs.m1).toEqual(fullInputs.m1)
-    expect(state.lastHintMessage).toBe('Answer revealed.')
+    expect(state.answerRevealed).toBe(false)
+    expect(state.answerRevealedAt).toBeNull()
+    expect(state.completedMatchIds).toEqual([])
+    expect(state.revealedMatchIds).toEqual([])
+    expect(state.revealedCells).toEqual([])
+    expect(state.inputs.m1).toBeUndefined()
+    expect(state.elapsedBaseSec).toBe(0)
+    expect(state.lastHintMessage).toBeNull()
   })
 
   it('resets a completed puzzle into local replay mode without overwriting the completed draft', () => {

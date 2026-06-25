@@ -141,5 +141,7 @@ export const submitPuzzleSchema = z.object({
 export const hintRequestSchema = z.object({
   hintType: hintTypeSchema,
   currentInputs: z.record(scoreInputSchema).default({}),
-  currentOutcomes: z.record(matchOutcomeSchema.nullable()).default({})
+  currentOutcomes: z.record(matchOutcomeSchema.nullable()).default({}),
+  answerRevealed: z.boolean().default(false),
+  answerRevealedAt: z.string().datetime().nullable().default(null)
 })

@@ -162,6 +162,8 @@ export function requestPuzzleHint(
     hintType: HintType
     currentInputs: Record<string, ScoreInput>
     currentOutcomes?: Record<string, MatchOutcome | null>
+    answerRevealed?: boolean
+    answerRevealedAt?: string | null
   }
 ) {
   return requestJson<HintResponse>(`/api/puzzles/${puzzleId}/hint`, {
@@ -170,9 +172,9 @@ export function requestPuzzleHint(
   })
 }
 
-export function revealPuzzleAnswer(puzzleId: string) {
+export function revealPuzzleAnswer(puzzleId: string, body: { elapsedTimeSec?: number } = {}) {
   return requestJson<AnswerRevealResponse>(`/api/puzzles/${puzzleId}/answer`, {
     method: 'POST',
-    body: JSON.stringify({})
+    body: JSON.stringify(body)
   })
 }

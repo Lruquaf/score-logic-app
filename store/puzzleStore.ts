@@ -993,6 +993,7 @@ export function createPuzzleStore() {
               draftFromProgress(result.progress.puzzleId, result.progress, timestamp) ??
                 createEmptyDraft(result.progress.puzzleId, timestamp)
             )
+            const elapsedTimeSec = state.elapsedBaseSec
 
             return {
               ...state,
@@ -1013,8 +1014,8 @@ export function createPuzzleStore() {
               hintTypes: [...nextDraft.hintTypes],
               answerRevealed: nextDraft.answerRevealed,
               answerRevealedAt: nextDraft.answerRevealedAt,
-              elapsedBaseSec: result.progress.timeTakenSec ?? nextDraft.elapsedTimeSec ?? 0,
-              startedAt: nextDraft.startedAt,
+              elapsedBaseSec: elapsedTimeSec,
+              startedAt: null,
               updatedAt: nextDraft.updatedAt,
               lastSubmittedAt: nextDraft.lastSubmittedAt,
               timeTakenSec: result.progress.timeTakenSec,
@@ -1025,7 +1026,10 @@ export function createPuzzleStore() {
               lastSyncedAt: nextDraft.updatedAt,
               drafts: {
                 ...state.drafts,
-                [result.progress.puzzleId]: nextDraft
+                [result.progress.puzzleId]: {
+                  ...nextDraft,
+                  elapsedTimeSec
+                }
               }
             }
           }),
@@ -1042,6 +1046,7 @@ export function createPuzzleStore() {
               draftFromProgress(result.progress.puzzleId, result.progress, timestamp) ??
                 createEmptyDraft(result.progress.puzzleId, timestamp)
             )
+            const elapsedTimeSec = state.elapsedBaseSec
 
             return {
               ...state,
@@ -1062,8 +1067,8 @@ export function createPuzzleStore() {
               hintTypes: [...nextDraft.hintTypes],
               answerRevealed: true,
               answerRevealedAt: nextDraft.answerRevealedAt,
-              elapsedBaseSec: result.progress.timeTakenSec ?? nextDraft.elapsedTimeSec ?? 0,
-              startedAt: nextDraft.startedAt,
+              elapsedBaseSec: elapsedTimeSec,
+              startedAt: null,
               updatedAt: nextDraft.updatedAt,
               lastSubmittedAt: nextDraft.lastSubmittedAt,
               timeTakenSec: result.progress.timeTakenSec,
@@ -1078,7 +1083,10 @@ export function createPuzzleStore() {
                   : 'Answer revealed.',
               drafts: {
                 ...state.drafts,
-                [result.progress.puzzleId]: nextDraft
+                [result.progress.puzzleId]: {
+                  ...nextDraft,
+                  elapsedTimeSec
+                }
               }
             }
           }),
@@ -1145,7 +1153,12 @@ export function createPuzzleStore() {
           }),
         resumeTimer: (puzzleId) =>
           set((state) => {
-            if (state.puzzle?.id !== puzzleId || state.status === 'COMPLETED' || state.phase === 'IDLE') {
+            if (
+              state.puzzle?.id !== puzzleId ||
+              state.status === 'COMPLETED' ||
+              state.phase === 'IDLE' ||
+              state.answerRevealed
+            ) {
               return state
             }
 
@@ -1157,10 +1170,6 @@ export function createPuzzleStore() {
         resetCurrentPuzzle: () =>
           set((state) => {
             if (!state.puzzle) {
-              return state
-            }
-
-            if (state.answerRevealed) {
               return state
             }
 

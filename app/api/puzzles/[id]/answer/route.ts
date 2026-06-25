@@ -42,6 +42,10 @@ export async function POST(
 
     const { id } = await context.params
     const puzzleId = puzzleIdSchema.parse(id)
+    const body = await request.json().catch(() => ({})) as { elapsedTimeSec?: unknown }
+    const elapsedTimeSec = typeof body.elapsedTimeSec === 'number' && Number.isFinite(body.elapsedTimeSec)
+      ? Math.max(0, Math.min(7200, Math.floor(body.elapsedTimeSec)))
+      : null
     const puzzle = await getPuzzlePrivateById(puzzleId)
 
     if (!puzzle) {
@@ -86,6 +90,7 @@ export async function POST(
       hintTypes: existing?.hintTypes ?? [],
       answerRevealed: true,
       answerRevealedAt: existing?.answerRevealedAt ?? nowIso,
+      elapsedTimeSec: elapsedTimeSec ?? existing?.currentState?.elapsedTimeSec ?? 0,
       startedAt: existing?.currentState?.startedAt ?? null,
       updatedAt: nowIso,
       lastSubmittedAt: existing?.currentState?.lastSubmittedAt ?? null,

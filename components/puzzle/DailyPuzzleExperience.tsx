@@ -28,6 +28,7 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
     error,
     puzzle,
     phase,
+    status,
     violations,
     submitFeedback,
     completedMatchIds,
@@ -100,11 +101,22 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
   )
 
   useEffect(() => {
-    if (phase === 'SOLVED') {
+    const isCurrentRoutePuzzle = !puzzleId || puzzle?.id === puzzleId
+    const shouldShowVictory =
+      isCurrentRoutePuzzle &&
+      phase === 'SOLVED' &&
+      puzzle?.id &&
+      status === 'COMPLETED' &&
+      !answerRevealed
+
+    if (shouldShowVictory) {
       setIsVictoryOpen(true)
       setIsHintOpen(false)
+      return
     }
-  }, [phase])
+
+    setIsVictoryOpen(false)
+  }, [answerRevealed, phase, puzzle?.id, puzzleId, status])
 
   if (isLoading) {
     return (

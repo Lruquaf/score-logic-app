@@ -112,11 +112,22 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
   }, [statsQuery.data, syncUserStore])
 
   useEffect(() => {
-    if (!puzzle || !startedAt || phase === 'IDLE' || status === 'COMPLETED') {
+    if (!puzzle) {
       setDisplayElapsedTimeSec(0)
       latestTimerRef.current = {
-        puzzleId: puzzle?.id ?? null,
-        elapsedTimeSec: timeTakenSec ?? 0,
+        puzzleId: null,
+        elapsedTimeSec: 0,
+        canPause: false
+      }
+      return
+    }
+
+    if (!startedAt || phase === 'IDLE' || status === 'COMPLETED' || answerRevealed) {
+      const elapsed = timeTakenSec ?? elapsedBaseSec
+      setDisplayElapsedTimeSec(elapsed)
+      latestTimerRef.current = {
+        puzzleId: puzzle.id,
+        elapsedTimeSec: elapsed,
         canPause: false
       }
       return
@@ -148,7 +159,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     return () => {
       window.clearInterval(timer)
     }
-  }, [elapsedBaseSec, phase, puzzle?.id, startedAt, status, timeTakenSec])
+  }, [answerRevealed, elapsedBaseSec, phase, puzzle?.id, startedAt, status, timeTakenSec])
 
   useEffect(() => {
     const pauseVisibleTimer = () => {
@@ -211,6 +222,8 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       hintType: 'reveal'
       currentInputs: PuzzleProgressState['inputs']
       currentOutcomes: PuzzleProgressState['outcomes']
+      answerRevealed: boolean
+      answerRevealedAt: string | null
     }) => requestPuzzleHint(payload.puzzleId, payload),
     onSuccess: (response) => {
       applyHintPatch(response.progressPatch, response.hint.message)
@@ -253,7 +266,8 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
   })
 
   const answerRevealMutation = useMutation({
-    mutationFn: (payload: { puzzleId: string }) => revealPuzzleAnswer(payload.puzzleId),
+    mutationFn: (payload: { puzzleId: string; elapsedTimeSec: number }) =>
+      revealPuzzleAnswer(payload.puzzleId, { elapsedTimeSec: payload.elapsedTimeSec }),
     onSuccess: (response) => {
       applyAnswerReveal(response)
       setHintError(null)
@@ -351,7 +365,9 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
         puzzleId: puzzle.id,
         hintType,
         currentInputs: inputs,
-        currentOutcomes: outcomes
+        currentOutcomes: outcomes,
+        answerRevealed,
+        answerRevealedAt: usePuzzleStore.getState().answerRevealedAt
       })
     },
     revealAnswer: () => {
@@ -362,8 +378,11 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
         return
       }
 
+      const elapsedTimeSec = timeTakenSec ?? displayElapsedTimeSec
+      pauseTimer(puzzle.id, elapsedTimeSec)
       answerRevealMutation.mutate({
-        puzzleId: puzzle.id
+        puzzleId: puzzle.id,
+        elapsedTimeSec
       })
     },
     submit: () => {

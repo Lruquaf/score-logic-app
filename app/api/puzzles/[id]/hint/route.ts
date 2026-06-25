@@ -139,10 +139,6 @@ export async function POST(
       return errorResponse(409, 'CONFLICT', 'Hints cannot be requested for a completed puzzle.')
     }
 
-    if (existing?.answerRevealed) {
-      return errorResponse(409, 'CONFLICT', 'Hints cannot be requested after the answer is revealed.')
-    }
-
     const nextInputs: Record<string, ScoreInput> = {
       ...(existing?.currentState?.inputs ?? {}),
       ...body.currentInputs
@@ -251,8 +247,8 @@ export async function POST(
       nextOutcomes,
       nextHintsUsed,
       nextHintTypes,
-      existing?.answerRevealed ?? false,
-      existing?.answerRevealedAt ?? null,
+      body.answerRevealed,
+      body.answerRevealedAt,
       nextRevealedMatchIds,
       nextRevealedCells
     )
@@ -264,8 +260,8 @@ export async function POST(
       attempts: existing?.attempts ?? 0,
       hintsUsed: nextHintsUsed,
       hintTypes: nextHintTypes,
-      answerRevealed: existing?.answerRevealed ?? false,
-      answerRevealedAt: existing?.answerRevealedAt ? new Date(existing.answerRevealedAt) : null,
+      answerRevealed: body.answerRevealed,
+      answerRevealedAt: body.answerRevealedAt ? new Date(body.answerRevealedAt) : null,
       timeTakenSec: existing?.timeTakenSec ?? null,
       completedAt: existing?.completedAt ? new Date(existing.completedAt) : null,
       currentState
