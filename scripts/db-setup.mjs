@@ -1,8 +1,10 @@
-import { execFileSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 
 const retryablePatterns = [
   /database system is starting up/i,
+  /database system is not yet accepting connections/i,
   /can't reach database server/i,
+  /consistent recovery state/i,
   /connection.*closed/i,
   /connection refused/i,
   /schema engine error/i,
@@ -23,6 +25,31 @@ function isRetryable(error) {
   return retryablePatterns.some((pattern) => pattern.test(output))
 }
 
+function runNpmCommand(args) {
+  const result = spawnSync('npm', args, {
+    cwd: process.cwd(),
+    env: process.env,
+    encoding: 'utf8',
+    maxBuffer: 10 * 1024 * 1024
+  })
+
+  if (result.stdout) {
+    process.stdout.write(result.stdout)
+  }
+  if (result.stderr) {
+    process.stderr.write(result.stderr)
+  }
+
+  if (result.error || result.status !== 0) {
+    const error = result.error ?? new Error(`Command failed: npm ${args.join(' ')}`)
+    error.status = result.status
+    error.signal = result.signal
+    error.stdout = result.stdout
+    error.stderr = result.stderr
+    throw error
+  }
+}
+
 async function runWithRetry(label, args, options = {}) {
   const attempts = options.attempts ?? 12
   const baseDelayMs = options.baseDelayMs ?? 2_000
@@ -30,11 +57,7 @@ async function runWithRetry(label, args, options = {}) {
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       console.log(`${label}: attempt ${attempt}/${attempts}`)
-      execFileSync('npm', args, {
-        cwd: process.cwd(),
-        env: process.env,
-        stdio: 'inherit'
-      })
+      runNpmCommand(args)
       return
     } catch (error) {
       if (attempt === attempts || !isRetryable(error)) {
