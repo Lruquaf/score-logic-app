@@ -48,6 +48,8 @@ describe('user queries', () => {
             status: 'COMPLETED',
             attempts: 2,
             hintsUsed: 1,
+            answerRevealed: false,
+            answerRevealedAt: null,
             timeTakenSec: 180,
             completedAt: new Date('2026-06-17T10:00:00.000Z'),
             updatedAt: new Date('2026-06-17T10:00:00.000Z'),
@@ -55,7 +57,9 @@ describe('user queries', () => {
               id: 'ckscoredaily0000000000000001',
               difficulty: 'MEDIUM',
               dailyDate: new Date('2026-06-17T00:00:00.000Z'),
-              campaignOrder: null
+              campaignOrder: null,
+              campaignPack: null,
+              campaignLevel: null
             }
           },
           {
@@ -63,6 +67,8 @@ describe('user queries', () => {
             status: 'IN_PROGRESS',
             attempts: 1,
             hintsUsed: 0,
+            answerRevealed: true,
+            answerRevealedAt: new Date('2026-06-16T08:45:00.000Z'),
             timeTakenSec: null,
             completedAt: null,
             updatedAt: new Date('2026-06-16T08:30:00.000Z'),
@@ -70,7 +76,9 @@ describe('user queries', () => {
               id: 'ckscorecamp00000000000000001',
               difficulty: 'EASY',
               dailyDate: null,
-              campaignOrder: 1
+              campaignOrder: 1,
+              campaignPack: 'BEGINNER',
+              campaignLevel: 1
             }
           }
         ])
@@ -91,6 +99,8 @@ describe('user queries', () => {
       status: 'COMPLETED',
       attempts: 2,
       hintsUsed: 1,
+      answerRevealed: false,
+      answerRevealedAt: null,
       timeTakenSec: 180,
       completedAt: '2026-06-17T10:00:00.000Z',
       updatedAt: '2026-06-17T10:00:00.000Z',
@@ -99,7 +109,9 @@ describe('user queries', () => {
         mode: 'daily',
         difficulty: 'MEDIUM',
         dailyDate: '2026-06-17',
-        campaignOrder: null
+        campaignOrder: null,
+        campaignPack: null,
+        campaignLevel: null
       }
     })
     expect(result.entries[1].puzzle.mode).toBe('campaign')

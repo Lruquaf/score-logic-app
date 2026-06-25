@@ -1,7 +1,42 @@
 import { sampleDailyPuzzlePublic, sampleProgressEnvelope } from '@/lib/fixtures/samplePuzzle'
 import { createPuzzleStore, selectCurrentProgressState } from '@/store/puzzleStore'
+import { vi } from 'vitest'
+
+const solvedFeedback = {
+  mode: 'CONSTRAINT_VIOLATIONS' as const,
+  message: 'Solved. Every score fits the final table.',
+  wrongMatchIds: [],
+  wrongCells: [],
+  wrongOutcomeMatchIds: [],
+  errorCount: 0,
+  violations: []
+}
 
 describe('puzzle store', () => {
+  it('applies prefilled puzzle scores without counting them as hints', () => {
+    const store = createPuzzleStore()
+    const prefilledMatch = {
+      ...sampleDailyPuzzlePublic.matches[0],
+      homeScore: 2,
+      awayScore: 2
+    }
+    const puzzle = {
+      ...sampleDailyPuzzlePublic,
+      initialRevealedMatches: [prefilledMatch]
+    }
+
+    store.getState().initializePuzzle(puzzle, null)
+    store.getState().setScoreCell({ matchId: prefilledMatch.id, side: 'home' }, 9)
+
+    const state = store.getState()
+
+    expect(state.inputs[prefilledMatch.id]).toEqual({ home: 2, away: 2 })
+    expect(state.completedMatchIds).toContain(prefilledMatch.id)
+    expect(state.initialRevealedMatchIds).toEqual([prefilledMatch.id])
+    expect(state.revealedCells).toEqual([])
+    expect(state.hintsUsed).toBe(0)
+  })
+
   it('prefers a newer local draft over stale remote progress during hydration', () => {
     const store = createPuzzleStore()
     const localDraft = {
@@ -50,6 +85,92 @@ describe('puzzle store', () => {
     })
   })
 
+  it('builds canonical progress from beginner outcome selections', () => {
+    const store = createPuzzleStore()
+    const puzzle = {
+      ...sampleDailyPuzzlePublic,
+      mode: 'campaign' as const,
+      dailyDate: null,
+      campaignOrder: 1,
+      campaignPack: 'BEGINNER' as const,
+      campaignLevel: 1
+    }
+
+    store.getState().initializePuzzle(puzzle, null)
+    store.getState().setOutcome('m1', 'DRAW')
+
+    const progress = selectCurrentProgressState(store.getState())
+
+    expect(progress?.outcomes.m1).toBe('DRAW')
+    expect(progress?.completedMatchIds).toContain('m1')
+    expect(store.getState().drafts[puzzle.id]?.outcomes.m1).toBe('DRAW')
+  })
+
+  it('persists elapsed time when a puzzle timer is paused', () => {
+    const store = createPuzzleStore()
+
+    store.getState().initializePuzzle(sampleDailyPuzzlePublic, null)
+    store.getState().pauseTimer(sampleDailyPuzzlePublic.id, 47)
+
+    const state = store.getState()
+
+    expect(state.elapsedBaseSec).toBe(47)
+    expect(state.drafts[sampleDailyPuzzlePublic.id]?.elapsedTimeSec).toBe(47)
+  })
+
+  it('resumes a paused puzzle timer without increasing elapsed time', () => {
+    vi.useFakeTimers()
+    try {
+      const store = createPuzzleStore()
+      const resumedAt = new Date('2026-06-25T12:00:30.000Z')
+
+      store.getState().initializePuzzle(sampleDailyPuzzlePublic, null)
+      store.getState().pauseTimer(sampleDailyPuzzlePublic.id, 47)
+      vi.setSystemTime(resumedAt)
+      store.getState().resumeTimer(sampleDailyPuzzlePublic.id)
+
+      const state = store.getState()
+
+      expect(state.elapsedBaseSec).toBe(47)
+      expect(state.startedAt).toBe(resumedAt.toISOString())
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('applies beginner reveal hints as locked outcomes', () => {
+    const store = createPuzzleStore()
+    const puzzle = {
+      ...sampleDailyPuzzlePublic,
+      mode: 'campaign' as const,
+      dailyDate: null,
+      campaignOrder: 1,
+      campaignPack: 'BEGINNER' as const,
+      campaignLevel: 1
+    }
+
+    store.getState().initializePuzzle(puzzle, null)
+    store.getState().applyHintPatch(
+      {
+        hintsUsed: 1,
+        hintTypes: ['reveal'],
+        revealedMatchIds: ['m1'],
+        revealedOutcomes: {
+          m1: 'HOME_WIN'
+        }
+      },
+      'One match result revealed.'
+    )
+    store.getState().setOutcome('m1', 'DRAW')
+
+    const state = store.getState()
+
+    expect(state.outcomes.m1).toBe('HOME_WIN')
+    expect(state.completedMatchIds).toContain('m1')
+    expect(state.revealedMatchIds).toEqual(['m1'])
+    expect(state.drafts[puzzle.id]?.outcomes.m1).toBe('HOME_WIN')
+  })
+
   it('applies solved submit results as synced completed state', () => {
     const store = createPuzzleStore()
     const completedProgress = {
@@ -69,6 +190,7 @@ describe('puzzle store', () => {
     store.getState().applySubmitResolution({
       isCorrect: true,
       violations: [],
+      feedback: solvedFeedback,
       progress: completedProgress
     })
 
@@ -78,6 +200,105 @@ describe('puzzle store', () => {
     expect(state.timeTakenSec).toBe(214)
     expect(state.lastSyncedAt).toBe('2026-06-17T10:00:00.000Z')
     expect(state.violations).toEqual([])
+    expect(state.submitFeedback).toBeNull()
+  })
+
+  it('stores failed submit feedback until the next score edit', () => {
+    const store = createPuzzleStore()
+    const feedback = {
+      mode: 'EXACT_WRONG_CELLS' as const,
+      message: '1 score cell needs another look.',
+      wrongMatchIds: ['m1'],
+      wrongCells: [{ matchId: 'm1', side: 'home' as const }],
+      wrongOutcomeMatchIds: [],
+      errorCount: 1,
+      violations: []
+    }
+
+    store.getState().initializePuzzle(sampleDailyPuzzlePublic, sampleProgressEnvelope)
+    store.getState().applySubmitResolution({
+      isCorrect: false,
+      violations: [],
+      feedback,
+      progress: {
+        ...sampleProgressEnvelope,
+        attempts: 1,
+        currentState: {
+          ...sampleProgressEnvelope.currentState!,
+          inputs: {
+            ...sampleProgressEnvelope.currentState!.inputs,
+            m3: { home: 1, away: 1 },
+            m4: { home: 0, away: 0 },
+            m5: { home: 1, away: 2 },
+            m6: { home: 3, away: 0 }
+          },
+          completedMatchIds: ['m1', 'm2', 'm3', 'm4', 'm5', 'm6'],
+          lastSubmittedAt: '2026-06-17T10:00:00.000Z',
+          updatedAt: '2026-06-17T10:00:00.000Z'
+        }
+      }
+    })
+
+    expect(store.getState().phase).toBe('FAILED')
+    expect(store.getState().submitFeedback).toEqual(feedback)
+
+    store.getState().setScoreCell({ matchId: 'm1', side: 'home' }, 3)
+
+    expect(store.getState().phase).toBe('ACTIVE')
+    expect(store.getState().submitFeedback).toBeNull()
+  })
+
+  it('applies answer reveal results and locks the solved board state', () => {
+    const store = createPuzzleStore()
+    const revealedAt = '2026-06-17T10:30:00.000Z'
+    const fullInputs = Object.fromEntries(
+      sampleDailyPuzzlePublic.matches.map((match) => [
+        match.id,
+        sampleDailyPuzzlePublic.initialRevealedMatches.find((revealed) => revealed.id === match.id)
+          ? { home: 0, away: 0 }
+          : { home: 1, away: 0 }
+      ])
+    )
+    const progress = {
+      ...sampleProgressEnvelope,
+      answerRevealed: true,
+      answerRevealedAt: revealedAt,
+      currentState: {
+        ...sampleProgressEnvelope.currentState!,
+        inputs: fullInputs,
+        outcomes: {},
+        completedMatchIds: sampleDailyPuzzlePublic.matches.map((match) => match.id),
+        revealedMatchIds: sampleDailyPuzzlePublic.matches.map((match) => match.id),
+        revealedCells: sampleDailyPuzzlePublic.matches.flatMap((match) => [
+          { matchId: match.id, side: 'home' as const },
+          { matchId: match.id, side: 'away' as const }
+        ]),
+        answerRevealed: true,
+        answerRevealedAt: revealedAt,
+        updatedAt: revealedAt
+      }
+    }
+
+    store.getState().initializePuzzle(sampleDailyPuzzlePublic, sampleProgressEnvelope)
+    store.getState().applyAnswerReveal({
+      answer: {
+        solution: [],
+        allSolutions: [],
+        outcomes: {},
+        solutionCount: 1
+      },
+      progress
+    })
+    store.getState().setScoreCell({ matchId: 'm1', side: 'home' }, 9)
+    store.getState().resetCurrentPuzzle()
+
+    const state = store.getState()
+    expect(state.answerRevealed).toBe(true)
+    expect(state.answerRevealedAt).toBe(revealedAt)
+    expect(state.completedMatchIds).toHaveLength(sampleDailyPuzzlePublic.matches.length)
+    expect(state.revealedMatchIds).toHaveLength(sampleDailyPuzzlePublic.matches.length)
+    expect(state.inputs.m1).toEqual(fullInputs.m1)
+    expect(state.lastHintMessage).toBe('Answer revealed.')
   })
 
   it('resets a completed puzzle into local replay mode without overwriting the completed draft', () => {

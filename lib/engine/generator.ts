@@ -1,10 +1,9 @@
 import type { GeneratedPuzzle, Match, MatchSolution, Standing, Team } from '@/lib/engine/types'
-import { countInferenceSteps, difficultyScore } from '@/lib/engine/difficulty'
-import { solve } from '@/lib/engine/solver'
+import { analyzePuzzleDifficulty } from '@/lib/engine/difficulty'
+import { scoreMapsToSolutions, solveAll } from '@/lib/engine/solver'
 import { selectTeamsFromPool, type TeamPoolKey } from '@/lib/fixtures/teamPools'
 
 const DEFAULT_MAX_ATTEMPTS = 500
-const MAX_SOLUTION_COUNT_ANALYSIS = 12
 const TYPICAL_GOAL_AVERAGE = 2.5
 const GOAL_AVERAGE_TOLERANCE = 1.2
 
@@ -176,22 +175,26 @@ export async function generatePuzzle(
 
     const standings = computeStandings(teams, solutionMatches)
     const publicMatches = stripMatchScores(solutionMatches)
-    const solutions = solve(standings, publicMatches, MAX_SOLUTION_COUNT_ANALYSIS)
+    const solutionMaps = solveAll(standings, publicMatches)
+    const allSolutions = scoreMapsToSolutions(publicMatches, solutionMaps)
 
-    if (solutions.length < 1) {
+    if (allSolutions.length < 1) {
       continue
     }
 
-    const inferenceSteps = countInferenceSteps(standings, solutionMatches)
-    const solutionCount = solutions.length
+    const analysis = analyzePuzzleDifficulty(standings, solutionMatches, {
+      solutionCount: allSolutions.length,
+      solutionCountLimit: allSolutions.length + 1
+    })
 
     return {
       standings,
       matches: solutionMatches,
+      allSolutions,
       isValid: true,
-      solutionCount,
-      difficultyScore: difficultyScore(inferenceSteps, solutionCount),
-      inferenceSteps
+      solutionCount: analysis.metrics.solutionCount,
+      difficultyScore: analysis.score,
+      inferenceSteps: analysis.metrics.inferenceSteps
     }
   }
 

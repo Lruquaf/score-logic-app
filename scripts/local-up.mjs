@@ -15,6 +15,7 @@ import {
   runCommandCapture,
   sleep,
   startManagedNextProcess,
+  stopManagedNextProcess,
   waitForHttp,
   writeManagedNextPid
 } from './local-dev-common.mjs'
@@ -101,13 +102,14 @@ async function main() {
 
   const previousPid = readManagedNextPid()
   if (previousPid) {
-    console.log(`Next.js dev server already running with PID ${previousPid}`)
-  } else {
-    console.log('Starting Next.js dev server...')
-    clearManagedNextPid()
-    const nextPid = startManagedNextProcess()
-    console.log(`Next.js dev server started with PID ${nextPid}`)
+    console.log(`Restarting Next.js dev server after setup (PID ${previousPid})...`)
+    await stopManagedNextProcess()
   }
+
+  console.log('Starting Next.js dev server...')
+  clearManagedNextPid()
+  const nextPid = startManagedNextProcess()
+  console.log(`Next.js dev server started with PID ${nextPid}`)
 
   await waitForHttp(`${localWebBaseUrl}/api/healthz`)
   const listeningPid = findLocalWebPid()

@@ -14,6 +14,9 @@ import {
   getClientIdentifier
 } from '@/lib/security/rate-limit'
 import { toScoreMap, validateCompleteSolution } from '@/lib/engine/validator'
+import { getPuzzleCampaignPackConfig } from '@/lib/puzzles/campaignConfig'
+import { validateCompleteOutcomes } from '@/lib/puzzles/outcomes'
+import { buildSubmitFeedback } from '@/lib/puzzles/submitFeedback'
 import { buildProgressState } from '@/lib/utils/progress-state'
 import { puzzleIdSchema, submitPuzzleSchema } from '@/lib/validations'
 
@@ -24,6 +27,16 @@ const SUBMIT_RATE_LIMIT = {
   limit: 10,
   window: '1 m' as const,
   windowMs: 60_000
+}
+
+function completedInputPayload(inputs: Record<string, { home: number | null; away: number | null }>) {
+  return Object.fromEntries(
+    Object.entries(inputs)
+      .filter((entry): entry is [string, { home: number; away: number }] => {
+        const [, score] = entry
+        return score.home !== null && score.away !== null
+      })
+  )
 }
 
 export async function POST(
@@ -52,17 +65,37 @@ export async function POST(
 
     const user = await ensureRequestUser(request)
     const existing = await getPuzzleProgress(user.userId!, puzzleId)
-    const inputMap = toScoreMap(body.inputs)
-    const validation = validateCompleteSolution(puzzle.standings, puzzle.matches, inputMap)
+
+    if (existing?.answerRevealed) {
+      return errorResponse(409, 'CONFLICT', 'Solutions cannot be submitted after the answer is revealed.')
+    }
+
+    const completeInputs = completedInputPayload(body.inputs)
+    const inputMap = toScoreMap(completeInputs)
+    const packConfig = getPuzzleCampaignPackConfig(puzzle)
+    const isOutcomeOnly = packConfig?.playMode === 'OUTCOME_ONLY'
+    const validation = isOutcomeOnly
+      ? { ...validateCompleteOutcomes(puzzle.standings, puzzle.matches, body.outcomes), violations: [] }
+      : validateCompleteSolution(puzzle.standings, puzzle.matches, inputMap)
     const isCorrect = validation.isCorrect
+    const feedback = buildSubmitFeedback({
+      puzzle,
+      userInputs: isOutcomeOnly ? undefined : inputMap,
+      userOutcomes: isOutcomeOnly ? body.outcomes : undefined,
+      isCorrect,
+      violations: validation.violations
+    })
     const nowIso = new Date().toISOString()
 
     const currentState = buildProgressState({
       puzzleId,
       inputs: body.inputs,
+      outcomes: body.outcomes,
       notes: existing?.currentState?.notes ?? {},
       hintsUsed: existing?.hintsUsed ?? 0,
       hintTypes: existing?.hintTypes ?? [],
+      answerRevealed: existing?.answerRevealed ?? false,
+      answerRevealedAt: existing?.answerRevealedAt ?? null,
       startedAt: existing?.currentState?.startedAt ?? null,
       updatedAt: nowIso,
       lastSubmittedAt: nowIso,
@@ -79,9 +112,12 @@ export async function POST(
         currentState: buildProgressState({
           puzzleId,
           inputs: body.inputs,
+          outcomes: body.outcomes,
           notes: existing.currentState?.notes ?? {},
           hintsUsed: existing.hintsUsed,
           hintTypes: existing.hintTypes,
+          answerRevealed: existing.answerRevealed,
+          answerRevealedAt: existing.answerRevealedAt,
           startedAt: nowIso,
           updatedAt: nowIso,
           lastSubmittedAt: nowIso,
@@ -94,6 +130,7 @@ export async function POST(
       const response = jsonResponse({
         isCorrect,
         violations: isCorrect ? [] : validation.violations,
+        feedback,
         progress: replayProgress
       })
 
@@ -115,6 +152,8 @@ export async function POST(
           attempts,
           hintsUsed: existing?.hintsUsed ?? 0,
           hintTypes: existing?.hintTypes ?? [],
+          answerRevealed: existing?.answerRevealed ?? false,
+          answerRevealedAt: existing?.answerRevealedAt ? new Date(existing.answerRevealedAt) : null,
           timeTakenSec: isCorrect ? body.timeTakenSec : existing?.timeTakenSec ?? null,
           completedAt: isCorrect ? new Date(nowIso) : null,
           currentState
@@ -147,6 +186,7 @@ export async function POST(
     const response = jsonResponse({
       isCorrect,
       violations: isCorrect ? [] : validation.violations,
+      feedback,
       progress: savedProgress
     })
 

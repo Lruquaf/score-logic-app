@@ -5,16 +5,18 @@ import { errorResponse, jsonResponse, withResponseCookie } from '@/lib/api/http'
 import { ensureRequestUser } from '@/lib/auth/anonymous'
 import { getPuzzlePrivateById } from '@/lib/db/queries/puzzles'
 import { getPuzzleProgress, upsertPuzzleProgress } from '@/lib/db/queries/progress'
-import type { HintType, PuzzleProgressState, RevealedScoreCell, ScoreInput } from '@/lib/contracts/progress'
+import type { HintType, MatchOutcome, PuzzleProgressState, RevealedScoreCell, ScoreInput } from '@/lib/contracts/progress'
 import { captureServerEvent } from '@/lib/observability/server'
 import {
   applyRateLimitHeaders,
   enforceRateLimit,
   getClientIdentifier
 } from '@/lib/security/rate-limit'
-import { generateHint } from '@/lib/engine/hint'
+import { generateHint, type Hint } from '@/lib/engine/hint'
 import { scoreMapFromSolution } from '@/lib/engine/scoring'
 import { toScoreMap } from '@/lib/engine/validator'
+import { getPuzzleCampaignPackConfig } from '@/lib/puzzles/campaignConfig'
+import { outcomeFromScore } from '@/lib/puzzles/outcomes'
 import { buildProgressState } from '@/lib/utils/progress-state'
 import { hintRequestSchema, puzzleIdSchema } from '@/lib/validations'
 
@@ -31,8 +33,12 @@ function buildHintCurrentState(
   puzzleId: string,
   existingState: PuzzleProgressState | null,
   currentInputs: Record<string, ScoreInput>,
+  currentOutcomes: Record<string, MatchOutcome | null>,
   hintsUsed: number,
   hintTypes: HintType[],
+  answerRevealed: boolean,
+  answerRevealedAt: string | null,
+  revealedMatchIds?: string[],
   revealedCells?: RevealedScoreCell[]
 ) {
   return buildProgressState({
@@ -41,16 +47,33 @@ function buildHintCurrentState(
       ...(existingState?.inputs ?? {}),
       ...currentInputs
     },
+    outcomes: {
+      ...(existingState?.outcomes ?? {}),
+      ...currentOutcomes
+    },
     notes: existingState?.notes ?? {},
     hintsUsed,
     hintTypes,
     startedAt: existingState?.startedAt ?? null,
     updatedAt: new Date().toISOString(),
     lastSubmittedAt: existingState?.lastSubmittedAt ?? null,
-    revealedMatchIds: existingState?.revealedMatchIds ?? [],
+    revealedMatchIds: revealedMatchIds ?? existingState?.revealedMatchIds ?? [],
     revealedCells: revealedCells ?? existingState?.revealedCells ?? [],
+    answerRevealed,
+    answerRevealedAt,
     completedMatchIds: existingState?.completedMatchIds ?? []
   })
+}
+
+function chooseUnrevealedMatch(
+  matches: { id: string }[],
+  revealedMatchIds: string[],
+  random: () => number = Math.random
+) {
+  const revealed = new Set(revealedMatchIds)
+  const candidates = matches.filter((match) => !revealed.has(match.id))
+  if (candidates.length === 0) return null
+  return candidates[Math.floor(random() * candidates.length)] ?? candidates[0]
 }
 
 function completedInputMap(inputs: Record<string, ScoreInput>) {
@@ -116,36 +139,87 @@ export async function POST(
       return errorResponse(409, 'CONFLICT', 'Hints cannot be requested for a completed puzzle.')
     }
 
+    if (existing?.answerRevealed) {
+      return errorResponse(409, 'CONFLICT', 'Hints cannot be requested after the answer is revealed.')
+    }
+
     const nextInputs: Record<string, ScoreInput> = {
       ...(existing?.currentState?.inputs ?? {}),
       ...body.currentInputs
     }
+    const nextOutcomes: Record<string, MatchOutcome | null> = {
+      ...(existing?.currentState?.outcomes ?? {}),
+      ...body.currentOutcomes
+    }
     const inputMap = completedInputMap(nextInputs)
+    const packConfig = getPuzzleCampaignPackConfig(puzzle)
+    const isOutcomeOnly = packConfig?.playMode === 'OUTCOME_ONLY'
     const existingRevealedCells = normalizeRevealedCells({
       revealedCells: existing?.currentState?.revealedCells ?? [],
       revealedMatchIds: existing?.currentState?.revealedMatchIds ?? []
     })
-    const hint = generateHint(
-      puzzle.standings,
-      puzzle.matches,
-      inputMap,
-      body.hintType,
-      scoreMapFromSolution(puzzle.solution),
-      existingRevealedCells
-    )
+    const existingRevealedMatchIds = existing?.currentState?.revealedMatchIds ?? []
+    const hint: Hint = isOutcomeOnly
+      ? (() => {
+          const targetMatch = chooseUnrevealedMatch(puzzle.matches, existingRevealedMatchIds)
+
+          if (!targetMatch) {
+            return {
+              type: body.hintType,
+              message: 'All match results are already revealed.'
+            }
+          }
+
+          const solutionMatch = puzzle.solution.find((match) => match.id === targetMatch.id)
+          if (!solutionMatch) {
+            throw new Error(`Missing solution for match ${targetMatch.id}`)
+          }
+
+          const revealedOutcome = outcomeFromScore(solutionMatch)
+
+          return {
+            type: 'reveal' as const,
+            message: 'One match result revealed.',
+            targetMatchId: targetMatch.id,
+            revealedOutcome
+          }
+        })()
+      : generateHint(
+          puzzle.standings,
+          puzzle.matches,
+          inputMap,
+          body.hintType,
+          scoreMapFromSolution(puzzle.solution),
+          existingRevealedCells
+        )
 
     const nextHintsUsed = (existing?.hintsUsed ?? 0) + 1
     const nextHintTypes = [...(existing?.hintTypes ?? []), body.hintType]
     const nextRevealedCells = [...existingRevealedCells]
+    const nextRevealedMatchIds = [...existingRevealedMatchIds]
 
     const progressPatch: {
       hintsUsed: number
       hintTypes: HintType[]
+      revealedMatchIds?: string[]
       revealedCells?: RevealedScoreCell[]
       revealedInputs?: Record<string, Partial<Record<'home' | 'away', number>>>
+      revealedOutcomes?: Record<string, MatchOutcome>
     } = {
       hintsUsed: nextHintsUsed,
       hintTypes: nextHintTypes
+    }
+
+    if (hint.revealedOutcome && hint.targetMatchId) {
+      if (!nextRevealedMatchIds.includes(hint.targetMatchId)) {
+        nextRevealedMatchIds.push(hint.targetMatchId)
+      }
+
+      nextOutcomes[hint.targetMatchId] = hint.revealedOutcome
+      progressPatch.revealedMatchIds = nextRevealedMatchIds
+      progressPatch.revealedOutcomes = {
+        [hint.targetMatchId]: hint.revealedOutcome
+      }
     }
 
     if (hint.type === 'reveal' && hint.revealedCell && hint.revealedScore !== undefined) {
@@ -174,8 +248,12 @@ export async function POST(
       puzzleId,
       existing?.currentState ?? null,
       nextInputs,
+      nextOutcomes,
       nextHintsUsed,
       nextHintTypes,
+      existing?.answerRevealed ?? false,
+      existing?.answerRevealedAt ?? null,
+      nextRevealedMatchIds,
       nextRevealedCells
     )
 
@@ -186,6 +264,8 @@ export async function POST(
       attempts: existing?.attempts ?? 0,
       hintsUsed: nextHintsUsed,
       hintTypes: nextHintTypes,
+      answerRevealed: existing?.answerRevealed ?? false,
+      answerRevealedAt: existing?.answerRevealedAt ? new Date(existing.answerRevealedAt) : null,
       timeTakenSec: existing?.timeTakenSec ?? null,
       completedAt: existing?.completedAt ? new Date(existing.completedAt) : null,
       currentState

@@ -126,6 +126,34 @@ export function solve(
   return solutions
 }
 
+export function solveAll(
+  standings: Standing[],
+  matches: Match[],
+  maxGoalsPerMatch = DEFAULT_MAX_GOALS_PER_MATCH
+): ScoreMap[] {
+  return solve(standings, matches, Number.POSITIVE_INFINITY, maxGoalsPerMatch)
+}
+
+export function scoreMapToSolution(matches: Match[], scores: ReadonlyMap<string, ScoreValue>): MatchSolution[] {
+  return matches.map((match) => {
+    const score = scores.get(match.id)
+
+    if (!score) {
+      throw new Error(`Missing score for match ${match.id}`)
+    }
+
+    return {
+      ...match,
+      homeScore: score.home,
+      awayScore: score.away
+    }
+  })
+}
+
+export function scoreMapsToSolutions(matches: Match[], solutions: ReadonlyMap<string, ScoreValue>[]): MatchSolution[][] {
+  return solutions.map((solution) => scoreMapToSolution(matches, solution))
+}
+
 export function computeStats(
   standings: Standing[],
   matches: Match[],

@@ -28,6 +28,7 @@ export interface ConstraintViolation {
 export interface GeneratedPuzzle {
   standings: Standing[]
   matches: MatchSolution[]
+  allSolutions: MatchSolution[][]
   isValid: boolean
   solutionCount: number
   difficultyScore: number

@@ -1,0 +1,8 @@
+{
+  "/api/telemetry/client-error/route": "app/api/telemetry/client-error/route.js",
+  "/api/telemetry/web-vitals/route": "app/api/telemetry/web-vitals/route.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/(game)/puzzles/[id]/page": "app/(game)/puzzles/[id]/page.js",
+  "/(game)/page": "app/(game)/page.js",
+  "/(game)/campaign/page": "app/(game)/campaign/page.js"
+}

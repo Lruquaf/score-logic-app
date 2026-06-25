@@ -18,9 +18,9 @@ export function StandingsTable({
 
   return (
     <div className={`panel flex flex-col overflow-hidden ${className}`}>
-      <div className="flex items-center justify-between border-b border-[var(--line)] bg-[rgba(231,241,233,0.46)] px-4 py-4">
+      <div className="flex items-center justify-between border-b border-[var(--line)] bg-[rgba(231,241,233,0.46)] px-3 py-3 sm:px-4 sm:py-4">
         <div className="flex items-center gap-2">
-          <h2 className="font-[var(--font-display)] text-2xl font-semibold text-[var(--ink)]">Final Table</h2>
+          <h2 className="font-[var(--font-display)] text-xl font-semibold text-[var(--ink)] sm:text-2xl">Final Table</h2>
           <HelpPopover label="Explain final table" title="Final Table">
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
               <dt className="font-mono font-bold text-[var(--field-deep)]">P</dt>
@@ -93,12 +93,12 @@ export function StandingsTable({
                           : 'bg-[rgba(231,241,233,0.42)]'
                   }`}
                 >
-                  <td className="rounded-l-[var(--radius-sm)] border-y border-l border-[var(--line)] py-3 pl-1 pr-2 text-center sm:py-4 sm:pl-3 sm:pr-3">
+                  <td className="rounded-l-[var(--radius-sm)] border-y border-l border-[var(--line)] py-2.5 pl-1 pr-2 text-center sm:py-4 sm:pl-3 sm:pr-3">
                     <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--field-line)] bg-[var(--field-soft)] font-mono text-[10px] font-bold text-[var(--field-deep)] shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] sm:h-8 sm:min-w-8 sm:text-xs">
                       {standing.position}
                     </span>
                   </td>
-                  <td className="border-y border-[var(--line)] py-3 pl-2 pr-1 sm:py-4 sm:pl-3 sm:pr-2">
+                  <td className="border-y border-[var(--line)] py-2.5 pl-2 pr-1 sm:py-4 sm:pl-3 sm:pr-2">
                     <div
                       className={`truncate font-mono text-xs font-bold sm:text-base ${
                         hasViolation ? 'text-[var(--danger)]' : 'text-[var(--ink)]'
@@ -118,12 +118,12 @@ export function StandingsTable({
                   ].map((value, valueIndex) => (
                     <td
                       key={`${standing.teamId}-${valueIndex}`}
-                      className="border-y border-[var(--line)] px-1 py-3 text-right font-mono text-[11px] font-semibold text-[var(--ink-soft)] sm:px-2 sm:py-4 sm:text-sm"
+                      className="border-y border-[var(--line)] px-1 py-2.5 text-right font-mono text-[11px] font-semibold text-[var(--ink-soft)] sm:px-2 sm:py-4 sm:text-sm"
                     >
                       {value}
                     </td>
                   ))}
-                  <td className="rounded-r-[var(--radius-sm)] border-y border-r border-[var(--line)] px-1 py-3 text-right font-mono text-xs font-bold text-[var(--field-deep)] sm:px-3 sm:py-4 sm:text-base">
+                  <td className="rounded-r-[var(--radius-sm)] border-y border-r border-[var(--line)] px-1 py-2.5 text-right font-mono text-xs font-bold text-[var(--field-deep)] sm:px-3 sm:py-4 sm:text-base">
                     {standing.points}
                   </td>
                 </tr>

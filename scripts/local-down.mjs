@@ -1,12 +1,10 @@
 import {
-  clearManagedNextPid,
   getDatabaseConfig,
-  isProcessRunning,
   isManagedPostgresRunning,
   postgresDir,
   readManagedNextPid,
   runCommand,
-  sleep
+  stopManagedNextProcess
 } from './local-dev-common.mjs'
 
 async function stopNext() {
@@ -17,21 +15,8 @@ async function stopNext() {
   }
 
   console.log(`Stopping Next.js dev server (PID ${pid})...`)
-  process.kill(pid, 'SIGTERM')
-
-  for (let index = 0; index < 20; index += 1) {
-    if (!isProcessRunning(pid)) {
-      clearManagedNextPid()
-      console.log('Next.js dev server stopped')
-      return
-    }
-
-    await sleep(250)
-  }
-
-  process.kill(pid, 'SIGKILL')
-  clearManagedNextPid()
-  console.log('Next.js dev server killed')
+  await stopManagedNextProcess()
+  console.log('Next.js dev server stopped')
 }
 
 function stopPostgres(host, port) {

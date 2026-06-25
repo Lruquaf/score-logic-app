@@ -1,4 +1,4 @@
-import type { HintType, RevealedScoreCell } from '@/lib/contracts/progress'
+import type { HintType, MatchOutcome, RevealedScoreCell } from '@/lib/contracts/progress'
 import type { Match, Standing } from '@/lib/engine/types'
 import type { ScoreMap, ScoreValue } from '@/lib/engine/scoring'
 
@@ -8,6 +8,7 @@ export interface Hint {
   targetMatchId?: string
   revealedCell?: RevealedScoreCell
   revealedScore?: number
+  revealedOutcome?: MatchOutcome
 }
 
 function cellKey(cell: RevealedScoreCell) {

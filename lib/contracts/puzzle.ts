@@ -1,7 +1,11 @@
 export const DIFFICULTY_VALUES = ['EASY', 'MEDIUM', 'HARD'] as const
+export const CAMPAIGN_PACK_VALUES = ['BEGINNER', 'EASY', 'MEDIUM', 'HARD', 'EXPERT'] as const
+export const CAMPAIGN_BAND_VALUES = ['INTRO', 'DEVELOPMENT', 'FINALE'] as const
 export const PUZZLE_MODE_VALUES = ['daily', 'campaign'] as const
 
 export type Difficulty = (typeof DIFFICULTY_VALUES)[number]
+export type CampaignPack = (typeof CAMPAIGN_PACK_VALUES)[number]
+export type CampaignBand = (typeof CAMPAIGN_BAND_VALUES)[number]
 export type PuzzleMode = (typeof PUZZLE_MODE_VALUES)[number]
 
 export interface TeamDTO {
@@ -42,15 +46,21 @@ export interface PuzzlePublicDTO {
   mode: PuzzleMode
   difficulty: Difficulty
   inferenceSteps: number
+  tableDifficultyScore: number | null
+  solutionCount: number | null
   teams: TeamDTO[]
   standings: StandingDTO[]
   matches: MatchPublicDTO[]
+  initialRevealedMatches: MatchSolutionDTO[]
   dailyDate: string | null
   campaignOrder: number | null
+  campaignPack: CampaignPack | null
+  campaignLevel: number | null
 }
 
 export interface PuzzlePrivateDTO extends PuzzlePublicDTO {
   solution: MatchSolutionDTO[]
+  allSolutions: MatchSolutionDTO[][]
 }
 
 export interface PuzzleRecordJSON {
@@ -58,5 +68,5 @@ export interface PuzzleRecordJSON {
   standings: StandingDTO[]
   matchIds: MatchPublicDTO[]
   solution: MatchSolutionDTO[]
+  allSolutions?: MatchSolutionDTO[][]
 }
-

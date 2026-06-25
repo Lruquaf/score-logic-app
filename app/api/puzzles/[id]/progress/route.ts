@@ -79,6 +79,8 @@ export async function PUT(
       attempts: existing?.attempts ?? 0,
       hintsUsed: body.progress.hintsUsed,
       hintTypes: body.progress.hintTypes,
+      answerRevealed: body.progress.answerRevealed,
+      answerRevealedAt: body.progress.answerRevealedAt ? new Date(body.progress.answerRevealedAt) : null,
       timeTakenSec: existing?.timeTakenSec ?? null,
       completedAt: existing?.completedAt ? new Date(existing.completedAt) : null,
       currentState: body.progress

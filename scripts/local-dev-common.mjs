@@ -185,3 +185,35 @@ export function startManagedNextProcess() {
   writeManagedNextPid(child.pid)
   return child.pid
 }
+
+export async function stopManagedNextProcess() {
+  const pid = readManagedNextPid()
+  if (!pid) {
+    return false
+  }
+
+  try {
+    process.kill(pid, 'SIGTERM')
+  } catch {
+    clearManagedNextPid()
+    return false
+  }
+
+  for (let index = 0; index < 20; index += 1) {
+    if (!isProcessRunning(pid)) {
+      clearManagedNextPid()
+      return true
+    }
+
+    await sleep(250)
+  }
+
+  try {
+    process.kill(pid, 'SIGKILL')
+  } catch {
+    // The process may have exited between the final poll and SIGKILL.
+  }
+
+  clearManagedNextPid()
+  return true
+}

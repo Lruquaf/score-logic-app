@@ -10,6 +10,8 @@ export type UserPuzzleProgressRecord = Pick<
   | 'attempts'
   | 'hintsUsed'
   | 'hintTypes'
+  | 'answerRevealed'
+  | 'answerRevealedAt'
   | 'timeTakenSec'
   | 'completedAt'
   | 'currentState'
@@ -59,6 +61,8 @@ export function mapUserPuzzleProgressRecord(
     attempts: record.attempts,
     hintsUsed: record.hintsUsed,
     hintTypes: mapHintTypes(record.hintTypes),
+    answerRevealed: record.answerRevealed,
+    answerRevealedAt: toIsoDateTimeString(record.answerRevealedAt),
     timeTakenSec: record.timeTakenSec,
     completedAt: toIsoDateTimeString(record.completedAt),
     currentState: mapProgressStateFromJson(record.puzzleId, record.currentState)

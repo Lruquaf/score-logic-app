@@ -1,6 +1,7 @@
 import type { ConstraintViolation } from '@/lib/engine/types'
-import type { HintType, PuzzleProgressEnvelope, PuzzleProgressState, RevealedScoreCell, ScoreInput } from '@/lib/contracts/progress'
-import type { PuzzlePublicDTO } from '@/lib/contracts/puzzle'
+import type { HintType, MatchOutcome, PuzzleProgressEnvelope, PuzzleProgressState, RevealedScoreCell, ScoreInput } from '@/lib/contracts/progress'
+import type { MatchSolutionDTO, PuzzlePublicDTO } from '@/lib/contracts/puzzle'
+import type { SubmitFeedback } from '@/lib/contracts/submit'
 import type { UserProgressSummary, UserStatsSummary } from '@/lib/contracts/user'
 
 export class ApiError extends Error {
@@ -45,6 +46,7 @@ export interface CampaignPuzzlesResponse {
 export interface SubmitPuzzleResponse {
   isCorrect: boolean
   violations: ConstraintViolation[]
+  feedback: SubmitFeedback
   progress: PuzzleProgressEnvelope
 }
 
@@ -55,13 +57,26 @@ export interface HintResponse {
     targetMatchId?: string
     revealedCell?: RevealedScoreCell
     revealedScore?: number
+    revealedOutcome?: MatchOutcome
   }
   progressPatch: {
     hintsUsed: number
     hintTypes: HintType[]
+    revealedMatchIds?: string[]
     revealedCells?: RevealedScoreCell[]
     revealedInputs?: Record<string, Partial<Record<'home' | 'away', number>>>
+    revealedOutcomes?: Record<string, MatchOutcome>
   }
+}
+
+export interface AnswerRevealResponse {
+  answer: {
+    solution: MatchSolutionDTO[]
+    allSolutions: MatchSolutionDTO[][]
+    outcomes: Record<string, MatchOutcome>
+    solutionCount: number
+  }
+  progress: PuzzleProgressEnvelope
 }
 
 async function parseResponse<T>(response: Response): Promise<T> {
@@ -130,7 +145,8 @@ export function savePuzzleProgress(puzzleId: string, progress: PuzzleProgressSta
 export function submitPuzzle(
   puzzleId: string,
   body: {
-    inputs: Record<string, { home: number; away: number }>
+    inputs?: Record<string, { home: number; away: number }>
+    outcomes?: Record<string, MatchOutcome>
     timeTakenSec: number
   }
 ) {
@@ -145,10 +161,18 @@ export function requestPuzzleHint(
   body: {
     hintType: HintType
     currentInputs: Record<string, ScoreInput>
+    currentOutcomes?: Record<string, MatchOutcome | null>
   }
 ) {
   return requestJson<HintResponse>(`/api/puzzles/${puzzleId}/hint`, {
     method: 'POST',
     body: JSON.stringify(body)
+  })
+}
+
+export function revealPuzzleAnswer(puzzleId: string) {
+  return requestJson<AnswerRevealResponse>(`/api/puzzles/${puzzleId}/answer`, {
+    method: 'POST',
+    body: JSON.stringify({})
   })
 }

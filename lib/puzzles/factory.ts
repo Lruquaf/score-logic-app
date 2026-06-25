@@ -1,11 +1,23 @@
-import type { Difficulty, PuzzlePrivateDTO, StandingDTO } from '@/lib/contracts/puzzle'
-import { classifyDifficulty } from '@/lib/engine/difficulty'
+import type { CampaignPack, Difficulty, PuzzlePrivateDTO, StandingDTO } from '@/lib/contracts/puzzle'
+import { classifyDifficultyScore } from '@/lib/engine/difficulty'
 import { generatePuzzleFromPool, stripMatchScores } from '@/lib/engine/generator'
 import { createSeededRandom, type TeamPoolKey } from '@/lib/fixtures/teamPools'
+import {
+  buildCampaignPuzzlePlan,
+  type DifficultyScoreRange
+} from '@/lib/puzzles/campaignConfig'
+import { selectInitialRevealedMatches } from '@/lib/puzzles/prefill'
 
-export const CAMPAIGN_PUZZLES_PER_DIFFICULTY = 20
+export {
+  buildCampaignPuzzlePlan,
+  campaignBandForLevel,
+  campaignOrderForPackLevel,
+  campaignScoreRangeFor,
+  CAMPAIGN_PACK_ORDER,
+  CAMPAIGN_PUZZLES_PER_PACK,
+  CAMPAIGN_TOTAL_PUZZLES
+} from '@/lib/puzzles/campaignConfig'
 
-const CAMPAIGN_DIFFICULTIES: Difficulty[] = ['EASY', 'MEDIUM', 'HARD']
 const TEAM_POOL_ROTATION: TeamPoolKey[] = ['world-cup', 'champions-league', 'fictional']
 const MAX_GENERATION_ATTEMPTS = 3_000
 const MAX_ENGINE_ATTEMPTS_PER_CANDIDATE = 160
@@ -16,8 +28,11 @@ interface GeneratePuzzleDefinitionInput {
   mode: 'daily' | 'campaign'
   seed: string
   targetDifficulty?: Difficulty
+  targetScoreRange?: DifficultyScoreRange
   dailyDate: string | null
   campaignOrder: number | null
+  campaignPack: CampaignPack | null
+  campaignLevel: number | null
   excludedTableSignatures: Set<string>
 }
 
@@ -70,8 +85,11 @@ async function generatePuzzleDefinition({
   mode,
   seed,
   targetDifficulty,
+  targetScoreRange,
   dailyDate,
   campaignOrder,
+  campaignPack,
+  campaignLevel,
   excludedTableSignatures
 }: GeneratePuzzleDefinitionInput): Promise<PuzzlePrivateDTO> {
   for (let attempt = 0; attempt < MAX_GENERATION_ATTEMPTS; attempt += 1) {
@@ -87,12 +105,19 @@ async function generatePuzzleDefinition({
       continue
     }
 
-    const difficulty = classifyDifficulty(
-      generated.puzzle.inferenceSteps,
-      generated.puzzle.solutionCount
-    )
+    const difficulty = classifyDifficultyScore(generated.puzzle.difficultyScore)
 
     if (targetDifficulty && difficulty !== targetDifficulty) {
+      continue
+    }
+
+    if (
+      targetScoreRange &&
+      (
+        generated.puzzle.difficultyScore < targetScoreRange.min ||
+        generated.puzzle.difficultyScore > targetScoreRange.max
+      )
+    ) {
       continue
     }
 
@@ -104,45 +129,56 @@ async function generatePuzzleDefinition({
 
     excludedTableSignatures.add(signature)
 
+    const solution = generated.puzzle.matches
+
     return {
       id,
       mode,
       difficulty,
       inferenceSteps: generated.puzzle.inferenceSteps,
+      tableDifficultyScore: generated.puzzle.difficultyScore,
+      solutionCount: generated.puzzle.solutionCount,
       teams: generated.teams,
       standings: generated.puzzle.standings,
       matches: stripMatchScores(generated.puzzle.matches),
-      solution: generated.puzzle.matches,
+      initialRevealedMatches: selectInitialRevealedMatches({
+        id,
+        campaignPack,
+        solution
+      }),
+      solution,
+      allSolutions: generated.puzzle.allSolutions,
       dailyDate,
-      campaignOrder
+      campaignOrder,
+      campaignPack,
+      campaignLevel
     }
   }
 
+  const targetLabel = targetDifficulty ?? (targetScoreRange ? `${targetScoreRange.min}-${targetScoreRange.max}` : 'any')
   throw new Error(
-    `Could not generate a ${targetDifficulty ?? 'any'} ${mode} puzzle after ${MAX_GENERATION_ATTEMPTS} attempts.`
+    `Could not generate a ${targetLabel} ${mode} puzzle after ${MAX_GENERATION_ATTEMPTS} attempts.`
   )
 }
 
 export async function generateCampaignPuzzleDefinitions() {
   const excludedTableSignatures = new Set<string>()
   const puzzles: PuzzlePrivateDTO[] = []
-  let campaignOrder = 1
 
-  for (const difficulty of CAMPAIGN_DIFFICULTIES) {
-    for (let index = 0; index < CAMPAIGN_PUZZLES_PER_DIFFICULTY; index += 1) {
-      puzzles.push(
-        await generatePuzzleDefinition({
-          id: campaignPuzzleIdForOrder(campaignOrder),
-          mode: 'campaign',
-          seed: `campaign-${difficulty.toLowerCase()}-${index + 1}`,
-          targetDifficulty: difficulty,
-          dailyDate: null,
-          campaignOrder,
-          excludedTableSignatures
-        })
-      )
-      campaignOrder += 1
-    }
+  for (const planItem of buildCampaignPuzzlePlan()) {
+    puzzles.push(
+      await generatePuzzleDefinition({
+        id: campaignPuzzleIdForOrder(planItem.campaignOrder),
+        mode: 'campaign',
+        seed: `campaign-${planItem.campaignPack.toLowerCase()}-${planItem.campaignLevel}`,
+        targetScoreRange: planItem.targetScoreRange,
+        dailyDate: null,
+        campaignOrder: planItem.campaignOrder,
+        campaignPack: planItem.campaignPack,
+        campaignLevel: planItem.campaignLevel,
+        excludedTableSignatures
+      })
+    )
   }
 
   return puzzles
@@ -163,6 +199,8 @@ export async function generateDailyPuzzleDefinition(params: {
     seed: `daily-${dailyDate}`,
     dailyDate,
     campaignOrder: null,
+    campaignPack: null,
+    campaignLevel: null,
     excludedTableSignatures
   })
 }

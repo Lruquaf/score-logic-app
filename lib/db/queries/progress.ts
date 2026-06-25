@@ -15,6 +15,8 @@ export const userPuzzleProgressSelect = {
   attempts: true,
   hintsUsed: true,
   hintTypes: true,
+  answerRevealed: true,
+  answerRevealedAt: true,
   timeTakenSec: true,
   completedAt: true,
   currentState: true
@@ -60,6 +62,8 @@ export interface UpsertPuzzleProgressInput {
   attempts?: number
   hintsUsed?: number
   hintTypes?: HintType[]
+  answerRevealed?: boolean
+  answerRevealedAt?: Date | null
   timeTakenSec?: number | null
   completedAt?: Date | null
   currentState?: PuzzleProgressState | null
@@ -81,6 +85,8 @@ export async function upsertPuzzleProgress(
       attempts: input.attempts,
       hintsUsed: input.hintsUsed,
       hintTypes: input.hintTypes,
+      answerRevealed: input.answerRevealed,
+      answerRevealedAt: input.answerRevealedAt,
       timeTakenSec: input.timeTakenSec,
       completedAt: input.completedAt,
       currentState: serializeNullableProgressState(input.currentState)
@@ -92,6 +98,8 @@ export async function upsertPuzzleProgress(
       attempts: input.attempts ?? 0,
       hintsUsed: input.hintsUsed ?? 0,
       hintTypes: input.hintTypes ?? [],
+      answerRevealed: input.answerRevealed ?? false,
+      answerRevealedAt: input.answerRevealedAt ?? null,
       timeTakenSec: input.timeTakenSec ?? null,
       completedAt: input.completedAt ?? null,
       currentState: serializeNullableProgressState(input.currentState ?? null)

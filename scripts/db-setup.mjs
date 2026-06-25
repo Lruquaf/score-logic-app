@@ -48,6 +48,9 @@ async function runWithRetry(label, args, options = {}) {
   }
 }
 
+await runWithRetry('Prisma generate', ['run', 'db:generate'], {
+  attempts: 1
+})
 await runWithRetry('Prisma migrate deploy', ['run', 'db:deploy'])
 await runWithRetry('Prisma seed', ['run', 'db:seed'], {
   attempts: 6,

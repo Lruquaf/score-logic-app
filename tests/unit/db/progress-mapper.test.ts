@@ -13,6 +13,10 @@ function buildProgressRecord(overrides: Partial<UserPuzzleProgressRecord> = {}):
     attempts: sampleProgressEnvelope.attempts,
     hintsUsed: sampleProgressEnvelope.hintsUsed,
     hintTypes: sampleProgressEnvelope.hintTypes,
+    answerRevealed: sampleProgressEnvelope.answerRevealed,
+    answerRevealedAt: sampleProgressEnvelope.answerRevealedAt
+      ? new Date(sampleProgressEnvelope.answerRevealedAt)
+      : null,
     timeTakenSec: sampleProgressEnvelope.timeTakenSec,
     completedAt: sampleProgressEnvelope.completedAt
       ? new Date(sampleProgressEnvelope.completedAt)

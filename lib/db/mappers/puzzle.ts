@@ -2,22 +2,30 @@ import type { Prisma, Puzzle as PrismaPuzzle } from '@prisma/client'
 import { z } from 'zod'
 
 import type { MatchPublicDTO, MatchSolutionDTO, PuzzlePrivateDTO, PuzzlePublicDTO, TeamDTO } from '@/lib/contracts/puzzle'
+import { scoreMapsToSolutions, solveAll } from '@/lib/engine/solver'
+import { selectInitialRevealedMatches } from '@/lib/puzzles/prefill'
 import { matchPublicSchema, matchSolutionSchema, puzzlePrivateSchema, puzzlePublicSchema, standingSchema, teamSchema } from '@/lib/validations'
 
 const teamsConfigSchema = z.array(teamSchema).length(4)
 const standingsConfigSchema = z.array(standingSchema).length(4)
 const matchIdsSchema = z.array(matchPublicSchema).length(6)
 const solutionSchema = z.array(matchSolutionSchema).length(6)
+const allSolutionsSchema = z.array(solutionSchema).min(1)
 
 export type PuzzleRecord = Pick<
   PrismaPuzzle,
   | 'id'
   | 'difficulty'
   | 'inferenceSteps'
+  | 'campaignPack'
+  | 'campaignLevel'
+  | 'tableDifficultyScore'
+  | 'solutionCount'
   | 'teamsConfig'
   | 'standings'
   | 'matchIds'
   | 'solution'
+  | 'allSolutions'
   | 'dailyDate'
   | 'campaignOrder'
   | 'isActive'
@@ -104,21 +112,37 @@ function buildPrivatePuzzleDTO(record: PuzzleRecord): PuzzlePrivateDTO {
   const standings = standingsConfigSchema.parse(record.standings)
   const matches = matchIdsSchema.parse(record.matchIds)
   const solution = solutionSchema.parse(record.solution)
+  const allSolutions = record.allSolutions
+    ? allSolutionsSchema.parse(record.allSolutions)
+    : scoreMapsToSolutions(matches, solveAll(standings, matches))
 
   assertStandingInvariants(teams, standings)
   assertMatchInvariants(teams, matches, solution)
+  for (const candidateSolution of allSolutions) {
+    assertMatchInvariants(teams, matches, candidateSolution)
+  }
 
   return puzzlePrivateSchema.parse({
     id: record.id,
     mode: record.dailyDate ? 'daily' : 'campaign',
     difficulty: record.difficulty,
     inferenceSteps: record.inferenceSteps,
+    tableDifficultyScore: record.tableDifficultyScore,
+    solutionCount: record.solutionCount,
     teams,
     standings,
     matches,
+    initialRevealedMatches: selectInitialRevealedMatches({
+      id: record.id,
+      campaignPack: record.campaignPack,
+      solution
+    }),
     solution,
+    allSolutions,
     dailyDate: toIsoDateString(record.dailyDate),
-    campaignOrder: record.campaignOrder
+    campaignOrder: record.campaignOrder,
+    campaignPack: record.campaignPack,
+    campaignLevel: record.campaignLevel
   })
 }
 
@@ -132,11 +156,16 @@ export function stripPuzzleSolution(puzzle: PuzzlePrivateDTO): PuzzlePublicDTO {
     mode: puzzle.mode,
     difficulty: puzzle.difficulty,
     inferenceSteps: puzzle.inferenceSteps,
+    tableDifficultyScore: puzzle.tableDifficultyScore,
+    solutionCount: puzzle.solutionCount,
     teams: puzzle.teams,
     standings: puzzle.standings,
     matches: puzzle.matches,
+    initialRevealedMatches: puzzle.initialRevealedMatches,
     dailyDate: puzzle.dailyDate,
-    campaignOrder: puzzle.campaignOrder
+    campaignOrder: puzzle.campaignOrder,
+    campaignPack: puzzle.campaignPack,
+    campaignLevel: puzzle.campaignLevel
   })
 }
 
@@ -147,4 +176,3 @@ export function mapPuzzleRecordToPublicDTO(record: PuzzleRecord): PuzzlePublicDT
 export function serializePuzzleJson(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue
 }
-

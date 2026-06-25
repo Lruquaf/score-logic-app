@@ -49,10 +49,15 @@ async function writePuzzle(puzzle: PuzzlePrivateDTO) {
   const data = {
     difficulty: puzzle.difficulty,
     inferenceSteps: puzzle.inferenceSteps,
+    campaignPack: puzzle.campaignPack,
+    campaignLevel: puzzle.campaignLevel,
+    tableDifficultyScore: puzzle.tableDifficultyScore,
+    solutionCount: puzzle.solutionCount,
     teamsConfig: toJson(puzzle.teams),
     standings: toJson(puzzle.standings),
     matchIds: toJson(puzzle.matches),
     solution: toJson(puzzle.solution),
+    allSolutions: toJson(puzzle.allSolutions),
     dailyDate,
     campaignOrder: puzzle.campaignOrder,
     isActive: true,
@@ -139,6 +144,8 @@ async function seedAnonymousUser(dailyPuzzleId: string) {
       attempts: 0,
       hintsUsed: 0,
       hintTypes: [],
+      answerRevealed: false,
+      answerRevealedAt: null,
       currentState: toJson({
         ...sampleProgressState,
         puzzleId: dailyPuzzleId
@@ -151,6 +158,8 @@ async function seedAnonymousUser(dailyPuzzleId: string) {
       attempts: 0,
       hintsUsed: 0,
       hintTypes: [],
+      answerRevealed: false,
+      answerRevealedAt: null,
       currentState: toJson({
         ...sampleProgressState,
         puzzleId: dailyPuzzleId

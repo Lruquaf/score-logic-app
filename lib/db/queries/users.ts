@@ -1,4 +1,4 @@
-import type { Difficulty, PrismaClient } from '@prisma/client'
+import type { CampaignPack, Difficulty, PrismaClient } from '@prisma/client'
 
 import type { UserProgressSummary, UserProgressSummaryItem, UserStatsSummary } from '@/lib/contracts/user'
 import { prisma } from '@/lib/db/prisma'
@@ -121,6 +121,8 @@ function mapUserProgressItem(record: {
   status: 'IN_PROGRESS' | 'COMPLETED' | 'ABANDONED'
   attempts: number
   hintsUsed: number
+  answerRevealed: boolean
+  answerRevealedAt: Date | null
   timeTakenSec: number | null
   completedAt: Date | null
   updatedAt: Date
@@ -129,6 +131,8 @@ function mapUserProgressItem(record: {
     difficulty: Difficulty
     dailyDate: Date | null
     campaignOrder: number | null
+    campaignPack: CampaignPack | null
+    campaignLevel: number | null
   }
 }): UserProgressSummaryItem {
   return {
@@ -136,6 +140,8 @@ function mapUserProgressItem(record: {
     status: record.status,
     attempts: record.attempts,
     hintsUsed: record.hintsUsed,
+    answerRevealed: record.answerRevealed,
+    answerRevealedAt: record.answerRevealedAt?.toISOString() ?? null,
     timeTakenSec: record.timeTakenSec,
     completedAt: record.completedAt?.toISOString() ?? null,
     updatedAt: record.updatedAt.toISOString(),
@@ -144,7 +150,9 @@ function mapUserProgressItem(record: {
       mode: record.puzzle.dailyDate ? 'daily' : 'campaign',
       difficulty: record.puzzle.difficulty,
       dailyDate: record.puzzle.dailyDate?.toISOString().slice(0, 10) ?? null,
-      campaignOrder: record.puzzle.campaignOrder
+      campaignOrder: record.puzzle.campaignOrder,
+      campaignPack: record.puzzle.campaignPack,
+      campaignLevel: record.puzzle.campaignLevel
     }
   }
 }
@@ -163,6 +171,8 @@ export async function getUserProgressSummary(
       status: true,
       attempts: true,
       hintsUsed: true,
+      answerRevealed: true,
+      answerRevealedAt: true,
       timeTakenSec: true,
       completedAt: true,
       updatedAt: true,
@@ -171,7 +181,9 @@ export async function getUserProgressSummary(
           id: true,
           difficulty: true,
           dailyDate: true,
-          campaignOrder: true
+          campaignOrder: true,
+          campaignPack: true,
+          campaignLevel: true
         }
       }
     }

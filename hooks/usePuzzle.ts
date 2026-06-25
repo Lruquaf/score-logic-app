@@ -9,6 +9,7 @@ import {
   fetchPuzzle,
   fetchUserStats,
   requestPuzzleHint,
+  revealPuzzleAnswer,
   savePuzzleProgress,
   submitPuzzle
 } from '@/lib/api/client'
@@ -53,17 +54,21 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
   const status = usePuzzleStore((state) => state.status)
   const isReplayMode = usePuzzleStore((state) => state.isReplayMode)
   const inputs = usePuzzleStore((state) => state.inputs)
+  const outcomes = usePuzzleStore((state) => state.outcomes)
   const selectedCell = usePuzzleStore((state) => state.selectedCell)
   const violations = usePuzzleStore((state) => state.violations)
+  const submitFeedback = usePuzzleStore((state) => state.submitFeedback)
   const completedMatchIds = usePuzzleStore((state) => state.completedMatchIds)
   const revealedMatchIds = usePuzzleStore((state) => state.revealedMatchIds)
   const hintsUsed = usePuzzleStore((state) => state.hintsUsed)
   const hintTypes = usePuzzleStore((state) => state.hintTypes)
+  const answerRevealed = usePuzzleStore((state) => state.answerRevealed)
   const attempts = usePuzzleStore((state) => state.attempts)
   const saveState = usePuzzleStore((state) => state.saveState)
   const saveError = usePuzzleStore((state) => state.saveError)
   const lastSyncedAt = usePuzzleStore((state) => state.lastSyncedAt)
   const startedAt = usePuzzleStore((state) => state.startedAt)
+  const elapsedBaseSec = usePuzzleStore((state) => state.elapsedBaseSec)
   const updatedAt = usePuzzleStore((state) => state.updatedAt)
   const timeTakenSec = usePuzzleStore((state) => state.timeTakenSec)
   const completedAt = usePuzzleStore((state) => state.completedAt)
@@ -77,10 +82,13 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
   const syncFromRemoteProgress = usePuzzleStore((state) => state.syncFromRemoteProgress)
   const applyHintPatch = usePuzzleStore((state) => state.applyHintPatch)
   const applySubmitResolution = usePuzzleStore((state) => state.applySubmitResolution)
+  const applyAnswerReveal = usePuzzleStore((state) => state.applyAnswerReveal)
+  const pauseTimer = usePuzzleStore((state) => state.pauseTimer)
+  const resumeTimer = usePuzzleStore((state) => state.resumeTimer)
 
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [hintError, setHintError] = useState<string | null>(null)
-  const [elapsedTimeSec, setElapsedTimeSec] = useState(0)
+  const [displayElapsedTimeSec, setDisplayElapsedTimeSec] = useState(0)
 
   useEffect(() => {
     if (puzzleQuery.data) {
@@ -95,19 +103,62 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
   }, [statsQuery.data, syncUserStore])
 
   useEffect(() => {
-    if (!startedAt || phase === 'IDLE') {
-      setElapsedTimeSec(0)
+    if (!puzzle || !startedAt || phase === 'IDLE' || status === 'COMPLETED') {
+      setDisplayElapsedTimeSec(0)
       return
     }
 
+    const startedAtMs = new Date(startedAt).getTime()
+    let pausedElapsed: number | null = document.visibilityState === 'hidden'
+      ? elapsedBaseSec
+      : null
+    let timer: number | null = null
+    const currentElapsed = () => (
+      pausedElapsed ?? elapsedBaseSec + Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000))
+    )
     const update = () => {
-      setElapsedTimeSec(Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000)))
+      setDisplayElapsedTimeSec(currentElapsed())
+    }
+    const clearTimer = () => {
+      if (timer !== null) {
+        window.clearInterval(timer)
+        timer = null
+      }
+    }
+    const startTimer = () => {
+      if (document.visibilityState === 'hidden') {
+        setDisplayElapsedTimeSec(currentElapsed())
+        return
+      }
+
+      update()
+      timer = window.setInterval(update, 1000)
+    }
+    const pauseCurrentTimer = () => {
+      clearTimer()
+      pausedElapsed = currentElapsed()
+      setDisplayElapsedTimeSec(pausedElapsed)
+      pauseTimer(puzzle.id, pausedElapsed)
+    }
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        pauseCurrentTimer()
+        return
+      }
+
+      resumeTimer(puzzle.id)
     }
 
-    update()
-    const timer = window.setInterval(update, 1000)
-    return () => window.clearInterval(timer)
-  }, [startedAt, phase])
+    startTimer()
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('pagehide', pauseCurrentTimer)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('pagehide', pauseCurrentTimer)
+      clearTimer()
+      pauseTimer(puzzle.id, currentElapsed())
+    }
+  }, [elapsedBaseSec, pauseTimer, phase, puzzle?.id, resumeTimer, startedAt, status])
 
   const saveMutation = useMutation({
     mutationFn: (payload: { puzzleId: string; progress: PuzzleProgressState }) =>
@@ -117,8 +168,6 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     },
     onSuccess: (response) => {
       markSaved(response.progress.currentState?.updatedAt ?? null)
-      void queryClient.invalidateQueries({ queryKey: ['user-stats'] })
-      void queryClient.invalidateQueries({ queryKey: puzzleQueryKey })
     },
     onError: (error) => {
       markSaveError(getErrorMessage(error))
@@ -130,13 +179,12 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       puzzleId: string
       hintType: 'reveal'
       currentInputs: PuzzleProgressState['inputs']
+      currentOutcomes: PuzzleProgressState['outcomes']
     }) => requestPuzzleHint(payload.puzzleId, payload),
     onSuccess: (response) => {
       applyHintPatch(response.progressPatch, response.hint.message)
       setHintError(null)
-      void queryClient.invalidateQueries({ queryKey: ['user-stats'] })
       void queryClient.invalidateQueries({ queryKey: ['user-progress'] })
-      void queryClient.invalidateQueries({ queryKey: puzzleQueryKey })
     },
     onError: (error) => {
       setHintError(getErrorMessage(error))
@@ -146,23 +194,44 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
   const submitMutation = useMutation({
     mutationFn: (payload: {
       puzzleId: string
-      inputs: Record<string, { home: number; away: number }>
+      inputs?: Record<string, { home: number; away: number }>
+      outcomes?: NonNullable<Parameters<typeof submitPuzzle>[1]['outcomes']>
       timeTakenSec: number
-    }) => submitPuzzle(payload.puzzleId, { inputs: payload.inputs, timeTakenSec: payload.timeTakenSec }),
+    }) => submitPuzzle(payload.puzzleId, {
+      inputs: payload.inputs,
+      outcomes: payload.outcomes,
+      timeTakenSec: payload.timeTakenSec
+    }),
     onMutate: () => {
       setSubmitError(null)
       setPhase('CHECKING')
     },
     onSuccess: (response) => {
       applySubmitResolution(response)
-      setSubmitError(response.isCorrect ? null : 'Some scores do not fit the table yet.')
+      setSubmitError(null)
+      if (response.isCorrect) {
+        void queryClient.invalidateQueries({ queryKey: ['user-stats'] })
+        void queryClient.invalidateQueries({ queryKey: ['user-progress'] })
+        void queryClient.invalidateQueries({ queryKey: puzzleQueryKey })
+      }
+    },
+    onError: (error) => {
+      setSubmitError(getErrorMessage(error))
+      setPhase('FAILED')
+    }
+  })
+
+  const answerRevealMutation = useMutation({
+    mutationFn: (payload: { puzzleId: string }) => revealPuzzleAnswer(payload.puzzleId),
+    onSuccess: (response) => {
+      applyAnswerReveal(response)
+      setHintError(null)
       void queryClient.invalidateQueries({ queryKey: ['user-stats'] })
       void queryClient.invalidateQueries({ queryKey: ['user-progress'] })
       void queryClient.invalidateQueries({ queryKey: puzzleQueryKey })
     },
     onError: (error) => {
-      setSubmitError(getErrorMessage(error))
-      setPhase('FAILED')
+      setHintError(getErrorMessage(error))
     }
   })
 
@@ -208,25 +277,33 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     status,
     isReplayMode,
     inputs,
+    outcomes,
     selectedCell,
     violations,
+    submitFeedback,
     completedMatchIds,
     revealedMatchIds,
     hintsUsed,
     hintTypes,
+    answerRevealed,
     attempts,
     saveState,
     saveError,
     startedAt,
-    elapsedTimeSec: timeTakenSec ?? elapsedTimeSec,
+    elapsedTimeSec: timeTakenSec ?? displayElapsedTimeSec,
     completedAt,
     lastHintMessage,
     hintError,
     submitError,
     canSubmit:
-      puzzle?.matches.every((match) => inputs[match.id]?.home !== null && inputs[match.id]?.away !== null) ??
+      answerRevealed
+        ? false
+        : puzzle?.campaignPack === 'BEGINNER'
+        ? puzzle.matches.every((match) => outcomes[match.id] !== null && outcomes[match.id] !== undefined)
+        : puzzle?.matches.every((match) => inputs[match.id]?.home !== null && inputs[match.id]?.away !== null) ??
       false,
     isHintPending: hintMutation.isPending,
+    isAnswerRevealPending: answerRevealMutation.isPending,
     isSubmitPending: submitMutation.isPending,
     requestHint: (hintType: 'reveal') => {
       if (!puzzle) return
@@ -234,11 +311,28 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
         setHintError('This puzzle is already solved. You can replay it locally.')
         return
       }
+      if (answerRevealed) {
+        setHintError('The answer has already been revealed for this puzzle.')
+        return
+      }
 
       hintMutation.mutate({
         puzzleId: puzzle.id,
         hintType,
-        currentInputs: inputs
+        currentInputs: inputs,
+        currentOutcomes: outcomes
+      })
+    },
+    revealAnswer: () => {
+      if (!puzzle) return
+      if (answerRevealed) return
+      if (isReplayMode || status === 'COMPLETED') {
+        setHintError('This puzzle is already solved. You can replay it locally.')
+        return
+      }
+
+      answerRevealMutation.mutate({
+        puzzleId: puzzle.id
       })
     },
     submit: () => {
@@ -252,11 +346,15 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
             { home: score.home as number, away: score.away as number }
           ])
       )
+      const currentOutcomes = Object.fromEntries(
+        Object.entries(outcomes).filter((entry): entry is [string, NonNullable<typeof entry[1]>] => entry[1] !== null)
+      )
 
       submitMutation.mutate({
         puzzleId: puzzle.id,
-        inputs: currentInputs,
-        timeTakenSec: timeTakenSec ?? elapsedTimeSec
+        inputs: puzzle.campaignPack === 'BEGINNER' ? undefined : currentInputs,
+        outcomes: puzzle.campaignPack === 'BEGINNER' ? currentOutcomes : undefined,
+        timeTakenSec: timeTakenSec ?? displayElapsedTimeSec
       })
     },
     refreshFromRemoteProgress: syncFromRemoteProgress

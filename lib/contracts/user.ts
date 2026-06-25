@@ -1,4 +1,4 @@
-import type { Difficulty } from '@/lib/contracts/puzzle'
+import type { CampaignPack, Difficulty } from '@/lib/contracts/puzzle'
 import type { PuzzleProgressStatus } from '@/lib/contracts/progress'
 
 export interface UserStatsSummary {
@@ -18,6 +18,8 @@ export interface UserProgressSummaryItem {
   status: PuzzleProgressStatus
   attempts: number
   hintsUsed: number
+  answerRevealed: boolean
+  answerRevealedAt: string | null
   timeTakenSec: number | null
   completedAt: string | null
   updatedAt: string
@@ -27,6 +29,8 @@ export interface UserProgressSummaryItem {
     difficulty: Difficulty
     dailyDate: string | null
     campaignOrder: number | null
+    campaignPack: CampaignPack | null
+    campaignLevel: number | null
   }
 }
 

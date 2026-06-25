@@ -21,23 +21,30 @@ model Team {
 }
 
 model Puzzle {
-  id             String       @id @default(cuid())
-  difficulty     Difficulty
-  inferenceSteps Int
-  teamsConfig    Json
-  standings      Json
-  matchIds       Json
-  solution       Json
-  dailyDate      DateTime?    @unique @db.Date
-  campaignOrder  Int?         @unique
-  isActive       Boolean      @default(true)
-  isTested       Boolean      @default(false)
-  createdAt      DateTime     @default(now())
+  id                   String        @id @default(cuid())
+  difficulty           Difficulty
+  inferenceSteps       Int
+  teamsConfig          Json
+  standings            Json
+  matchIds             Json
+  solution             Json
+  allSolutions         Json?
+  dailyDate            DateTime?     @unique @db.Date
+  campaignOrder        Int?          @unique
+  campaignPack         CampaignPack?
+  campaignLevel        Int?
+  tableDifficultyScore Int?
+  solutionCount        Int?
+  isActive             Boolean       @default(true)
+  isTested             Boolean       @default(false)
+  createdAt            DateTime      @default(now())
 
   progress UserPuzzleProgress[]
 
   @@index([dailyDate])
   @@index([campaignOrder])
+  @@index([campaignPack, campaignLevel])
+  @@index([tableDifficultyScore])
   @@index([difficulty])
   @@map("puzzles")
 }
@@ -62,18 +69,20 @@ model User {
 }
 
 model UserPuzzleProgress {
-  id           String       @id @default(cuid())
-  userId       String
-  puzzleId     String
-  status       PuzzleStatus @default(IN_PROGRESS)
-  attempts     Int          @default(0)
-  hintsUsed    Int          @default(0)
-  hintTypes    String[]     @default([])
-  timeTakenSec Int?
-  currentState Json?
-  completedAt  DateTime?
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  id               String       @id @default(cuid())
+  userId           String
+  puzzleId         String
+  status           PuzzleStatus @default(IN_PROGRESS)
+  attempts         Int          @default(0)
+  hintsUsed        Int          @default(0)
+  hintTypes        String[]     @default([])
+  answerRevealed   Boolean      @default(false)
+  answerRevealedAt DateTime?
+  timeTakenSec     Int?
+  currentState     Json?
+  completedAt      DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   puzzle Puzzle @relation(fields: [puzzleId], references: [id])
@@ -155,9 +164,16 @@ enum Difficulty {
   HARD
 }
 
+enum CampaignPack {
+  BEGINNER
+  EASY
+  MEDIUM
+  HARD
+  EXPERT
+}
+
 enum PuzzleStatus {
   IN_PROGRESS
   COMPLETED
   ABANDONED
 }
-

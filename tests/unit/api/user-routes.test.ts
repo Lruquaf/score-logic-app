@@ -88,6 +88,8 @@ describe('user API routes', () => {
           status: 'COMPLETED',
           attempts: 2,
           hintsUsed: 0,
+          answerRevealed: false,
+          answerRevealedAt: null,
           timeTakenSec: 190,
           completedAt: '2026-06-17T10:00:00.000Z',
           updatedAt: '2026-06-17T10:00:00.000Z',
@@ -96,7 +98,9 @@ describe('user API routes', () => {
             mode: 'daily',
             difficulty: 'MEDIUM',
             dailyDate: '2026-06-17',
-            campaignOrder: null
+            campaignOrder: null,
+            campaignPack: null,
+            campaignLevel: null
           }
         }
       ]

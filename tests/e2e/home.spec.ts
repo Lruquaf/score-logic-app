@@ -11,8 +11,10 @@ test('home page renders the editorial puzzle entry', async ({ page }) => {
 test('campaign page renders the practice puzzle list', async ({ page }) => {
   await page.goto('/campaign')
 
-  await expect(page.getByRole('heading', { name: 'Practice puzzles', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Easy', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Campaign packs', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Beginner', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Expert', exact: true })).toBeVisible()
+  await expect(page.getByText('Outcome only')).toBeVisible()
 })
 
 test('daily puzzle renders the playable board', async ({ page }) => {
@@ -44,4 +46,6 @@ test('campaign puzzle opens in the playable workspace', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Practice Puzzle' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Fixtures', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Final Table' })).toBeVisible()
+  await expect(page.getByRole('spinbutton')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'D' }).first()).toBeVisible()
 })

@@ -5,13 +5,15 @@ import { createJSONStorage, persist, type StateStorage } from 'zustand/middlewar
 
 import type {
   HintType,
+  MatchOutcome,
   MatchNote,
   PuzzleProgressEnvelope,
   PuzzleProgressState,
   RevealedScoreCell,
   ScoreInput
 } from '@/lib/contracts/progress'
-import type { PuzzlePublicDTO } from '@/lib/contracts/puzzle'
+import type { MatchSolutionDTO, PuzzlePublicDTO } from '@/lib/contracts/puzzle'
+import type { SubmitFeedback } from '@/lib/contracts/submit'
 import type { ConstraintViolation } from '@/lib/engine/types'
 import { validatePartialSolution } from '@/lib/engine/validator'
 import { buildProgressState } from '@/lib/utils/progress-state'
@@ -34,20 +36,36 @@ export interface CellState {
 
 export interface PersistedPuzzleDraft extends PuzzleProgressState {}
 
+interface AnswerRevealResolution {
+  answer: {
+    solution: MatchSolutionDTO[]
+    allSolutions: MatchSolutionDTO[][]
+    outcomes: Record<string, MatchOutcome>
+    solutionCount: number
+  }
+  progress: PuzzleProgressEnvelope
+}
+
 export interface PuzzleStoreState {
   puzzle: PuzzlePublicDTO | null
   phase: PuzzlePhase
   status: 'IN_PROGRESS' | 'COMPLETED' | 'ABANDONED'
   isReplayMode: boolean
   inputs: Record<string, ScoreInput>
+  outcomes: Record<string, MatchOutcome | null>
   notes: Record<string, MatchNote>
   violations: ConstraintViolation[]
+  submitFeedback: SubmitFeedback | null
   selectedCell: CellState | null
   completedMatchIds: string[]
+  initialRevealedMatchIds: string[]
   revealedMatchIds: string[]
   revealedCells: RevealedScoreCell[]
   hintsUsed: number
   hintTypes: HintType[]
+  answerRevealed: boolean
+  answerRevealedAt: string | null
+  elapsedBaseSec: number
   startedAt: string | null
   updatedAt: string | null
   lastSubmittedAt: string | null
@@ -64,6 +82,7 @@ export interface PuzzleStoreState {
   selectCell: (cell: CellState | null) => void
   moveSelection: (direction: 'left' | 'right' | 'up' | 'down') => void
   setScoreCell: (cell: CellState, value: number | null) => void
+  setOutcome: (matchId: string, outcome: MatchOutcome) => void
   setNote: (matchId: string, target: keyof MatchNote, value: string) => void
   inputDigit: (digit: number) => void
   deleteDigit: () => void
@@ -75,6 +94,7 @@ export interface PuzzleStoreState {
       revealedMatchIds?: string[]
       revealedCells?: RevealedScoreCell[]
       revealedInputs?: Record<string, Partial<Record<'home' | 'away', number>>>
+      revealedOutcomes?: Record<string, MatchOutcome>
     },
     message: string
   ) => void
@@ -86,9 +106,13 @@ export interface PuzzleStoreState {
     result: {
       isCorrect: boolean
       violations: ConstraintViolation[]
+      feedback: SubmitFeedback
       progress: PuzzleProgressEnvelope
     }
   ) => void
+  applyAnswerReveal: (result: AnswerRevealResolution) => void
+  pauseTimer: (puzzleId: string, elapsedTimeSec: number) => void
+  resumeTimer: (puzzleId: string) => void
   resetCurrentPuzzle: () => void
 }
 
@@ -109,6 +133,10 @@ function cloneInputs(inputs: Record<string, ScoreInput>) {
       { home: score.home, away: score.away }
     ])
   )
+}
+
+function cloneOutcomes(outcomes: Record<string, MatchOutcome | null> = {}) {
+  return { ...outcomes }
 }
 
 function cloneNotes(notes: Record<string, MatchNote>) {
@@ -150,24 +178,61 @@ function normalizeRevealedCells(params: {
 function isScoreCellRevealed(
   cell: CellState,
   revealedCells: RevealedScoreCell[],
-  revealedMatchIds: string[]
+  revealedMatchIds: string[],
+  initialRevealedMatchIds: string[] = []
 ) {
   return (
+    initialRevealedMatchIds.includes(cell.matchId) ||
     revealedMatchIds.includes(cell.matchId) ||
     revealedCells.some((revealedCell) => revealedCell.matchId === cell.matchId && revealedCell.side === cell.side)
   )
+}
+
+function initialRevealedMatchIdsFromPuzzle(puzzle: PuzzlePublicDTO) {
+  return puzzle.initialRevealedMatches.map((match) => match.id)
+}
+
+function applyInitialRevealedMatchesToDraft(
+  puzzle: PuzzlePublicDTO,
+  draft: PersistedPuzzleDraft
+): PersistedPuzzleDraft {
+  if (puzzle.initialRevealedMatches.length === 0) return draft
+
+  const inputs = cloneInputs(draft.inputs)
+  const completedMatchIds = [...draft.completedMatchIds]
+
+  for (const match of puzzle.initialRevealedMatches) {
+    inputs[match.id] = {
+      home: match.homeScore,
+      away: match.awayScore
+    }
+
+    if (!completedMatchIds.includes(match.id)) {
+      completedMatchIds.push(match.id)
+    }
+  }
+
+  return {
+    ...draft,
+    inputs,
+    completedMatchIds
+  }
 }
 
 function createEmptyDraft(puzzleId: string, timestamp: string): PersistedPuzzleDraft {
   return {
     puzzleId,
     inputs: {},
+    outcomes: {},
     notes: {},
     completedMatchIds: [],
     revealedMatchIds: [],
     revealedCells: [],
     hintsUsed: 0,
     hintTypes: [],
+    answerRevealed: false,
+    answerRevealedAt: null,
+    elapsedTimeSec: 0,
     startedAt: timestamp,
     updatedAt: timestamp,
     lastSubmittedAt: null
@@ -185,6 +250,7 @@ function draftFromProgress(
     return {
       ...progress.currentState,
       inputs: cloneInputs(progress.currentState.inputs),
+      outcomes: cloneOutcomes(progress.currentState.outcomes),
       notes: cloneNotes(progress.currentState.notes ?? {}),
       completedMatchIds: [...progress.currentState.completedMatchIds],
       revealedMatchIds: [...progress.currentState.revealedMatchIds],
@@ -199,7 +265,10 @@ function draftFromProgress(
   return {
     ...createEmptyDraft(puzzleId, timestamp),
     hintsUsed: progress.hintsUsed,
-    hintTypes: [...progress.hintTypes]
+    hintTypes: [...progress.hintTypes],
+    answerRevealed: progress.answerRevealed,
+    answerRevealedAt: progress.answerRevealedAt,
+    elapsedTimeSec: progress.timeTakenSec ?? 0
   }
 }
 
@@ -285,9 +354,13 @@ function buildDraftFromRuntime(state: Pick<
   PuzzleStoreState,
   | 'puzzle'
   | 'inputs'
+  | 'outcomes'
   | 'notes'
   | 'hintsUsed'
   | 'hintTypes'
+  | 'answerRevealed'
+  | 'answerRevealedAt'
+  | 'elapsedBaseSec'
   | 'startedAt'
   | 'updatedAt'
   | 'lastSubmittedAt'
@@ -300,14 +373,18 @@ function buildDraftFromRuntime(state: Pick<
   return buildProgressState({
     puzzleId: state.puzzle.id,
     inputs: cloneInputs(state.inputs),
+    outcomes: cloneOutcomes(state.outcomes),
     notes: cloneNotes(state.notes),
     hintsUsed: state.hintsUsed,
     hintTypes: [...state.hintTypes],
+    elapsedTimeSec: state.elapsedBaseSec,
     startedAt: state.startedAt,
     updatedAt: state.updatedAt ?? new Date().toISOString(),
     lastSubmittedAt: state.lastSubmittedAt,
     revealedMatchIds: [...state.revealedMatchIds],
     revealedCells: cloneRevealedCells(state.revealedCells),
+    answerRevealed: state.answerRevealed,
+    answerRevealedAt: state.answerRevealedAt,
     completedMatchIds: [...state.completedMatchIds]
   })
 }
@@ -316,9 +393,13 @@ export function selectCurrentProgressState(state: Pick<
   PuzzleStoreState,
   | 'puzzle'
   | 'inputs'
+  | 'outcomes'
   | 'notes'
   | 'hintsUsed'
   | 'hintTypes'
+  | 'answerRevealed'
+  | 'answerRevealedAt'
+  | 'elapsedBaseSec'
   | 'startedAt'
   | 'updatedAt'
   | 'lastSubmittedAt'
@@ -336,14 +417,20 @@ function createInitialPuzzleData() {
     status: 'IN_PROGRESS' as const,
     isReplayMode: false,
     inputs: {},
+    outcomes: {},
     notes: {},
     violations: [],
+    submitFeedback: null,
     selectedCell: null,
     completedMatchIds: [],
+    initialRevealedMatchIds: [],
     revealedMatchIds: [],
     revealedCells: [],
     hintsUsed: 0,
     hintTypes: [] as HintType[],
+    answerRevealed: false,
+    answerRevealedAt: null,
+    elapsedBaseSec: 0,
     startedAt: null,
     updatedAt: null,
     lastSubmittedAt: null,
@@ -374,9 +461,12 @@ export function createPuzzleStore() {
               localDraft,
               timestamp
             })
-            const nextDraft = {
+            const initialRevealedMatchIds = initialRevealedMatchIdsFromPuzzle(puzzle)
+            const resumedDraft = {
               ...preferredDraft,
+              startedAt: timestamp,
               inputs: cloneInputs(preferredDraft.inputs),
+              outcomes: cloneOutcomes(preferredDraft.outcomes),
               notes: cloneNotes(preferredDraft.notes ?? {}),
               completedMatchIds: [...preferredDraft.completedMatchIds],
               revealedMatchIds: [...preferredDraft.revealedMatchIds],
@@ -384,8 +474,10 @@ export function createPuzzleStore() {
                 revealedCells: preferredDraft.revealedCells,
                 revealedMatchIds: preferredDraft.revealedMatchIds
               }),
-              hintTypes: [...preferredDraft.hintTypes]
+              hintTypes: [...preferredDraft.hintTypes],
+              elapsedTimeSec: progress?.timeTakenSec ?? preferredDraft.elapsedTimeSec ?? 0
             }
+            const nextDraft = applyInitialRevealedMatchesToDraft(puzzle, resumedDraft)
             const nextStatus = progress?.status ?? 'IN_PROGRESS'
 
             return {
@@ -395,14 +487,20 @@ export function createPuzzleStore() {
               status: nextStatus,
               isReplayMode: false,
               inputs: nextDraft.inputs,
+              outcomes: cloneOutcomes(nextDraft.outcomes),
               notes: nextDraft.notes,
               violations: getViolations(puzzle, nextDraft.inputs),
+              submitFeedback: null,
               selectedCell: nextStatus === 'COMPLETED' ? null : findNextCell(puzzle, nextDraft.completedMatchIds),
               completedMatchIds: nextDraft.completedMatchIds,
+              initialRevealedMatchIds,
               revealedMatchIds: nextDraft.revealedMatchIds,
               revealedCells: nextDraft.revealedCells,
               hintsUsed: nextDraft.hintsUsed,
               hintTypes: nextDraft.hintTypes,
+              answerRevealed: nextDraft.answerRevealed,
+              answerRevealedAt: nextDraft.answerRevealedAt,
+              elapsedBaseSec: progress?.timeTakenSec ?? nextDraft.elapsedTimeSec ?? 0,
               startedAt: nextDraft.startedAt,
               updatedAt: nextDraft.updatedAt,
               lastSubmittedAt: nextDraft.lastSubmittedAt,
@@ -446,9 +544,13 @@ export function createPuzzleStore() {
             const nextDraft = buildProgressState({
               puzzleId: puzzle.id,
               inputs: cloneInputs(state.inputs),
+              outcomes: cloneOutcomes(state.outcomes),
               notes: nextNotes,
               hintsUsed: state.hintsUsed,
               hintTypes: [...state.hintTypes],
+              answerRevealed: state.answerRevealed,
+              answerRevealedAt: state.answerRevealedAt,
+              elapsedTimeSec: state.elapsedBaseSec,
               startedAt: state.startedAt,
               updatedAt: timestamp,
               lastSubmittedAt: state.lastSubmittedAt,
@@ -471,12 +573,12 @@ export function createPuzzleStore() {
           }),
         setScoreCell: (cell, value) =>
           set((state) => {
-            const { puzzle, revealedMatchIds, revealedCells, status, isReplayMode } = state
+            const { puzzle, revealedMatchIds, revealedCells, initialRevealedMatchIds, status, isReplayMode } = state
 
             if (
               !puzzle ||
               (status === 'COMPLETED' && !isReplayMode) ||
-              isScoreCellRevealed(cell, revealedCells, revealedMatchIds)
+              isScoreCellRevealed(cell, revealedCells, revealedMatchIds, initialRevealedMatchIds)
             ) {
               return state
             }
@@ -490,9 +592,13 @@ export function createPuzzleStore() {
             const nextDraft = buildProgressState({
               puzzleId: puzzle.id,
               inputs: nextInputs,
+              outcomes: cloneOutcomes(state.outcomes),
               notes: cloneNotes(state.notes),
               hintsUsed: state.hintsUsed,
               hintTypes: [...state.hintTypes],
+              answerRevealed: state.answerRevealed,
+              answerRevealedAt: state.answerRevealedAt,
+              elapsedTimeSec: state.elapsedBaseSec,
               startedAt: state.startedAt,
               updatedAt: timestamp,
               lastSubmittedAt: state.lastSubmittedAt,
@@ -506,9 +612,64 @@ export function createPuzzleStore() {
               phase: 'ACTIVE',
               selectedCell: cell,
               inputs: nextInputs,
+              outcomes: state.outcomes,
               notes: state.notes,
               violations: getViolations(puzzle, nextInputs),
+              submitFeedback: null,
               completedMatchIds: nextDraft.completedMatchIds,
+              updatedAt: nextDraft.updatedAt,
+              saveState: 'idle',
+              saveError: null,
+              drafts: {
+                ...state.drafts,
+                ...(isReplayMode ? {} : { [puzzle.id]: nextDraft })
+              }
+            }
+          }),
+        setOutcome: (matchId, outcome) =>
+          set((state) => {
+            const { puzzle, status, isReplayMode, answerRevealed, revealedMatchIds, initialRevealedMatchIds } = state
+            if (
+              !puzzle ||
+              answerRevealed ||
+              revealedMatchIds.includes(matchId) ||
+              initialRevealedMatchIds.includes(matchId) ||
+              (status === 'COMPLETED' && !isReplayMode)
+            ) {
+              return state
+            }
+
+            const timestamp = new Date().toISOString()
+            const nextOutcomes = cloneOutcomes(state.outcomes)
+            nextOutcomes[matchId] = outcome
+            const completedMatchIds = state.completedMatchIds.includes(matchId)
+              ? state.completedMatchIds
+              : [...state.completedMatchIds, matchId]
+            const nextDraft = buildProgressState({
+              puzzleId: puzzle.id,
+              inputs: cloneInputs(state.inputs),
+              outcomes: nextOutcomes,
+              notes: cloneNotes(state.notes),
+              hintsUsed: state.hintsUsed,
+              hintTypes: [...state.hintTypes],
+              answerRevealed: state.answerRevealed,
+              answerRevealedAt: state.answerRevealedAt,
+              elapsedTimeSec: state.elapsedBaseSec,
+              startedAt: state.startedAt,
+              updatedAt: timestamp,
+              lastSubmittedAt: state.lastSubmittedAt,
+              revealedMatchIds: [...state.revealedMatchIds],
+              revealedCells: cloneRevealedCells(state.revealedCells),
+              completedMatchIds
+            })
+
+            return {
+              ...state,
+              phase: 'ACTIVE',
+              outcomes: nextOutcomes,
+              completedMatchIds: nextDraft.completedMatchIds,
+              submitFeedback: null,
+              selectedCell: findNextCell(puzzle, nextDraft.completedMatchIds),
               updatedAt: nextDraft.updatedAt,
               saveState: 'idle',
               saveError: null,
@@ -520,13 +681,13 @@ export function createPuzzleStore() {
           }),
         inputDigit: (digit) =>
           set((state) => {
-            const { selectedCell, puzzle, revealedMatchIds, revealedCells, status, isReplayMode } = state
+            const { selectedCell, puzzle, revealedMatchIds, revealedCells, initialRevealedMatchIds, status, isReplayMode } = state
 
             if (!selectedCell || !puzzle || (status === 'COMPLETED' && !isReplayMode)) {
               return state
             }
 
-            if (isScoreCellRevealed(selectedCell, revealedCells, revealedMatchIds)) {
+            if (isScoreCellRevealed(selectedCell, revealedCells, revealedMatchIds, initialRevealedMatchIds)) {
               return state
             }
 
@@ -548,9 +709,13 @@ export function createPuzzleStore() {
             const nextDraft = buildProgressState({
               puzzleId: puzzle.id,
               inputs: nextInputs,
+              outcomes: cloneOutcomes(state.outcomes),
               notes: cloneNotes(state.notes),
               hintsUsed: state.hintsUsed,
               hintTypes: [...state.hintTypes],
+              answerRevealed: state.answerRevealed,
+              answerRevealedAt: state.answerRevealedAt,
+              elapsedTimeSec: state.elapsedBaseSec,
               startedAt: state.startedAt,
               updatedAt: timestamp,
               lastSubmittedAt: state.lastSubmittedAt,
@@ -563,8 +728,10 @@ export function createPuzzleStore() {
               ...state,
               phase: 'ACTIVE',
               inputs: nextInputs,
+              outcomes: state.outcomes,
               notes: state.notes,
               violations: getViolations(puzzle, nextInputs),
+              submitFeedback: null,
               completedMatchIds: nextDraft.completedMatchIds,
               updatedAt: nextDraft.updatedAt,
               saveState: 'idle',
@@ -577,13 +744,13 @@ export function createPuzzleStore() {
           }),
         deleteDigit: () =>
           set((state) => {
-            const { selectedCell, puzzle, revealedMatchIds, revealedCells, status, isReplayMode } = state
+            const { selectedCell, puzzle, revealedMatchIds, revealedCells, initialRevealedMatchIds, status, isReplayMode } = state
 
             if (!selectedCell || !puzzle || (status === 'COMPLETED' && !isReplayMode)) {
               return state
             }
 
-            if (isScoreCellRevealed(selectedCell, revealedCells, revealedMatchIds)) {
+            if (isScoreCellRevealed(selectedCell, revealedCells, revealedMatchIds, initialRevealedMatchIds)) {
               return state
             }
 
@@ -606,9 +773,13 @@ export function createPuzzleStore() {
             const nextDraft = buildProgressState({
               puzzleId: puzzle.id,
               inputs: nextInputs,
+              outcomes: cloneOutcomes(state.outcomes),
               notes: cloneNotes(state.notes),
               hintsUsed: state.hintsUsed,
               hintTypes: [...state.hintTypes],
+              answerRevealed: state.answerRevealed,
+              answerRevealedAt: state.answerRevealedAt,
+              elapsedTimeSec: state.elapsedBaseSec,
               startedAt: state.startedAt,
               updatedAt: timestamp,
               lastSubmittedAt: state.lastSubmittedAt,
@@ -621,8 +792,10 @@ export function createPuzzleStore() {
               ...state,
               phase: 'ACTIVE',
               inputs: nextInputs,
+              outcomes: state.outcomes,
               notes: state.notes,
               violations: getViolations(puzzle, nextInputs),
+              submitFeedback: null,
               completedMatchIds: nextDraft.completedMatchIds,
               updatedAt: nextDraft.updatedAt,
               saveState: 'idle',
@@ -652,9 +825,13 @@ export function createPuzzleStore() {
             const nextDraft = buildProgressState({
               puzzleId: puzzle.id,
               inputs: cloneInputs(state.inputs),
+              outcomes: cloneOutcomes(state.outcomes),
               notes: cloneNotes(state.notes),
               hintsUsed: state.hintsUsed,
               hintTypes: [...state.hintTypes],
+              answerRevealed: state.answerRevealed,
+              answerRevealedAt: state.answerRevealedAt,
+              elapsedTimeSec: state.elapsedBaseSec,
               startedAt: state.startedAt,
               updatedAt: timestamp,
               lastSubmittedAt: state.lastSubmittedAt,
@@ -667,6 +844,7 @@ export function createPuzzleStore() {
               ...state,
               phase: 'ACTIVE',
               completedMatchIds: nextDraft.completedMatchIds,
+              submitFeedback: null,
               selectedCell: findNextCell(puzzle, nextDraft.completedMatchIds),
               updatedAt: nextDraft.updatedAt,
               saveState: 'idle',
@@ -686,6 +864,7 @@ export function createPuzzleStore() {
 
             const timestamp = new Date().toISOString()
             const nextInputs = cloneInputs(state.inputs)
+            const nextOutcomes = cloneOutcomes(state.outcomes)
 
             for (const [matchId, score] of Object.entries(patch.revealedInputs ?? {})) {
               const currentInput = nextInputs[matchId] ?? { home: null, away: null }
@@ -693,6 +872,10 @@ export function createPuzzleStore() {
                 home: score.home ?? currentInput.home,
                 away: score.away ?? currentInput.away
               }
+            }
+
+            for (const [matchId, outcome] of Object.entries(patch.revealedOutcomes ?? {})) {
+              nextOutcomes[matchId] = outcome
             }
 
             const nextRevealedCells = normalizeRevealedCells({
@@ -703,9 +886,13 @@ export function createPuzzleStore() {
             const nextDraft = buildProgressState({
               puzzleId: puzzle.id,
               inputs: nextInputs,
+              outcomes: nextOutcomes,
               notes: cloneNotes(state.notes),
               hintsUsed: patch.hintsUsed,
               hintTypes: [...patch.hintTypes],
+              answerRevealed: state.answerRevealed,
+              answerRevealedAt: state.answerRevealedAt,
+              elapsedTimeSec: state.elapsedBaseSec,
               startedAt: state.startedAt,
               updatedAt: timestamp,
               lastSubmittedAt: state.lastSubmittedAt,
@@ -718,8 +905,10 @@ export function createPuzzleStore() {
               ...state,
               phase: 'HINT_SHOWN',
               inputs: nextInputs,
+              outcomes: nextOutcomes,
               notes: state.notes,
               violations: getViolations(puzzle, nextInputs),
+              submitFeedback: null,
               completedMatchIds: nextDraft.completedMatchIds,
               revealedMatchIds: nextDraft.revealedMatchIds,
               revealedCells: nextDraft.revealedCells,
@@ -746,8 +935,12 @@ export function createPuzzleStore() {
             }
 
             const timestamp = new Date().toISOString()
-            const nextDraft = draftFromProgress(progress.puzzleId, progress, timestamp) ??
-              createEmptyDraft(progress.puzzleId, timestamp)
+            const initialRevealedMatchIds = initialRevealedMatchIdsFromPuzzle(state.puzzle)
+            const nextDraft = applyInitialRevealedMatchesToDraft(
+              state.puzzle,
+              draftFromProgress(progress.puzzleId, progress, timestamp) ??
+                createEmptyDraft(progress.puzzleId, timestamp)
+            )
 
             return {
               ...state,
@@ -755,17 +948,23 @@ export function createPuzzleStore() {
               status: progress.status,
               isReplayMode: false,
               inputs: cloneInputs(nextDraft.inputs),
+              outcomes: cloneOutcomes(nextDraft.outcomes),
               notes: cloneNotes(nextDraft.notes ?? {}),
               violations: getViolations(state.puzzle, nextDraft.inputs),
+              submitFeedback: null,
               selectedCell:
                 progress.status === 'COMPLETED'
                   ? null
                   : findNextCell(state.puzzle, nextDraft.completedMatchIds),
               completedMatchIds: [...nextDraft.completedMatchIds],
+              initialRevealedMatchIds,
               revealedMatchIds: [...nextDraft.revealedMatchIds],
               revealedCells: cloneRevealedCells(nextDraft.revealedCells),
               hintsUsed: nextDraft.hintsUsed,
               hintTypes: [...nextDraft.hintTypes],
+              answerRevealed: nextDraft.answerRevealed,
+              answerRevealedAt: nextDraft.answerRevealedAt,
+              elapsedBaseSec: progress.timeTakenSec ?? nextDraft.elapsedTimeSec ?? 0,
               startedAt: nextDraft.startedAt,
               updatedAt: nextDraft.updatedAt,
               lastSubmittedAt: nextDraft.lastSubmittedAt,
@@ -788,8 +987,12 @@ export function createPuzzleStore() {
             }
 
             const timestamp = new Date().toISOString()
-            const nextDraft = draftFromProgress(result.progress.puzzleId, result.progress, timestamp) ??
-              createEmptyDraft(result.progress.puzzleId, timestamp)
+            const initialRevealedMatchIds = initialRevealedMatchIdsFromPuzzle(state.puzzle)
+            const nextDraft = applyInitialRevealedMatchesToDraft(
+              state.puzzle,
+              draftFromProgress(result.progress.puzzleId, result.progress, timestamp) ??
+                createEmptyDraft(result.progress.puzzleId, timestamp)
+            )
 
             return {
               ...state,
@@ -797,14 +1000,20 @@ export function createPuzzleStore() {
               status: result.progress.status,
               isReplayMode: state.isReplayMode && !result.isCorrect,
               inputs: cloneInputs(nextDraft.inputs),
+              outcomes: cloneOutcomes(nextDraft.outcomes),
               notes: cloneNotes(nextDraft.notes ?? {}),
               violations: result.isCorrect ? [] : result.violations,
+              submitFeedback: result.isCorrect ? null : result.feedback,
               selectedCell: result.isCorrect ? null : state.selectedCell,
               completedMatchIds: [...nextDraft.completedMatchIds],
+              initialRevealedMatchIds,
               revealedMatchIds: [...nextDraft.revealedMatchIds],
               revealedCells: cloneRevealedCells(nextDraft.revealedCells),
               hintsUsed: nextDraft.hintsUsed,
               hintTypes: [...nextDraft.hintTypes],
+              answerRevealed: nextDraft.answerRevealed,
+              answerRevealedAt: nextDraft.answerRevealedAt,
+              elapsedBaseSec: result.progress.timeTakenSec ?? nextDraft.elapsedTimeSec ?? 0,
               startedAt: nextDraft.startedAt,
               updatedAt: nextDraft.updatedAt,
               lastSubmittedAt: nextDraft.lastSubmittedAt,
@@ -820,14 +1029,147 @@ export function createPuzzleStore() {
               }
             }
           }),
+        applyAnswerReveal: (result) =>
+          set((state) => {
+            if (!state.puzzle || state.puzzle.id !== result.progress.puzzleId) {
+              return state
+            }
+
+            const timestamp = new Date().toISOString()
+            const initialRevealedMatchIds = initialRevealedMatchIdsFromPuzzle(state.puzzle)
+            const nextDraft = applyInitialRevealedMatchesToDraft(
+              state.puzzle,
+              draftFromProgress(result.progress.puzzleId, result.progress, timestamp) ??
+                createEmptyDraft(result.progress.puzzleId, timestamp)
+            )
+
+            return {
+              ...state,
+              phase: 'ACTIVE',
+              status: result.progress.status,
+              isReplayMode: false,
+              inputs: cloneInputs(nextDraft.inputs),
+              outcomes: cloneOutcomes(nextDraft.outcomes),
+              notes: cloneNotes(nextDraft.notes ?? {}),
+              violations: [],
+              submitFeedback: null,
+              selectedCell: null,
+              completedMatchIds: [...nextDraft.completedMatchIds],
+              initialRevealedMatchIds,
+              revealedMatchIds: [...nextDraft.revealedMatchIds],
+              revealedCells: cloneRevealedCells(nextDraft.revealedCells),
+              hintsUsed: nextDraft.hintsUsed,
+              hintTypes: [...nextDraft.hintTypes],
+              answerRevealed: true,
+              answerRevealedAt: nextDraft.answerRevealedAt,
+              elapsedBaseSec: result.progress.timeTakenSec ?? nextDraft.elapsedTimeSec ?? 0,
+              startedAt: nextDraft.startedAt,
+              updatedAt: nextDraft.updatedAt,
+              lastSubmittedAt: nextDraft.lastSubmittedAt,
+              timeTakenSec: result.progress.timeTakenSec,
+              completedAt: result.progress.completedAt,
+              attempts: result.progress.attempts,
+              saveState: 'idle',
+              saveError: null,
+              lastSyncedAt: nextDraft.updatedAt,
+              lastHintMessage:
+                result.answer.solutionCount > 1
+                  ? `Answer revealed. Showing one of ${result.answer.solutionCount} valid solutions.`
+                  : 'Answer revealed.',
+              drafts: {
+                ...state.drafts,
+                [result.progress.puzzleId]: nextDraft
+              }
+            }
+          }),
+        pauseTimer: (puzzleId, elapsedTimeSec) =>
+          set((state) => {
+            const timestamp = new Date().toISOString()
+            const elapsed = Math.max(0, Math.floor(elapsedTimeSec))
+
+            if (state.puzzle?.id === puzzleId) {
+              if (state.elapsedBaseSec === elapsed && state.drafts[puzzleId]?.elapsedTimeSec === elapsed) {
+                return state
+              }
+
+              const nextDraft = buildProgressState({
+                puzzleId,
+                inputs: cloneInputs(state.inputs),
+                outcomes: cloneOutcomes(state.outcomes),
+                notes: cloneNotes(state.notes),
+                hintsUsed: state.hintsUsed,
+                hintTypes: [...state.hintTypes],
+                answerRevealed: state.answerRevealed,
+                answerRevealedAt: state.answerRevealedAt,
+                elapsedTimeSec: elapsed,
+                startedAt: timestamp,
+                updatedAt: timestamp,
+                lastSubmittedAt: state.lastSubmittedAt,
+                revealedMatchIds: [...state.revealedMatchIds],
+                revealedCells: cloneRevealedCells(state.revealedCells),
+                completedMatchIds: [...state.completedMatchIds]
+              })
+
+              return {
+                ...state,
+                elapsedBaseSec: elapsed,
+                startedAt: timestamp,
+                updatedAt: timestamp,
+                drafts: {
+                  ...state.drafts,
+                  ...(state.isReplayMode ? {} : { [puzzleId]: nextDraft })
+                }
+              }
+            }
+
+            const existingDraft = state.drafts[puzzleId]
+            if (!existingDraft) {
+              return state
+            }
+            if (existingDraft.elapsedTimeSec === elapsed) {
+              return state
+            }
+
+            return {
+              ...state,
+              drafts: {
+                ...state.drafts,
+                [puzzleId]: {
+                  ...existingDraft,
+                  elapsedTimeSec: elapsed,
+                  startedAt: timestamp,
+                  updatedAt: timestamp
+                }
+              }
+            }
+          }),
+        resumeTimer: (puzzleId) =>
+          set((state) => {
+            if (state.puzzle?.id !== puzzleId || state.status === 'COMPLETED' || state.phase === 'IDLE') {
+              return state
+            }
+
+            return {
+              ...state,
+              startedAt: new Date().toISOString()
+            }
+          }),
         resetCurrentPuzzle: () =>
           set((state) => {
             if (!state.puzzle) {
               return state
             }
 
+            if (state.answerRevealed) {
+              return state
+            }
+
             const timestamp = new Date().toISOString()
-            const nextDraft = createEmptyDraft(state.puzzle.id, timestamp)
+            const initialRevealedMatchIds = initialRevealedMatchIdsFromPuzzle(state.puzzle)
+            const nextDraft = applyInitialRevealedMatchesToDraft(
+              state.puzzle,
+              createEmptyDraft(state.puzzle.id, timestamp)
+            )
             const isCompletedReplay = state.status === 'COMPLETED'
 
             return {
@@ -835,15 +1177,21 @@ export function createPuzzleStore() {
               phase: 'ACTIVE',
               status: isCompletedReplay ? 'COMPLETED' : 'IN_PROGRESS',
               isReplayMode: isCompletedReplay,
-              inputs: {},
+              inputs: cloneInputs(nextDraft.inputs),
+              outcomes: cloneOutcomes(nextDraft.outcomes),
               notes: {},
               violations: [],
-              selectedCell: findNextCell(state.puzzle, []),
-              completedMatchIds: [],
+              submitFeedback: null,
+              selectedCell: findNextCell(state.puzzle, nextDraft.completedMatchIds),
+              completedMatchIds: [...nextDraft.completedMatchIds],
+              initialRevealedMatchIds,
               revealedMatchIds: [],
               revealedCells: [],
               hintsUsed: 0,
               hintTypes: [],
+              answerRevealed: false,
+              answerRevealedAt: null,
+              elapsedBaseSec: 0,
               startedAt: nextDraft.startedAt,
               updatedAt: nextDraft.updatedAt,
               lastSubmittedAt: null,
