@@ -1,5 +1,13 @@
 import type { ConstraintViolation } from '@/lib/engine/types'
-import type { HintType, MatchOutcome, PuzzleProgressEnvelope, PuzzleProgressState, RevealedScoreCell, ScoreInput } from '@/lib/contracts/progress'
+import type {
+  HintType,
+  MatchNote,
+  MatchOutcome,
+  PuzzleProgressEnvelope,
+  PuzzleProgressState,
+  RevealedScoreCell,
+  ScoreInput
+} from '@/lib/contracts/progress'
 import type { MatchSolutionDTO, PuzzlePublicDTO } from '@/lib/contracts/puzzle'
 import type { SubmitFeedback } from '@/lib/contracts/submit'
 import type { UserProgressSummary, UserStatsSummary } from '@/lib/contracts/user'
@@ -147,7 +155,14 @@ export function submitPuzzle(
   body: {
     inputs?: Record<string, { home: number; away: number }>
     outcomes?: Record<string, MatchOutcome>
+    notes?: Record<string, MatchNote>
     timeTakenSec: number
+    completedMatchIds?: string[]
+    revealedMatchIds?: string[]
+    revealedCells?: RevealedScoreCell[]
+    hintsUsed?: number
+    hintTypes?: HintType[]
+    isReplay?: boolean
   }
 ) {
   return requestJson<SubmitPuzzleResponse>(`/api/puzzles/${puzzleId}/submit`, {
@@ -162,8 +177,15 @@ export function requestPuzzleHint(
     hintType: HintType
     currentInputs: Record<string, ScoreInput>
     currentOutcomes?: Record<string, MatchOutcome | null>
+    notes?: Record<string, MatchNote>
+    completedMatchIds?: string[]
+    revealedMatchIds?: string[]
+    revealedCells?: RevealedScoreCell[]
+    hintsUsed?: number
+    hintTypes?: HintType[]
     answerRevealed?: boolean
     answerRevealedAt?: string | null
+    isReplay?: boolean
   }
 ) {
   return requestJson<HintResponse>(`/api/puzzles/${puzzleId}/hint`, {
@@ -172,7 +194,18 @@ export function requestPuzzleHint(
   })
 }
 
-export function revealPuzzleAnswer(puzzleId: string, body: { elapsedTimeSec?: number } = {}) {
+export function revealPuzzleAnswer(
+  puzzleId: string,
+  body: {
+    elapsedTimeSec?: number
+    currentInputs?: Record<string, ScoreInput>
+    currentOutcomes?: Record<string, MatchOutcome | null>
+    notes?: Record<string, MatchNote>
+    hintsUsed?: number
+    hintTypes?: HintType[]
+    isReplay?: boolean
+  } = {}
+) {
   return requestJson<AnswerRevealResponse>(`/api/puzzles/${puzzleId}/answer`, {
     method: 'POST',
     body: JSON.stringify(body)

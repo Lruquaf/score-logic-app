@@ -10,6 +10,7 @@ import { StandingsTable } from '@/components/puzzle/StandingsTable'
 import { VictoryScreen } from '@/components/puzzle/VictoryScreen'
 import { useDailyPuzzle } from '@/hooks/usePuzzle'
 import { fetchCampaignPuzzles } from '@/lib/api/client'
+import { formatDuration } from '@/lib/utils/format'
 import { usePuzzleStore } from '@/store/puzzleStore'
 import { useUserStore } from '@/store/userStore'
 
@@ -29,6 +30,7 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
     puzzle,
     phase,
     status,
+    isReplayMode,
     violations,
     submitFeedback,
     completedMatchIds,
@@ -40,7 +42,11 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
     isHintPending,
     isAnswerRevealPending,
     isSubmitPending,
+    assistanceDisabled,
     elapsedTimeSec,
+    officialTimeTakenSec,
+    bestAttemptTimeSec,
+    bestAttemptHintsUsed,
     lastHintMessage,
     hintError,
     submitError,
@@ -99,6 +105,42 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
     () => [...new Set(visibleViolations.map((violation) => violation.teamId))],
     [visibleViolations]
   )
+  const savedAttemptNotice = useMemo(() => {
+    if (answerRevealed) {
+      return null
+    }
+
+    if (puzzle?.mode === 'campaign' && bestAttemptTimeSec !== null) {
+      const timeLabel = formatDuration(bestAttemptTimeSec)
+      return {
+        title: 'Best attempt saved.',
+        message:
+          bestAttemptHintsUsed !== null
+            ? `Best time: ${timeLabel}. Hints used: ${bestAttemptHintsUsed}.`
+            : `Best time: ${timeLabel}.`
+      }
+    }
+
+    if (status !== 'COMPLETED') {
+      return null
+    }
+
+    const timeLabel = officialTimeTakenSec !== null ? formatDuration(officialTimeTakenSec) : null
+
+    if (isReplayMode) {
+      return {
+        title: 'Official solve saved.',
+        message: timeLabel
+          ? `Official time: ${timeLabel}. This replay is local and will not replace it.`
+          : 'This replay is local and will not replace the official solve.'
+      }
+    }
+
+    return {
+      title: 'Official solve saved.',
+      message: timeLabel ? `Official time: ${timeLabel}.` : 'Reset Board starts a local replay.'
+    }
+  }, [answerRevealed, bestAttemptHintsUsed, bestAttemptTimeSec, isReplayMode, officialTimeTakenSec, puzzle?.mode, status])
 
   useEffect(() => {
     const isCurrentRoutePuzzle = !puzzleId || puzzle?.id === puzzleId
@@ -158,7 +200,12 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
         isSubmitPending={isSubmitPending}
         isAnswerPending={isAnswerRevealPending}
         answerRevealed={answerRevealed}
-        onOpenHints={() => setIsHintOpen(true)}
+        assistanceDisabled={assistanceDisabled}
+        onOpenHints={() => {
+          if (!assistanceDisabled) {
+            setIsHintOpen(true)
+          }
+        }}
         onRevealAnswer={revealAnswer}
         onSubmit={submit}
         currentStreak={stats?.currentStreak ?? 0}
@@ -195,9 +242,15 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
         </div>
       </section>
 
-      {(saveError || submitError || hintError || lastHintMessage || phase === 'FAILED' || phase === 'SOLVED') && (
+      {(saveError || submitError || hintError || lastHintMessage || savedAttemptNotice || answerRevealed || phase === 'FAILED' || phase === 'SOLVED') && (
         <section className="panel px-3 py-3 sm:px-5 sm:py-5">
           <div className="space-y-3">
+            {savedAttemptNotice ? (
+              <div className="rounded-[var(--radius-lg)] border border-[var(--success)]/25 bg-[var(--success-soft)] px-3 py-3 text-sm text-[var(--ink)]">
+                <div className="font-bold">{savedAttemptNotice.title}</div>
+                <p className="mt-1 text-[var(--ink-soft)]">{savedAttemptNotice.message}</p>
+              </div>
+            ) : null}
             {phase === 'FAILED' ? (
               <div className="rounded-[var(--radius-lg)] border border-[var(--danger)]/25 bg-[var(--danger-soft)] px-3 py-3 text-sm text-[var(--danger)]">
                 <div className="font-bold">{visibleFeedback?.message ?? 'Some scores do not fit the table yet.'}</div>
@@ -232,8 +285,12 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
               </div>
             ) : null}
             {lastHintMessage ? (
-              <div className="rounded-[var(--radius-lg)] border border-[var(--blue)]/25 bg-[var(--blue-soft)] px-3 py-3 text-sm text-[var(--ink)]">
-                <span className="font-bold">Hint:</span> {lastHintMessage}
+              <div className={`rounded-[var(--radius-lg)] border px-3 py-3 text-sm text-[var(--ink)] ${
+                answerRevealed
+                  ? 'border-[var(--answer)]/30 bg-[var(--answer-soft)]'
+                  : 'border-[var(--blue)]/25 bg-[var(--blue-soft)]'
+              }`}>
+                <span className="font-bold">{answerRevealed ? 'Answer:' : 'Hint:'}</span> {lastHintMessage}
               </div>
             ) : null}
             {phase === 'SOLVED' ? (
@@ -265,14 +322,13 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
           <button
             type="button"
             className="btn-secondary mt-5 w-full disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={answerRevealed}
             onClick={() => {
               resetCurrentPuzzle()
               setPhase('ACTIVE')
               setIsVictoryOpen(false)
             }}
           >
-            {answerRevealed ? 'Answer revealed' : 'Reset Board'}
+            Reset Board
           </button>
         </section>
       )}
@@ -290,7 +346,7 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
           setIsHintOpen(false)
         }}
         isPending={isHintPending}
-        answerRevealed={answerRevealed}
+        answerRevealed={answerRevealed || assistanceDisabled}
         isOutcomeOnly={puzzle.campaignPack === 'BEGINNER'}
         lastHintMessage={lastHintMessage}
         hintError={hintError}

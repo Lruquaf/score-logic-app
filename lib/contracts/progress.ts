@@ -36,7 +36,7 @@ export interface PuzzleProgressState {
   answerRevealed: boolean
   answerRevealedAt: string | null
   elapsedTimeSec?: number
-  startedAt: string
+  startedAt: string | null
   updatedAt: string
   lastSubmittedAt: string | null
 }

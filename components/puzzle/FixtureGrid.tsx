@@ -15,7 +15,7 @@ interface FixtureGridProps {
   className?: string
 }
 
-type MatchStatus = 'Check' | 'Given' | 'Hinted' | 'Entered' | 'Open'
+type MatchStatus = 'Check' | 'Given' | 'Hinted' | 'Answer' | 'Entered' | 'Open'
 
 function statusBadgeClass(status: MatchStatus) {
   const base =
@@ -28,6 +28,8 @@ function statusBadgeClass(status: MatchStatus) {
       return `${base} border-[var(--field-line)] bg-[var(--field-soft)] text-[var(--field-deep)]`
     case 'Hinted':
       return `${base} border-[var(--blue)]/28 bg-[var(--blue-soft)] text-[var(--blue)]`
+    case 'Answer':
+      return `${base} border-[var(--answer)]/30 bg-[var(--answer-soft)] text-[var(--answer)]`
     case 'Entered':
       return `${base} border-[var(--field-line)] bg-[var(--field-soft)] text-[var(--field-deep)]`
     case 'Open':
@@ -105,6 +107,8 @@ export function FixtureGrid({ puzzle, feedback, className = '' }: FixtureGridPro
               ? 'Check'
               : isInitialRevealed
               ? 'Given'
+              : answerRevealed
+              ? 'Answer'
               : isRevealed
               ? 'Hinted'
               : isCompleted
@@ -128,7 +132,7 @@ export function FixtureGrid({ puzzle, feedback, className = '' }: FixtureGridPro
                       : 'border-[var(--line)] bg-white/84 hover:border-[var(--field-line)] hover:bg-white'
               }`}
             >
-              <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_180px] lg:items-center">
+              <div className="grid grid-cols-[minmax(0,1fr)_52px] items-center gap-1.5 sm:grid-cols-[minmax(0,1fr)_150px] sm:gap-2 lg:grid-cols-[minmax(0,1fr)_180px]">
                 <div className={`grid items-center gap-2 ${
                   isOutcomeOnly
                     ? 'grid-cols-[minmax(56px,1fr)_minmax(148px,176px)_minmax(56px,1fr)_70px] max-sm:grid-cols-[minmax(48px,1fr)_minmax(132px,1.1fr)_minmax(48px,1fr)]'
@@ -147,7 +151,9 @@ export function FixtureGrid({ puzzle, feedback, className = '' }: FixtureGridPro
                         hasRowFeedback
                           ? 'border-[var(--danger)] bg-[var(--danger-soft)] text-[var(--danger)]'
                           : isRevealed
-                            ? 'border-[var(--blue)] bg-[var(--blue-soft)] text-[var(--blue)]'
+                            ? answerRevealed
+                              ? 'border-[var(--answer)] bg-[var(--answer-soft)] text-[var(--answer)]'
+                              : 'border-[var(--blue)] bg-[var(--blue-soft)] text-[var(--blue)]'
                           : outcomes[match.id]
                             ? 'border-[var(--field-line)] bg-[var(--field-soft)] text-[var(--field-deep)]'
                             : 'border-[var(--line)] bg-white/86 text-[var(--muted)]'
@@ -169,7 +175,9 @@ export function FixtureGrid({ puzzle, feedback, className = '' }: FixtureGridPro
                             className={`min-w-0 border-r border-[var(--line)] px-1 transition last:border-r-0 ${
                               isSelectedOutcome
                                 ? isRevealed
-                                  ? 'bg-[var(--blue)] text-white'
+                                  ? answerRevealed
+                                    ? 'bg-[var(--answer)] text-white'
+                                    : 'bg-[var(--blue)] text-white'
                                   : 'bg-[var(--field)] text-white'
                                 : answerRevealed || isRevealed
                                   ? ''
@@ -191,6 +199,7 @@ export function FixtureGrid({ puzzle, feedback, className = '' }: FixtureGridPro
                         side="home"
                         isCompleted={completedMatchIds.includes(match.id)}
                         isRevealed={isHomeRevealed}
+                        revealTone={answerRevealed ? 'answer' : 'hint'}
                         hasError={matchViolations.length > 0 || hasHomeCellFeedback}
                         ariaLabel={`${home?.nameEn ?? home?.code ?? match.homeTeamId} home score against ${away?.nameEn ?? away?.code ?? match.awayTeamId}`}
                       />
@@ -200,6 +209,7 @@ export function FixtureGrid({ puzzle, feedback, className = '' }: FixtureGridPro
                         side="away"
                         isCompleted={completedMatchIds.includes(match.id)}
                         isRevealed={isAwayRevealed}
+                        revealTone={answerRevealed ? 'answer' : 'hint'}
                         hasError={matchViolations.length > 0 || hasAwayCellFeedback}
                         ariaLabel={`${away?.nameEn ?? away?.code ?? match.awayTeamId} away score against ${home?.nameEn ?? home?.code ?? match.homeTeamId}`}
                       />
@@ -222,8 +232,8 @@ export function FixtureGrid({ puzzle, feedback, className = '' }: FixtureGridPro
                   value={matchNotes.match}
                   maxLength={180}
                   rows={1}
-                  className="h-9 resize-none overflow-hidden rounded-[var(--radius-sm)] border border-[var(--line)] bg-white/72 px-2.5 py-2 text-xs leading-4 text-[var(--ink)] outline-none transition placeholder:text-[var(--faint)] focus:border-[var(--field)] focus:shadow-[0_0_0_3px_var(--light-glow)]"
-                  placeholder="Match notes"
+                  className="h-9 resize-none overflow-hidden rounded-[var(--radius-sm)] border border-[var(--line)] bg-white/72 px-1.5 py-2 text-[11px] leading-4 text-[var(--ink)] outline-none transition placeholder:text-[var(--faint)] focus:border-[var(--field)] focus:shadow-[0_0_0_3px_var(--light-glow)] sm:px-2.5 sm:text-xs"
+                  placeholder="Notes"
                   aria-label={`${home?.nameEn ?? home?.code ?? match.homeTeamId} vs ${away?.nameEn ?? away?.code ?? match.awayTeamId} match notes`}
                   onChange={(event) => setNote(match.id, 'match', event.currentTarget.value)}
                 />

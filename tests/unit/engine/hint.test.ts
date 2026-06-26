@@ -14,6 +14,7 @@ describe('hint generation', () => {
     expect(hint.targetMatchId).toBeTruthy()
     expect(hint.revealedCell).toBeDefined()
     expect(typeof hint.revealedScore).toBe('number')
+    expect(hint.message).toMatch(/^(Home|Away) score cell is \d+\.$/)
   })
 
   it('does not reveal the same score cell twice', () => {

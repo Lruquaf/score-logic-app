@@ -805,4 +805,46 @@ describe('puzzle API routes', () => {
       })
     )
   })
+
+  it('reveals the full answer for a replay without overwriting completed progress', async () => {
+    const { ensureRequestUser } = await import('@/lib/auth/anonymous')
+    const { getPuzzlePrivateById } = await import('@/lib/db/queries/puzzles')
+    const { getPuzzleProgress, upsertPuzzleProgress } = await import('@/lib/db/queries/progress')
+    const { POST } = await import('@/app/api/puzzles/[id]/answer/route')
+    const completedProgress = {
+      ...sampleProgressEnvelope,
+      status: 'COMPLETED' as const,
+      timeTakenSec: 120,
+      completedAt: '2026-06-17T12:00:00.000Z'
+    }
+
+    vi.mocked(ensureRequestUser).mockResolvedValue({
+      userId: 'user-1',
+      isAnonymous: true
+    })
+    vi.mocked(getPuzzlePrivateById).mockResolvedValue(sampleDailyPuzzlePrivate)
+    vi.mocked(getPuzzleProgress).mockResolvedValue(completedProgress)
+
+    const request = new NextRequest(`http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/answer`, {
+      method: 'POST',
+      body: JSON.stringify({
+        elapsedTimeSec: 41,
+        currentInputs: {},
+        isReplay: true
+      })
+    })
+
+    const response = await POST(request, {
+      params: Promise.resolve({ id: sampleDailyPuzzlePrivate.id })
+    })
+    const json = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(json.progress.status).toBe('COMPLETED')
+    expect(json.progress.timeTakenSec).toBeNull()
+    expect(json.progress.completedAt).toBeNull()
+    expect(json.progress.currentState.answerRevealed).toBe(true)
+    expect(json.progress.currentState.elapsedTimeSec).toBe(41)
+    expect(upsertPuzzleProgress).not.toHaveBeenCalled()
+  })
 })

@@ -115,7 +115,9 @@ describe('puzzle store', () => {
     const state = store.getState()
 
     expect(state.elapsedBaseSec).toBe(47)
+    expect(state.startedAt).toBeNull()
     expect(state.drafts[sampleDailyPuzzlePublic.id]?.elapsedTimeSec).toBe(47)
+    expect(state.drafts[sampleDailyPuzzlePublic.id]?.startedAt).toBeNull()
   })
 
   it('resumes a paused puzzle timer without increasing elapsed time', () => {
@@ -329,5 +331,238 @@ describe('puzzle store', () => {
     expect(state.status).toBe('COMPLETED')
     expect(state.inputs.m1).toEqual({ home: 2, away: null })
     expect(state.drafts[sampleDailyPuzzlePublic.id]?.updatedAt).toBe('2026-06-17T10:00:00.000Z')
+  })
+
+  it('does not let replay hints overwrite the canonical completed draft', () => {
+    const store = createPuzzleStore()
+    const completedProgress = {
+      ...sampleProgressEnvelope,
+      status: 'COMPLETED' as const,
+      currentState: {
+        ...sampleProgressEnvelope.currentState!,
+        updatedAt: '2026-06-17T10:00:00.000Z'
+      }
+    }
+
+    store.getState().initializePuzzle(sampleDailyPuzzlePublic, completedProgress)
+    store.getState().resetCurrentPuzzle()
+    store.getState().applyHintPatch(
+      {
+        hintsUsed: 1,
+        hintTypes: ['reveal'],
+        revealedCells: [{ matchId: 'm1', side: 'home' }],
+        revealedInputs: {
+          m1: { home: 2 }
+        }
+      },
+      'One score cell revealed.'
+    )
+
+    const state = store.getState()
+    expect(state.isReplayMode).toBe(true)
+    expect(state.inputs.m1).toEqual({ home: 2, away: null })
+    expect(state.drafts[sampleDailyPuzzlePublic.id]?.updatedAt).toBe('2026-06-17T10:00:00.000Z')
+    expect(state.drafts[sampleDailyPuzzlePublic.id]?.revealedCells).toEqual([])
+  })
+
+  it('does not let replay submits overwrite the canonical completed draft', () => {
+    const store = createPuzzleStore()
+    const completedProgress = {
+      ...sampleProgressEnvelope,
+      status: 'COMPLETED' as const,
+      currentState: {
+        ...sampleProgressEnvelope.currentState!,
+        updatedAt: '2026-06-17T10:00:00.000Z'
+      }
+    }
+
+    store.getState().initializePuzzle(sampleDailyPuzzlePublic, completedProgress)
+    store.getState().resetCurrentPuzzle()
+    store.getState().applySubmitResolution({
+      isCorrect: true,
+      violations: [],
+      feedback: solvedFeedback,
+      progress: {
+        ...completedProgress,
+        currentState: {
+          ...completedProgress.currentState,
+          inputs: {
+            m1: { home: 2, away: 1 }
+          },
+          completedMatchIds: ['m1'],
+          updatedAt: '2026-06-17T10:05:00.000Z',
+          lastSubmittedAt: '2026-06-17T10:05:00.000Z'
+        }
+      }
+    })
+
+    const state = store.getState()
+    expect(state.phase).toBe('SOLVED')
+    expect(state.isReplayMode).toBe(true)
+    expect(state.startedAt).toBeNull()
+    expect(state.inputs.m1).toEqual({ home: 2, away: 1 })
+    expect(state.drafts[sampleDailyPuzzlePublic.id]?.updatedAt).toBe('2026-06-17T10:00:00.000Z')
+  })
+
+  it('does not resume the timer after a replay is solved', () => {
+    vi.useFakeTimers()
+    try {
+      const store = createPuzzleStore()
+      const completedProgress = {
+        ...sampleProgressEnvelope,
+        status: 'COMPLETED' as const,
+        currentState: {
+          ...sampleProgressEnvelope.currentState!,
+          updatedAt: '2026-06-17T10:00:00.000Z'
+        }
+      }
+
+      store.getState().initializePuzzle(sampleDailyPuzzlePublic, completedProgress)
+      store.getState().resetCurrentPuzzle()
+      store.getState().applySubmitResolution({
+        isCorrect: true,
+        violations: [],
+        feedback: solvedFeedback,
+        progress: {
+          ...completedProgress,
+          currentState: {
+            ...completedProgress.currentState,
+            inputs: {
+              m1: { home: 2, away: 1 }
+            },
+            completedMatchIds: ['m1'],
+            updatedAt: '2026-06-17T10:05:00.000Z',
+            lastSubmittedAt: '2026-06-17T10:05:00.000Z'
+          }
+        }
+      })
+      vi.setSystemTime(new Date('2026-06-17T10:10:00.000Z'))
+      store.getState().resumeTimer(sampleDailyPuzzlePublic.id)
+
+      const state = store.getState()
+      expect(state.phase).toBe('SOLVED')
+      expect(state.isReplayMode).toBe(true)
+      expect(state.startedAt).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('resumes the timer for a completed daily puzzle replay', () => {
+    vi.useFakeTimers()
+    try {
+      const store = createPuzzleStore()
+      const completedProgress = {
+        ...sampleProgressEnvelope,
+        status: 'COMPLETED' as const,
+        currentState: {
+          ...sampleProgressEnvelope.currentState!,
+          updatedAt: '2026-06-17T10:00:00.000Z'
+        }
+      }
+      const resumedAt = new Date('2026-06-17T10:10:00.000Z')
+
+      store.getState().initializePuzzle(sampleDailyPuzzlePublic, completedProgress)
+      store.getState().resetCurrentPuzzle()
+      vi.setSystemTime(resumedAt)
+      store.getState().resumeTimer(sampleDailyPuzzlePublic.id)
+
+      const state = store.getState()
+      expect(state.isReplayMode).toBe(true)
+      expect(state.status).toBe('COMPLETED')
+      expect(state.startedAt).toBe(resumedAt.toISOString())
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reveals answers in replay mode without overwriting the canonical completed draft', () => {
+    const store = createPuzzleStore()
+    const completedProgress = {
+      ...sampleProgressEnvelope,
+      status: 'COMPLETED' as const,
+      timeTakenSec: 214,
+      completedAt: '2026-06-17T10:00:00.000Z',
+      currentState: {
+        ...sampleProgressEnvelope.currentState!,
+        updatedAt: '2026-06-17T10:00:00.000Z'
+      }
+    }
+    const revealedAt = '2026-06-17T10:12:00.000Z'
+    const replayProgress = {
+      ...completedProgress,
+      answerRevealed: true,
+      answerRevealedAt: revealedAt,
+      timeTakenSec: null,
+      completedAt: null,
+      currentState: {
+        ...completedProgress.currentState,
+        answerRevealed: true,
+        answerRevealedAt: revealedAt,
+        inputs: Object.fromEntries(
+          sampleDailyPuzzlePublic.matches.map((match) => [match.id, { home: 1, away: 0 }])
+        ),
+        completedMatchIds: sampleDailyPuzzlePublic.matches.map((match) => match.id),
+        revealedMatchIds: sampleDailyPuzzlePublic.matches.map((match) => match.id),
+        revealedCells: sampleDailyPuzzlePublic.matches.flatMap((match) => [
+          { matchId: match.id, side: 'home' as const },
+          { matchId: match.id, side: 'away' as const }
+        ]),
+        updatedAt: revealedAt
+      }
+    }
+
+    store.getState().initializePuzzle(sampleDailyPuzzlePublic, completedProgress)
+    store.getState().resetCurrentPuzzle()
+    store.getState().pauseTimer(sampleDailyPuzzlePublic.id, 37)
+    store.getState().applyAnswerReveal({
+      answer: {
+        solution: [],
+        allSolutions: [],
+        outcomes: {},
+        solutionCount: 1
+      },
+      progress: replayProgress
+    })
+
+    const state = store.getState()
+    expect(state.isReplayMode).toBe(true)
+    expect(state.answerRevealed).toBe(true)
+    expect(state.elapsedBaseSec).toBe(37)
+    expect(state.timeTakenSec).toBe(214)
+    expect(state.completedAt).toBe('2026-06-17T10:00:00.000Z')
+    expect(state.drafts[sampleDailyPuzzlePublic.id]?.updatedAt).toBe('2026-06-17T10:00:00.000Z')
+  })
+
+  it('resets a completed campaign puzzle into a new official attempt', () => {
+    const store = createPuzzleStore()
+    const campaignPuzzle = {
+      ...sampleDailyPuzzlePublic,
+      mode: 'campaign' as const,
+      dailyDate: null,
+      campaignOrder: 1,
+      campaignPack: 'BEGINNER' as const,
+      campaignLevel: 1
+    }
+    const completedProgress = {
+      ...sampleProgressEnvelope,
+      status: 'COMPLETED' as const,
+      currentState: {
+        ...sampleProgressEnvelope.currentState!,
+        updatedAt: '2026-06-17T10:00:00.000Z'
+      }
+    }
+
+    store.getState().initializePuzzle(campaignPuzzle, completedProgress)
+    store.getState().resetCurrentPuzzle()
+    store.getState().setOutcome('m1', 'HOME_WIN')
+
+    const state = store.getState()
+    expect(state.isReplayMode).toBe(false)
+    expect(state.status).toBe('IN_PROGRESS')
+    expect(state.answerRevealed).toBe(false)
+    expect(state.outcomes.m1).toBe('HOME_WIN')
+    expect(state.drafts[campaignPuzzle.id]?.outcomes.m1).toBe('HOME_WIN')
+    expect(state.drafts[campaignPuzzle.id]?.updatedAt).not.toBe('2026-06-17T10:00:00.000Z')
   })
 })

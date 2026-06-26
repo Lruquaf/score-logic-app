@@ -10,6 +10,7 @@ interface ScoreCellProps {
   side: 'home' | 'away'
   isCompleted: boolean
   isRevealed: boolean
+  revealTone?: 'hint' | 'answer'
   hasError: boolean
   ariaLabel: string
 }
@@ -19,6 +20,7 @@ export function ScoreCell({
   side,
   isCompleted,
   isRevealed,
+  revealTone = 'hint',
   hasError,
   ariaLabel
 }: ScoreCellProps) {
@@ -33,7 +35,9 @@ export function ScoreCell({
   const tone = hasError
     ? 'border-[var(--danger)] bg-[var(--danger-soft)] text-[var(--danger)] shadow-[inset_0_0_0_1px_rgba(183,67,63,0.10)]'
     : isRevealed
-      ? 'border-[var(--blue)] bg-[var(--blue-soft)] text-[var(--ink)] shadow-[inset_0_0_0_1px_rgba(49,95,141,0.10)]'
+      ? revealTone === 'answer'
+        ? 'border-[var(--answer)] bg-[var(--answer-soft)] text-[var(--ink)] shadow-[inset_0_0_0_1px_rgba(169,100,19,0.14)]'
+        : 'border-[var(--blue)] bg-[var(--blue-soft)] text-[var(--ink)] shadow-[inset_0_0_0_1px_rgba(49,95,141,0.10)]'
       : isCompleted
         ? 'border-[var(--field-line)] bg-[var(--field-soft)] text-[var(--field-deep)] shadow-[inset_0_0_0_1px_rgba(57,209,123,0.12)]'
         : isSelected

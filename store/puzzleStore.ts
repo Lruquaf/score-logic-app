@@ -71,6 +71,9 @@ export interface PuzzleStoreState {
   lastSubmittedAt: string | null
   timeTakenSec: number | null
   completedAt: string | null
+  bestAttemptTimeSec: number | null
+  bestAttemptCompletedAt: string | null
+  bestAttemptHintsUsed: number | null
   attempts: number
   saveState: PuzzleSaveState
   saveError: string | null
@@ -436,6 +439,9 @@ function createInitialPuzzleData() {
     lastSubmittedAt: null,
     timeTakenSec: null,
     completedAt: null,
+    bestAttemptTimeSec: null,
+    bestAttemptCompletedAt: null,
+    bestAttemptHintsUsed: null,
     attempts: 0,
     saveState: 'idle' as PuzzleSaveState,
     saveError: null,
@@ -479,6 +485,18 @@ export function createPuzzleStore() {
             }
             const nextDraft = applyInitialRevealedMatchesToDraft(puzzle, resumedDraft)
             const nextStatus = progress?.status ?? 'IN_PROGRESS'
+            const bestAttemptTimeSec =
+              puzzle.mode === 'campaign' && progress?.status === 'COMPLETED'
+                ? progress.timeTakenSec ?? null
+                : null
+            const bestAttemptCompletedAt =
+              puzzle.mode === 'campaign' && progress?.status === 'COMPLETED'
+                ? progress.completedAt ?? null
+                : null
+            const bestAttemptHintsUsed =
+              puzzle.mode === 'campaign' && progress?.status === 'COMPLETED'
+                ? progress.hintsUsed
+                : null
 
             return {
               ...state,
@@ -506,6 +524,9 @@ export function createPuzzleStore() {
               lastSubmittedAt: nextDraft.lastSubmittedAt,
               timeTakenSec: progress?.timeTakenSec ?? null,
               completedAt: progress?.completedAt ?? null,
+              bestAttemptTimeSec,
+              bestAttemptCompletedAt,
+              bestAttemptHintsUsed,
               attempts: progress?.attempts ?? 0,
               saveState: 'idle',
               saveError: null,
@@ -915,13 +936,13 @@ export function createPuzzleStore() {
               hintsUsed: patch.hintsUsed,
               hintTypes: [...patch.hintTypes],
               updatedAt: nextDraft.updatedAt,
-              lastSyncedAt: nextDraft.updatedAt,
+              lastSyncedAt: state.isReplayMode ? state.lastSyncedAt : nextDraft.updatedAt,
               lastHintMessage: message,
               saveState: 'idle',
               saveError: null,
               drafts: {
                 ...state.drafts,
-                [puzzle.id]: nextDraft
+                ...(state.isReplayMode ? {} : { [puzzle.id]: nextDraft })
               }
             }
           }),
@@ -941,6 +962,16 @@ export function createPuzzleStore() {
               draftFromProgress(progress.puzzleId, progress, timestamp) ??
                 createEmptyDraft(progress.puzzleId, timestamp)
             )
+            const isCampaignCompleted = state.puzzle.mode === 'campaign' && progress.status === 'COMPLETED'
+            const bestAttemptTimeSec = isCampaignCompleted
+              ? progress.timeTakenSec ?? state.bestAttemptTimeSec
+              : state.bestAttemptTimeSec
+            const bestAttemptCompletedAt = isCampaignCompleted
+              ? progress.completedAt ?? state.bestAttemptCompletedAt
+              : state.bestAttemptCompletedAt
+            const bestAttemptHintsUsed = isCampaignCompleted
+              ? progress.hintsUsed
+              : state.bestAttemptHintsUsed
 
             return {
               ...state,
@@ -970,6 +1001,9 @@ export function createPuzzleStore() {
               lastSubmittedAt: nextDraft.lastSubmittedAt,
               timeTakenSec: progress.timeTakenSec,
               completedAt: progress.completedAt,
+              bestAttemptTimeSec,
+              bestAttemptCompletedAt,
+              bestAttemptHintsUsed,
               attempts: progress.attempts,
               lastSyncedAt: nextDraft.updatedAt,
               saveState: 'idle',
@@ -994,12 +1028,30 @@ export function createPuzzleStore() {
                 createEmptyDraft(result.progress.puzzleId, timestamp)
             )
             const elapsedTimeSec = state.elapsedBaseSec
+            const wasReplayMode = state.isReplayMode
+            const isCampaignSolved =
+              state.puzzle.mode === 'campaign' && result.isCorrect && result.progress.timeTakenSec !== null
+            const bestAttemptTimeSec =
+              isCampaignSolved &&
+              (state.bestAttemptTimeSec === null || result.progress.timeTakenSec! < state.bestAttemptTimeSec)
+                ? result.progress.timeTakenSec
+                : state.bestAttemptTimeSec
+            const bestAttemptCompletedAt =
+              isCampaignSolved &&
+              (state.bestAttemptTimeSec === null || result.progress.timeTakenSec! <= (state.bestAttemptTimeSec ?? Infinity))
+                ? result.progress.completedAt
+                : state.bestAttemptCompletedAt
+            const bestAttemptHintsUsed =
+              isCampaignSolved &&
+              (state.bestAttemptTimeSec === null || result.progress.timeTakenSec! <= (state.bestAttemptTimeSec ?? Infinity))
+                ? result.progress.hintsUsed
+                : state.bestAttemptHintsUsed
 
             return {
               ...state,
               phase: result.isCorrect ? 'SOLVED' : 'FAILED',
               status: result.progress.status,
-              isReplayMode: state.isReplayMode && !result.isCorrect,
+              isReplayMode: wasReplayMode,
               inputs: cloneInputs(nextDraft.inputs),
               outcomes: cloneOutcomes(nextDraft.outcomes),
               notes: cloneNotes(nextDraft.notes ?? {}),
@@ -1020,17 +1072,22 @@ export function createPuzzleStore() {
               lastSubmittedAt: nextDraft.lastSubmittedAt,
               timeTakenSec: result.progress.timeTakenSec,
               completedAt: result.progress.completedAt,
+              bestAttemptTimeSec,
+              bestAttemptCompletedAt,
+              bestAttemptHintsUsed,
               attempts: result.progress.attempts,
               saveState: 'idle',
               saveError: null,
-              lastSyncedAt: nextDraft.updatedAt,
-              drafts: {
-                ...state.drafts,
-                [result.progress.puzzleId]: {
-                  ...nextDraft,
-                  elapsedTimeSec
-                }
-              }
+              lastSyncedAt: wasReplayMode ? state.lastSyncedAt : nextDraft.updatedAt,
+              drafts: wasReplayMode
+                ? state.drafts
+                : {
+                    ...state.drafts,
+                    [result.progress.puzzleId]: {
+                      ...nextDraft,
+                      elapsedTimeSec
+                    }
+                  }
             }
           }),
         applyAnswerReveal: (result) =>
@@ -1047,12 +1104,13 @@ export function createPuzzleStore() {
                 createEmptyDraft(result.progress.puzzleId, timestamp)
             )
             const elapsedTimeSec = state.elapsedBaseSec
+            const wasReplayMode = state.isReplayMode
 
             return {
               ...state,
               phase: 'ACTIVE',
               status: result.progress.status,
-              isReplayMode: false,
+              isReplayMode: wasReplayMode,
               inputs: cloneInputs(nextDraft.inputs),
               outcomes: cloneOutcomes(nextDraft.outcomes),
               notes: cloneNotes(nextDraft.notes ?? {}),
@@ -1071,23 +1129,25 @@ export function createPuzzleStore() {
               startedAt: null,
               updatedAt: nextDraft.updatedAt,
               lastSubmittedAt: nextDraft.lastSubmittedAt,
-              timeTakenSec: result.progress.timeTakenSec,
-              completedAt: result.progress.completedAt,
+              timeTakenSec: wasReplayMode ? state.timeTakenSec : result.progress.timeTakenSec,
+              completedAt: wasReplayMode ? state.completedAt : result.progress.completedAt,
               attempts: result.progress.attempts,
               saveState: 'idle',
               saveError: null,
-              lastSyncedAt: nextDraft.updatedAt,
+              lastSyncedAt: wasReplayMode ? state.lastSyncedAt : nextDraft.updatedAt,
               lastHintMessage:
                 result.answer.solutionCount > 1
                   ? `Answer revealed. Showing one of ${result.answer.solutionCount} valid solutions.`
                   : 'Answer revealed.',
-              drafts: {
-                ...state.drafts,
-                [result.progress.puzzleId]: {
-                  ...nextDraft,
-                  elapsedTimeSec
-                }
-              }
+              drafts: wasReplayMode
+                ? state.drafts
+                : {
+                    ...state.drafts,
+                    [result.progress.puzzleId]: {
+                      ...nextDraft,
+                      elapsedTimeSec
+                    }
+                  }
             }
           }),
         pauseTimer: (puzzleId, elapsedTimeSec) =>
@@ -1110,7 +1170,7 @@ export function createPuzzleStore() {
                 answerRevealed: state.answerRevealed,
                 answerRevealedAt: state.answerRevealedAt,
                 elapsedTimeSec: elapsed,
-                startedAt: timestamp,
+                startedAt: null,
                 updatedAt: timestamp,
                 lastSubmittedAt: state.lastSubmittedAt,
                 revealedMatchIds: [...state.revealedMatchIds],
@@ -1121,7 +1181,7 @@ export function createPuzzleStore() {
               return {
                 ...state,
                 elapsedBaseSec: elapsed,
-                startedAt: timestamp,
+                startedAt: null,
                 updatedAt: timestamp,
                 drafts: {
                   ...state.drafts,
@@ -1145,7 +1205,7 @@ export function createPuzzleStore() {
                 [puzzleId]: {
                   ...existingDraft,
                   elapsedTimeSec: elapsed,
-                  startedAt: timestamp,
+                  startedAt: null,
                   updatedAt: timestamp
                 }
               }
@@ -1155,8 +1215,10 @@ export function createPuzzleStore() {
           set((state) => {
             if (
               state.puzzle?.id !== puzzleId ||
-              state.status === 'COMPLETED' ||
+              (state.status === 'COMPLETED' && !state.isReplayMode) ||
               state.phase === 'IDLE' ||
+              state.phase === 'CHECKING' ||
+              state.phase === 'SOLVED' ||
               state.answerRevealed
             ) {
               return state
@@ -1179,13 +1241,14 @@ export function createPuzzleStore() {
               state.puzzle,
               createEmptyDraft(state.puzzle.id, timestamp)
             )
-            const isCompletedReplay = state.status === 'COMPLETED'
+            const startsReplaySession =
+              state.puzzle.mode !== 'campaign' && (state.status === 'COMPLETED' || state.answerRevealed)
 
             return {
               ...state,
               phase: 'ACTIVE',
-              status: isCompletedReplay ? 'COMPLETED' : 'IN_PROGRESS',
-              isReplayMode: isCompletedReplay,
+              status: startsReplaySession ? state.status : 'IN_PROGRESS',
+              isReplayMode: startsReplaySession,
               inputs: cloneInputs(nextDraft.inputs),
               outcomes: cloneOutcomes(nextDraft.outcomes),
               notes: {},
@@ -1204,16 +1267,16 @@ export function createPuzzleStore() {
               startedAt: nextDraft.startedAt,
               updatedAt: nextDraft.updatedAt,
               lastSubmittedAt: null,
-              timeTakenSec: null,
-              completedAt: null,
-              attempts: 0,
+              timeTakenSec: startsReplaySession ? state.timeTakenSec : null,
+              completedAt: startsReplaySession ? state.completedAt : null,
+              attempts: startsReplaySession ? state.attempts : 0,
               saveState: 'idle',
               saveError: null,
-              lastSyncedAt: isCompletedReplay ? state.lastSyncedAt : null,
+              lastSyncedAt: startsReplaySession ? state.lastSyncedAt : null,
               lastHintMessage: null,
               drafts: {
                 ...state.drafts,
-                ...(isCompletedReplay ? {} : { [state.puzzle.id]: nextDraft })
+                ...(startsReplaySession ? {} : { [state.puzzle.id]: nextDraft })
               }
             }
           })

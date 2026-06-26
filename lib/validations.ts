@@ -105,7 +105,7 @@ export const puzzleProgressStateSchema = z.object({
   answerRevealed: z.boolean().default(false),
   answerRevealedAt: z.string().datetime().nullable().default(null),
   elapsedTimeSec: z.number().int().min(0).max(7200).default(0),
-  startedAt: z.string().datetime(),
+  startedAt: z.string().datetime().nullable(),
   updatedAt: z.string().datetime(),
   lastSubmittedAt: z.string().datetime().nullable()
 })
@@ -135,13 +135,37 @@ const submitScoreInputSchema = z.object({
 export const submitPuzzleSchema = z.object({
   inputs: z.record(submitScoreInputSchema).default({}),
   outcomes: z.record(matchOutcomeSchema).default({}),
-  timeTakenSec: z.number().int().min(0).max(7200)
+  notes: z.record(matchNoteSchema).default({}),
+  timeTakenSec: z.number().int().min(0).max(7200),
+  completedMatchIds: z.array(matchIdSchema).default([]),
+  revealedMatchIds: z.array(matchIdSchema).default([]),
+  revealedCells: z.array(revealedScoreCellSchema).default([]),
+  hintsUsed: z.number().int().min(0).max(100).default(0),
+  hintTypes: hintTypesSchema,
+  isReplay: z.boolean().default(false)
 })
 
 export const hintRequestSchema = z.object({
   hintType: hintTypeSchema,
   currentInputs: z.record(scoreInputSchema).default({}),
   currentOutcomes: z.record(matchOutcomeSchema.nullable()).default({}),
+  notes: z.record(matchNoteSchema).default({}),
+  completedMatchIds: z.array(matchIdSchema).default([]),
+  revealedMatchIds: z.array(matchIdSchema).default([]),
+  revealedCells: z.array(revealedScoreCellSchema).default([]),
+  hintsUsed: z.number().int().min(0).max(100).default(0),
+  hintTypes: hintTypesSchema,
   answerRevealed: z.boolean().default(false),
-  answerRevealedAt: z.string().datetime().nullable().default(null)
+  answerRevealedAt: z.string().datetime().nullable().default(null),
+  isReplay: z.boolean().default(false)
+})
+
+export const answerRevealSchema = z.object({
+  elapsedTimeSec: z.number().int().min(0).max(7200).optional(),
+  currentInputs: z.record(scoreInputSchema).default({}),
+  currentOutcomes: z.record(matchOutcomeSchema.nullable()).default({}),
+  notes: z.record(matchNoteSchema).default({}),
+  hintsUsed: z.number().int().min(0).max(100).default(0),
+  hintTypes: hintTypesSchema,
+  isReplay: z.boolean().default(false)
 })

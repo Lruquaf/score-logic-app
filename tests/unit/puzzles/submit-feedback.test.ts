@@ -182,4 +182,36 @@ describe('submit feedback', () => {
     expect(feedback.violations).toHaveLength(1)
     expect(feedback.wrongCells).toEqual([])
   })
+
+  it('uses hard-level error count feedback for hard daily puzzles', () => {
+    const feedback = buildSubmitFeedback({
+      puzzle: {
+        ...puzzleForPack(null),
+        difficulty: 'HARD'
+      },
+      userInputs: toScoreMap(wrongInputs()),
+      isCorrect: false,
+      violations: [
+        {
+          type: 'GOALS_FOR',
+          teamId: sampleDailyPuzzlePrivate.teams[0].id,
+          message: 'USA: Goals for do not match the table.',
+          severity: 'error'
+        },
+        {
+          type: 'POINTS',
+          teamId: sampleDailyPuzzlePrivate.teams[0].id,
+          message: 'USA: Points do not match the table.',
+          severity: 'error'
+        }
+      ]
+    })
+
+    expect(feedback.mode).toBe('ERROR_COUNT')
+    expect(feedback.message).toBe('The fixture is wrong. 1 score cell needs another look.')
+    expect(feedback.errorCount).toBe(1)
+    expect(feedback.violations).toEqual([])
+    expect(feedback.wrongCells).toEqual([])
+    expect(feedback.wrongMatchIds).toEqual([])
+  })
 })

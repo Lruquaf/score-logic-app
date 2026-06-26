@@ -1,4 +1,4 @@
-import type { PuzzlePrivateDTO } from '@/lib/contracts/puzzle'
+import type { Difficulty, PuzzlePrivateDTO } from '@/lib/contracts/puzzle'
 import type { MatchOutcome } from '@/lib/contracts/progress'
 import type { SubmitFeedback, SubmitFeedbackCell, SubmitFeedbackMode } from '@/lib/contracts/submit'
 import type { ConstraintViolation } from '@/lib/engine/types'
@@ -16,6 +16,10 @@ function plural(count: number, singular: string, pluralValue = `${singular}s`) {
   return count === 1 ? singular : pluralValue
 }
 
+function needVerb(count: number) {
+  return count === 1 ? 'needs' : 'need'
+}
+
 function feedbackMessage(params: {
   mode: SubmitFeedbackMode
   wrongMatchCount: number
@@ -30,11 +34,11 @@ function feedbackMessage(params: {
   }
 
   if (params.mode === 'EXACT_WRONG_OUTCOMES') {
-    return `${params.wrongOutcomeCount} ${plural(params.wrongOutcomeCount, 'match result')} need another look.`
+    return `${params.wrongOutcomeCount} ${plural(params.wrongOutcomeCount, 'match result')} ${needVerb(params.wrongOutcomeCount)} another look.`
   }
 
   if (params.mode === 'EXACT_WRONG_CELLS') {
-    return `${params.wrongCellCount} ${plural(params.wrongCellCount, 'score cell')} need another look.`
+    return `${params.wrongCellCount} ${plural(params.wrongCellCount, 'score cell')} ${needVerb(params.wrongCellCount)} another look.`
   }
 
   if (params.mode === 'WRONG_MATCH') {
@@ -42,21 +46,29 @@ function feedbackMessage(params: {
   }
 
   if (params.mode === 'ERROR_COUNT') {
-    return `The fixture is wrong. ${params.wrongCellCount} ${plural(params.wrongCellCount, 'score cell')} need another look.`
+    return `The fixture is wrong. ${params.wrongCellCount} ${plural(params.wrongCellCount, 'score cell')} ${needVerb(params.wrongCellCount)} another look.`
   }
 
   return 'The fixture is wrong.'
 }
 
+function feedbackModeForDailyDifficulty(difficulty: Difficulty): SubmitFeedbackMode {
+  if (difficulty === 'HARD') {
+    return 'ERROR_COUNT'
+  }
+
+  return 'CONSTRAINT_VIOLATIONS'
+}
+
 export function buildSubmitFeedback(params: {
-  puzzle: Pick<PuzzlePrivateDTO, 'campaignPack' | 'matches' | 'solution' | 'allSolutions'>
+  puzzle: Pick<PuzzlePrivateDTO, 'campaignPack' | 'difficulty' | 'matches' | 'solution' | 'allSolutions'>
   userInputs?: ScoreMap
   userOutcomes?: Record<string, MatchOutcome>
   isCorrect: boolean
   violations: ConstraintViolation[]
 }): SubmitFeedback {
   const mode: SubmitFeedbackMode =
-    getPuzzleCampaignPackConfig(params.puzzle)?.feedbackMode ?? 'CONSTRAINT_VIOLATIONS'
+    getPuzzleCampaignPackConfig(params.puzzle)?.feedbackMode ?? feedbackModeForDailyDifficulty(params.puzzle.difficulty)
 
   if (params.isCorrect) {
     return {

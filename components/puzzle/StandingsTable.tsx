@@ -1,5 +1,158 @@
+import type { MatchOutcome, ScoreInput } from '@/lib/contracts/progress'
 import type { PuzzlePublicDTO } from '@/lib/contracts/puzzle'
 import { HelpPopover } from '@/components/ui/HelpPopover'
+import { usePuzzleStore } from '@/store/puzzleStore'
+
+type StandingMetric = 'played' | 'won' | 'drawn' | 'lost' | 'goalsFor' | 'goalsAgainst' | 'points'
+
+type ProjectionStats = Record<StandingMetric, number>
+
+const metricLabels: StandingMetric[] = [
+  'played',
+  'won',
+  'drawn',
+  'lost',
+  'goalsFor',
+  'goalsAgainst',
+  'points'
+]
+
+function createProjectionStats(): ProjectionStats {
+  return {
+    played: 0,
+    won: 0,
+    drawn: 0,
+    lost: 0,
+    goalsFor: 0,
+    goalsAgainst: 0,
+    points: 0
+  }
+}
+
+function outcomeFromScore(score: { home: number; away: number }): MatchOutcome {
+  if (score.home > score.away) return 'HOME_WIN'
+  if (score.home < score.away) return 'AWAY_WIN'
+  return 'DRAW'
+}
+
+function applyOutcome(
+  home: ProjectionStats,
+  away: ProjectionStats,
+  outcome: MatchOutcome
+) {
+  home.played += 1
+  away.played += 1
+
+  if (outcome === 'HOME_WIN') {
+    home.won += 1
+    home.points += 3
+    away.lost += 1
+    return
+  }
+
+  if (outcome === 'AWAY_WIN') {
+    away.won += 1
+    away.points += 3
+    home.lost += 1
+    return
+  }
+
+  home.drawn += 1
+  away.drawn += 1
+  home.points += 1
+  away.points += 1
+}
+
+function buildProjectionStats(
+  puzzle: PuzzlePublicDTO,
+  inputs: Record<string, ScoreInput>,
+  outcomes: Record<string, MatchOutcome | null>
+) {
+  const stats = new Map(puzzle.standings.map((standing) => [standing.teamId, createProjectionStats()]))
+
+  for (const match of puzzle.matches) {
+    const home = stats.get(match.homeTeamId)
+    const away = stats.get(match.awayTeamId)
+    if (!home || !away) continue
+
+    const score = inputs[match.id]
+    const hasHomeScore = score?.home !== null && score?.home !== undefined
+    const hasAwayScore = score?.away !== null && score?.away !== undefined
+
+    if (hasHomeScore) {
+      home.goalsFor += score.home as number
+      away.goalsAgainst += score.home as number
+    }
+
+    if (hasAwayScore) {
+      away.goalsFor += score.away as number
+      home.goalsAgainst += score.away as number
+    }
+
+    if (hasHomeScore && hasAwayScore) {
+      applyOutcome(home, away, outcomeFromScore({ home: score.home as number, away: score.away as number }))
+      continue
+    }
+
+    const outcome = outcomes[match.id]
+    if (outcome) {
+      applyOutcome(home, away, outcome)
+    }
+  }
+
+  return stats
+}
+
+function targetValueForMetric(
+  standing: PuzzlePublicDTO['standings'][number],
+  metric: StandingMetric
+) {
+  return standing[metric]
+}
+
+function StandingValueCell({
+  target,
+  consumed,
+  isPoints = false
+}: {
+  target: number
+  consumed: number
+  isPoints?: boolean
+}) {
+  const remaining = target - consumed
+  const isActive = consumed !== 0
+  const isOverdrawn = remaining < 0
+
+  return (
+    <div className="relative ml-auto flex min-h-8 w-fit min-w-9 items-center justify-end pr-1 pt-2 sm:min-h-9 sm:min-w-10 sm:pr-1.5">
+      <span
+        className={`transition ${
+          isActive
+            ? 'text-[var(--faint)] line-through decoration-[var(--answer)]/60 decoration-1'
+            : isPoints
+              ? 'text-[var(--field-deep)]'
+              : 'text-[var(--ink-soft)]'
+        }`}
+      >
+        {target}
+      </span>
+      {isActive ? (
+        <span
+          className={`absolute -right-2 -top-1.5 rounded-[var(--radius-sm)] border bg-white px-1 font-mono text-[9px] font-extrabold leading-4 shadow-[0_4px_10px_rgba(23,33,27,0.08)] sm:-right-2.5 sm:-top-1.5 sm:text-[10px] ${
+            isOverdrawn
+              ? 'border-[var(--danger)]/28 text-[var(--danger)]'
+              : remaining === 0
+                ? 'border-[var(--success)]/24 text-[var(--field-deep)]'
+                : 'border-[var(--answer)]/28 text-[var(--answer)]'
+          }`}
+          aria-label={`Remaining ${remaining}`}
+        >
+          {remaining}
+        </span>
+      ) : null}
+    </div>
+  )
+}
 
 interface StandingsTableProps {
   puzzle: PuzzlePublicDTO
@@ -14,7 +167,10 @@ export function StandingsTable({
   violationTeamIds = [],
   className = ''
 }: StandingsTableProps) {
+  const inputs = usePuzzleStore((state) => state.inputs)
+  const outcomes = usePuzzleStore((state) => state.outcomes)
   const teamMap = new Map(puzzle.teams.map((team) => [team.id, team]))
+  const projectedStats = buildProjectionStats(puzzle, inputs, outcomes)
 
   return (
     <div className={`panel flex flex-col overflow-hidden ${className}`}>
@@ -108,23 +264,23 @@ export function StandingsTable({
                     </div>
                     <div className="mt-1 hidden max-w-[156px] truncate text-xs text-[var(--muted)] sm:block">{team?.nameEn}</div>
                   </td>
-                  {[
-                    standing.played,
-                    standing.won,
-                    standing.drawn,
-                    standing.lost,
-                    standing.goalsFor,
-                    standing.goalsAgainst
-                  ].map((value, valueIndex) => (
+                  {metricLabels.slice(0, -1).map((metric) => (
                     <td
-                      key={`${standing.teamId}-${valueIndex}`}
-                      className="border-y border-[var(--line)] px-1 py-2.5 text-right font-mono text-[11px] font-semibold text-[var(--ink-soft)] sm:px-2 sm:py-4 sm:text-sm"
+                      key={`${standing.teamId}-${metric}`}
+                      className="border-y border-[var(--line)] px-1 py-2.5 text-right font-mono text-[11px] font-semibold sm:px-2 sm:py-4 sm:text-sm"
                     >
-                      {value}
+                      <StandingValueCell
+                        target={targetValueForMetric(standing, metric)}
+                        consumed={projectedStats.get(standing.teamId)?.[metric] ?? 0}
+                      />
                     </td>
                   ))}
                   <td className="rounded-r-[var(--radius-sm)] border-y border-r border-[var(--line)] px-1 py-2.5 text-right font-mono text-xs font-bold text-[var(--field-deep)] sm:px-3 sm:py-4 sm:text-base">
-                    {standing.points}
+                    <StandingValueCell
+                      target={standing.points}
+                      consumed={projectedStats.get(standing.teamId)?.points ?? 0}
+                      isPoints
+                    />
                   </td>
                 </tr>
               )

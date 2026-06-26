@@ -61,7 +61,7 @@ export async function PUT(
     const user = await ensureRequestUser(request)
     const existing = await getPuzzleProgress(user.userId!, puzzleId)
 
-    if (existing?.status === 'COMPLETED') {
+    if (existing?.status === 'COMPLETED' && puzzle.mode !== 'campaign') {
       return errorResponse(409, 'CONFLICT', 'This puzzle is already solved. You can replay it locally.')
     }
 
@@ -75,14 +75,14 @@ export async function PUT(
     const progress = await upsertPuzzleProgress({
       userId: user.userId!,
       puzzleId,
-      status: existing?.status ?? 'IN_PROGRESS',
+      status: puzzle.mode === 'campaign' ? 'IN_PROGRESS' : existing?.status ?? 'IN_PROGRESS',
       attempts: existing?.attempts ?? 0,
       hintsUsed: body.progress.hintsUsed,
       hintTypes: body.progress.hintTypes,
       answerRevealed: body.progress.answerRevealed,
       answerRevealedAt: body.progress.answerRevealedAt ? new Date(body.progress.answerRevealedAt) : null,
-      timeTakenSec: existing?.timeTakenSec ?? null,
-      completedAt: existing?.completedAt ? new Date(existing.completedAt) : null,
+      timeTakenSec: puzzle.mode === 'campaign' ? null : existing?.timeTakenSec ?? null,
+      completedAt: puzzle.mode === 'campaign' ? null : existing?.completedAt ? new Date(existing.completedAt) : null,
       currentState: body.progress
     })
 

@@ -42,11 +42,30 @@ const stateTone: Record<CampaignLevelState, string> = {
   LOCKED: 'border-[var(--line)] bg-white/42 text-[var(--faint)]',
   UNLOCKED: 'border-[var(--field-line)] bg-white text-[var(--field-deep)] shadow-[inset_0_0_0_1px_rgba(57,209,123,0.12)]',
   IN_PROGRESS: 'border-[var(--warning)] bg-[var(--warning-soft)] text-[var(--ink)]',
-  COMPLETED_CLEAN: 'border-[var(--success)] bg-[var(--success-soft)] text-[var(--field-deep)] shadow-[inset_0_0_0_1px_rgba(47,111,69,0.18)]',
+  COMPLETED_CLEAN: 'border-[var(--success)] bg-[rgba(211,233,216,0.96)] text-[var(--field-deep)] shadow-[inset_0_0_0_1px_rgba(47,111,69,0.20)]',
   COMPLETED_LOW_HINTS: 'border-[var(--blue)] bg-[var(--blue-soft)] text-[var(--blue)]',
   COMPLETED_HIGH_HINTS: 'border-[var(--warning)] bg-[var(--warning-soft)] text-[var(--ink)]',
-  ANSWER_REVEALED: 'border-[var(--danger)] bg-[var(--danger-soft)] text-[var(--danger)]'
+  ANSWER_REVEALED: 'border-[var(--answer)] bg-[var(--answer-soft)] text-[var(--answer)]'
 }
+
+const stateHoverTone: Record<CampaignLevelState, string> = {
+  LOCKED: '',
+  UNLOCKED: 'hover:border-[var(--field)] hover:bg-[rgba(231,241,233,0.92)] hover:text-[var(--field-deep)]',
+  IN_PROGRESS: 'hover:border-[var(--warning)] hover:bg-[#ffe8a8] hover:text-[var(--ink)]',
+  COMPLETED_CLEAN: 'hover:border-[var(--success)] hover:bg-[rgba(188,222,196,0.96)] hover:text-[var(--field-deep)]',
+  COMPLETED_LOW_HINTS: 'hover:border-[var(--blue)] hover:bg-[#dce8ff] hover:text-[var(--blue)]',
+  COMPLETED_HIGH_HINTS: 'hover:border-[var(--warning)] hover:bg-[#ffe8a8] hover:text-[var(--ink)]',
+  ANSWER_REVEALED: 'hover:border-[var(--answer)] hover:bg-[#fdba74] hover:text-[var(--answer)]'
+}
+
+const legendItems = [
+  { label: 'Next', tone: stateTone.UNLOCKED },
+  { label: 'In progress', tone: stateTone.IN_PROGRESS },
+  { label: 'Solved', tone: stateTone.COMPLETED_CLEAN },
+  { label: 'Hints used', tone: stateTone.COMPLETED_LOW_HINTS },
+  { label: 'Answer shown', tone: stateTone.ANSWER_REVEALED },
+  { label: 'Locked', tone: stateTone.LOCKED }
+]
 
 function isCleared(progress: UserProgressSummaryItem | undefined) {
   return progress?.status === 'COMPLETED' || progress?.answerRevealed === true
@@ -114,6 +133,23 @@ function nextCampaignPuzzle(puzzles: PuzzlePublicDTO[], progressMap: Map<string,
     .find((puzzle) => !isCleared(progressMap.get(puzzle.id)))
 }
 
+function isCampaignPuzzleUnlocked(params: {
+  puzzle: PuzzlePublicDTO
+  packPuzzles: PuzzlePublicDTO[]
+  progressMap: Map<string, UserProgressSummaryItem>
+}) {
+  if (isCleared(params.progressMap.get(params.puzzle.id))) return true
+
+  const campaignLevel = params.puzzle.campaignLevel
+  if (!campaignLevel) return false
+
+  const firstPackLevel = params.packPuzzles[0]?.campaignLevel
+  if (campaignLevel === firstPackLevel) return true
+
+  const previousPuzzle = params.packPuzzles.find((candidate) => candidate.campaignLevel === campaignLevel - 1)
+  return previousPuzzle ? isCleared(params.progressMap.get(previousPuzzle.id)) : false
+}
+
 export function CampaignProgress() {
   const campaignQuery = useQuery({
     queryKey: ['campaign-puzzles'],
@@ -138,15 +174,24 @@ export function CampaignProgress() {
   const completedCount = puzzles.filter((puzzle) => progressMap.get(puzzle.id)?.status === 'COMPLETED').length
   const answerShownCount = puzzles.filter((puzzle) => progressMap.get(puzzle.id)?.answerRevealed).length
   const activePuzzle = nextCampaignPuzzle(puzzles, progressMap)
-  const activeOrder = activePuzzle?.campaignOrder ?? null
 
   return (
     <section className="overflow-hidden">
-      <div className="border-b border-[var(--line)] pb-3">
-        <h2 className="font-[var(--font-display)] text-2xl font-semibold text-[var(--ink)]">Campaign packs</h2>
-        <p className="mt-1 max-w-2xl text-sm leading-5 text-[var(--muted)]">
-          Clear each pack from beginner result picking to expert scoreline solving.
-        </p>
+      <div className="grid gap-3 border-b border-[var(--line)] pb-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+        <div>
+          <h2 className="font-[var(--font-display)] text-2xl font-semibold text-[var(--ink)]">Campaign packs</h2>
+          <p className="mt-1 max-w-2xl text-sm leading-5 text-[var(--muted)]">
+            Clear each pack from beginner result picking to expert scoreline solving.
+          </p>
+        </div>
+        <div className="flex max-w-xl flex-wrap gap-1.5 rounded-[var(--radius-md)] border border-[var(--line)] bg-white/62 px-2 py-2 text-[10px] font-bold text-[var(--ink-soft)] lg:justify-end">
+          {legendItems.map((item) => (
+            <span key={item.label} className="inline-flex items-center gap-1.5 rounded-full bg-white/54 px-1.5 py-1">
+              <span className={`h-3 w-3 rounded-[3px] border ${item.tone}`} aria-hidden="true" />
+              <span>{item.label}</span>
+            </span>
+          ))}
+        </div>
       </div>
 
       <div className="space-y-2.5 py-3">
@@ -158,7 +203,7 @@ export function CampaignProgress() {
             Solved <span className="font-mono font-bold text-[var(--ink)]">{completedCount}</span>
           </span>
           <span className="rounded-[var(--radius-sm)] border border-[var(--line)] bg-white/58 px-2 py-1 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0">
-            Answer shown <span className="font-mono font-bold text-[var(--danger)]">{answerShownCount}</span>
+            Answer shown <span className="font-mono font-bold text-[var(--answer)]">{answerShownCount}</span>
           </span>
           <span className="rounded-[var(--radius-sm)] border border-[var(--line)] bg-white/58 px-2 py-1 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0">
             Next <span className="font-semibold text-[var(--ink)]">{activePuzzle ? `${getCampaignPackConfig(activePuzzle.campaignPack!).title} ${activePuzzle.campaignLevel}` : 'All cleared'}</span>
@@ -235,10 +280,10 @@ export function CampaignProgress() {
                         <div className="grid grid-cols-10 gap-0.5 sm:grid-cols-[repeat(10,2rem)] sm:gap-1">
                           {bandPuzzles.map((puzzle) => {
                             const progress = progressMap.get(puzzle.id)
-                            const order = puzzle.campaignOrder ?? 0
-                            const unlocked = activeOrder === null || order <= activeOrder || isCleared(progress)
+                            const unlocked = isCampaignPuzzleUnlocked({ puzzle, packPuzzles, progressMap })
                             const state = levelState({ puzzle, progress, unlocked })
                             const tone = stateTone[state]
+                            const hoverTone = stateHoverTone[state]
                             const label = `${config.title} level ${puzzle.campaignLevel}: ${stateLabel(state)}`
                             const content = (
                               <span className="relative flex h-full w-full items-center justify-center">
@@ -264,7 +309,7 @@ export function CampaignProgress() {
                                 href={`/puzzles/${puzzle.id}`}
                                 aria-label={label}
                                 title={label}
-                                className={`flex aspect-square min-h-7 items-center justify-center rounded-[var(--radius-sm)] border text-[10px] font-bold shadow-[inset_0_1px_0_rgba(255,255,255,0.58)] transition hover:-translate-y-0.5 hover:border-[var(--field)] hover:bg-[var(--field-soft)] hover:text-[var(--field-deep)] sm:h-8 sm:w-8 ${tone}`}
+                                className={`flex aspect-square min-h-7 items-center justify-center rounded-[var(--radius-sm)] border text-[10px] font-bold shadow-[inset_0_1px_0_rgba(255,255,255,0.58)] transition hover:-translate-y-0.5 sm:h-8 sm:w-8 ${tone} ${hoverTone}`}
                               >
                                 {content}
                               </Link>

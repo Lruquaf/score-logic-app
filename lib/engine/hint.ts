@@ -57,7 +57,7 @@ export function generateHint(
   if (!target) {
     return {
       type: hintType,
-      message: 'Tum skor haneleri zaten acildi.'
+      message: 'All score cells have already been revealed.'
     }
   }
 
@@ -70,7 +70,7 @@ export function generateHint(
 
   return {
     type: 'reveal',
-    message: `${target.cell.side === 'home' ? 'Ev sahibi' : 'Deplasman'} skor hanesi ${revealedScore}.`,
+    message: `${target.cell.side === 'home' ? 'Home' : 'Away'} score cell is ${revealedScore}.`,
     targetMatchId: target.match.id,
     revealedCell: target.cell,
     revealedScore

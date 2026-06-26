@@ -67,7 +67,7 @@ export function buildProgressState(params: {
     answerRevealed: params.answerRevealed ?? false,
     answerRevealedAt: params.answerRevealedAt ?? null,
     elapsedTimeSec: params.elapsedTimeSec ?? 0,
-    startedAt: params.startedAt ?? now,
+    startedAt: params.startedAt === undefined ? now : params.startedAt,
     updatedAt: now,
     lastSubmittedAt: params.lastSubmittedAt ?? null
   }

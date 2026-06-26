@@ -134,27 +134,29 @@ export async function POST(
 
     const user = await ensureRequestUser(request)
     const existing = await getPuzzleProgress(user.userId!, puzzleId)
+    const usesClientAttemptState = body.isReplay || puzzle.mode === 'campaign'
+    const baseState = usesClientAttemptState ? null : existing?.currentState ?? null
 
-    if (existing?.status === 'COMPLETED') {
+    if (existing?.status === 'COMPLETED' && puzzle.mode !== 'campaign' && !body.isReplay) {
       return errorResponse(409, 'CONFLICT', 'Hints cannot be requested for a completed puzzle.')
     }
 
     const nextInputs: Record<string, ScoreInput> = {
-      ...(existing?.currentState?.inputs ?? {}),
+      ...(baseState?.inputs ?? {}),
       ...body.currentInputs
     }
     const nextOutcomes: Record<string, MatchOutcome | null> = {
-      ...(existing?.currentState?.outcomes ?? {}),
+      ...(baseState?.outcomes ?? {}),
       ...body.currentOutcomes
     }
     const inputMap = completedInputMap(nextInputs)
     const packConfig = getPuzzleCampaignPackConfig(puzzle)
     const isOutcomeOnly = packConfig?.playMode === 'OUTCOME_ONLY'
     const existingRevealedCells = normalizeRevealedCells({
-      revealedCells: existing?.currentState?.revealedCells ?? [],
-      revealedMatchIds: existing?.currentState?.revealedMatchIds ?? []
+      revealedCells: usesClientAttemptState ? body.revealedCells : baseState?.revealedCells ?? [],
+      revealedMatchIds: usesClientAttemptState ? body.revealedMatchIds : baseState?.revealedMatchIds ?? []
     })
-    const existingRevealedMatchIds = existing?.currentState?.revealedMatchIds ?? []
+    const existingRevealedMatchIds = usesClientAttemptState ? body.revealedMatchIds : baseState?.revealedMatchIds ?? []
     const hint: Hint = isOutcomeOnly
       ? (() => {
           const targetMatch = chooseUnrevealedMatch(puzzle.matches, existingRevealedMatchIds)
@@ -189,8 +191,10 @@ export async function POST(
           existingRevealedCells
         )
 
-    const nextHintsUsed = (existing?.hintsUsed ?? 0) + 1
-    const nextHintTypes = [...(existing?.hintTypes ?? []), body.hintType]
+    const baseHintsUsed = usesClientAttemptState ? body.hintsUsed : existing?.hintsUsed ?? body.hintsUsed
+    const baseHintTypes = usesClientAttemptState ? body.hintTypes : existing?.hintTypes ?? body.hintTypes
+    const nextHintsUsed = baseHintsUsed + 1
+    const nextHintTypes = [...baseHintTypes, body.hintType]
     const nextRevealedCells = [...existingRevealedCells]
     const nextRevealedMatchIds = [...existingRevealedMatchIds]
 
@@ -242,7 +246,28 @@ export async function POST(
 
     const currentState = buildHintCurrentState(
       puzzleId,
-      existing?.currentState ?? null,
+      baseState
+        ? {
+            ...baseState,
+            completedMatchIds: baseState.completedMatchIds
+          }
+        : {
+          puzzleId,
+          inputs: {},
+          outcomes: {},
+          notes: body.notes,
+            completedMatchIds: body.completedMatchIds,
+            revealedMatchIds: body.revealedMatchIds,
+            revealedCells: body.revealedCells,
+            hintsUsed: body.hintsUsed,
+            hintTypes: body.hintTypes,
+            answerRevealed: body.answerRevealed,
+            answerRevealedAt: body.answerRevealedAt,
+            elapsedTimeSec: 0,
+            startedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            lastSubmittedAt: null
+          },
       nextInputs,
       nextOutcomes,
       nextHintsUsed,
@@ -253,19 +278,21 @@ export async function POST(
       nextRevealedCells
     )
 
-    await upsertPuzzleProgress({
-      userId: user.userId!,
-      puzzleId,
-      status: existing?.status ?? 'IN_PROGRESS',
-      attempts: existing?.attempts ?? 0,
-      hintsUsed: nextHintsUsed,
-      hintTypes: nextHintTypes,
-      answerRevealed: body.answerRevealed,
-      answerRevealedAt: body.answerRevealedAt ? new Date(body.answerRevealedAt) : null,
-      timeTakenSec: existing?.timeTakenSec ?? null,
-      completedAt: existing?.completedAt ? new Date(existing.completedAt) : null,
-      currentState
-    })
+    if (!body.isReplay) {
+      await upsertPuzzleProgress({
+        userId: user.userId!,
+        puzzleId,
+        status: puzzle.mode === 'campaign' ? 'IN_PROGRESS' : existing?.status ?? 'IN_PROGRESS',
+        attempts: existing?.attempts ?? 0,
+        hintsUsed: nextHintsUsed,
+        hintTypes: nextHintTypes,
+        answerRevealed: body.answerRevealed,
+        answerRevealedAt: body.answerRevealedAt ? new Date(body.answerRevealedAt) : null,
+        timeTakenSec: puzzle.mode === 'campaign' ? null : existing?.timeTakenSec ?? null,
+        completedAt: puzzle.mode === 'campaign' ? null : existing?.completedAt ? new Date(existing.completedAt) : null,
+        currentState
+      })
+    }
 
     captureServerEvent('puzzle_hint', {
       puzzleId,

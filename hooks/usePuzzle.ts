@@ -55,11 +55,13 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
   const isReplayMode = usePuzzleStore((state) => state.isReplayMode)
   const inputs = usePuzzleStore((state) => state.inputs)
   const outcomes = usePuzzleStore((state) => state.outcomes)
+  const notes = usePuzzleStore((state) => state.notes)
   const selectedCell = usePuzzleStore((state) => state.selectedCell)
   const violations = usePuzzleStore((state) => state.violations)
   const submitFeedback = usePuzzleStore((state) => state.submitFeedback)
   const completedMatchIds = usePuzzleStore((state) => state.completedMatchIds)
   const revealedMatchIds = usePuzzleStore((state) => state.revealedMatchIds)
+  const revealedCells = usePuzzleStore((state) => state.revealedCells)
   const hintsUsed = usePuzzleStore((state) => state.hintsUsed)
   const hintTypes = usePuzzleStore((state) => state.hintTypes)
   const answerRevealed = usePuzzleStore((state) => state.answerRevealed)
@@ -72,6 +74,9 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
   const updatedAt = usePuzzleStore((state) => state.updatedAt)
   const timeTakenSec = usePuzzleStore((state) => state.timeTakenSec)
   const completedAt = usePuzzleStore((state) => state.completedAt)
+  const bestAttemptTimeSec = usePuzzleStore((state) => state.bestAttemptTimeSec)
+  const bestAttemptCompletedAt = usePuzzleStore((state) => state.bestAttemptCompletedAt)
+  const bestAttemptHintsUsed = usePuzzleStore((state) => state.bestAttemptHintsUsed)
   const lastHintMessage = usePuzzleStore((state) => state.lastHintMessage)
 
   const initializePuzzle = usePuzzleStore((state) => state.initializePuzzle)
@@ -98,6 +103,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     elapsedTimeSec: 0,
     canPause: false
   })
+  const isRoutePuzzleActive = !options.puzzleId || puzzle?.id === options.puzzleId
 
   useEffect(() => {
     if (puzzleQuery.data) {
@@ -112,7 +118,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
   }, [statsQuery.data, syncUserStore])
 
   useEffect(() => {
-    if (!puzzle) {
+    if (!puzzle || !isRoutePuzzleActive) {
       setDisplayElapsedTimeSec(0)
       latestTimerRef.current = {
         puzzleId: null,
@@ -122,8 +128,17 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       return
     }
 
-    if (!startedAt || phase === 'IDLE' || status === 'COMPLETED' || answerRevealed) {
-      const elapsed = timeTakenSec ?? elapsedBaseSec
+    const isOfficialCompleted = status === 'COMPLETED' && !isReplayMode
+
+    if (
+      !startedAt ||
+      phase === 'IDLE' ||
+      phase === 'CHECKING' ||
+      phase === 'SOLVED' ||
+      isOfficialCompleted ||
+      answerRevealed
+    ) {
+      const elapsed = isReplayMode ? elapsedBaseSec : timeTakenSec ?? elapsedBaseSec
       setDisplayElapsedTimeSec(elapsed)
       latestTimerRef.current = {
         puzzleId: puzzle.id,
@@ -158,8 +173,12 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     const timer = window.setInterval(update, 1000)
     return () => {
       window.clearInterval(timer)
+      const latest = latestTimerRef.current
+      if (latest.puzzleId === puzzle.id && latest.canPause) {
+        pauseTimer(latest.puzzleId, latest.elapsedTimeSec)
+      }
     }
-  }, [answerRevealed, elapsedBaseSec, phase, puzzle?.id, startedAt, status, timeTakenSec])
+  }, [answerRevealed, elapsedBaseSec, isReplayMode, isRoutePuzzleActive, phase, pauseTimer, puzzle?.id, startedAt, status, timeTakenSec])
 
   useEffect(() => {
     const pauseVisibleTimer = () => {
@@ -172,11 +191,15 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     }
     const handleVisibilityChange = () => {
       const latest = latestTimerRef.current
-      if (!latest.puzzleId || !latest.canPause) {
+      if (!latest.puzzleId) {
         return
       }
 
       if (document.visibilityState === 'hidden') {
+        if (!latest.canPause) {
+          return
+        }
+
         pauseVisibleTimer()
         return
       }
@@ -192,6 +215,24 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       pauseVisibleTimer()
     }
   }, [pauseTimer, resumeTimer])
+
+  useEffect(() => {
+    if (
+      !puzzle ||
+      !isRoutePuzzleActive ||
+      startedAt ||
+      phase === 'IDLE' ||
+      phase === 'CHECKING' ||
+      phase === 'SOLVED' ||
+      (status === 'COMPLETED' && !isReplayMode) ||
+      answerRevealed ||
+      document.visibilityState !== 'visible'
+    ) {
+      return
+    }
+
+    resumeTimer(puzzle.id)
+  }, [answerRevealed, isReplayMode, isRoutePuzzleActive, phase, puzzle?.id, resumeTimer, startedAt, status])
 
   const saveMutation = useMutation({
     mutationFn: (payload: { puzzleId: string; progress: PuzzleProgressState }) =>
@@ -222,8 +263,15 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       hintType: 'reveal'
       currentInputs: PuzzleProgressState['inputs']
       currentOutcomes: PuzzleProgressState['outcomes']
+      notes: PuzzleProgressState['notes']
+      completedMatchIds: string[]
+      revealedMatchIds: string[]
+      revealedCells: PuzzleProgressState['revealedCells']
+      hintsUsed: number
+      hintTypes: PuzzleProgressState['hintTypes']
       answerRevealed: boolean
       answerRevealedAt: string | null
+      isReplay: boolean
     }) => requestPuzzleHint(payload.puzzleId, payload),
     onSuccess: (response) => {
       applyHintPatch(response.progressPatch, response.hint.message)
@@ -240,11 +288,25 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       puzzleId: string
       inputs?: Record<string, { home: number; away: number }>
       outcomes?: NonNullable<Parameters<typeof submitPuzzle>[1]['outcomes']>
+      notes: PuzzleProgressState['notes']
       timeTakenSec: number
+      completedMatchIds: string[]
+      revealedMatchIds: string[]
+      revealedCells: PuzzleProgressState['revealedCells']
+      hintsUsed: number
+      hintTypes: PuzzleProgressState['hintTypes']
+      isReplay: boolean
     }) => submitPuzzle(payload.puzzleId, {
       inputs: payload.inputs,
       outcomes: payload.outcomes,
-      timeTakenSec: payload.timeTakenSec
+      notes: payload.notes,
+      timeTakenSec: payload.timeTakenSec,
+      completedMatchIds: payload.completedMatchIds,
+      revealedMatchIds: payload.revealedMatchIds,
+      revealedCells: payload.revealedCells,
+      hintsUsed: payload.hintsUsed,
+      hintTypes: payload.hintTypes,
+      isReplay: payload.isReplay
     }),
     onMutate: () => {
       setSubmitError(null)
@@ -266,14 +328,30 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
   })
 
   const answerRevealMutation = useMutation({
-    mutationFn: (payload: { puzzleId: string; elapsedTimeSec: number }) =>
-      revealPuzzleAnswer(payload.puzzleId, { elapsedTimeSec: payload.elapsedTimeSec }),
+    mutationFn: (payload: {
+      puzzleId: string
+      elapsedTimeSec: number
+      currentInputs: PuzzleProgressState['inputs']
+      currentOutcomes: PuzzleProgressState['outcomes']
+      notes: PuzzleProgressState['notes']
+      hintsUsed: number
+      hintTypes: PuzzleProgressState['hintTypes']
+      isReplay: boolean
+    }) =>
+      revealPuzzleAnswer(payload.puzzleId, {
+        elapsedTimeSec: payload.elapsedTimeSec,
+        currentInputs: payload.currentInputs,
+        currentOutcomes: payload.currentOutcomes,
+        notes: payload.notes,
+        hintsUsed: payload.hintsUsed,
+        hintTypes: payload.hintTypes,
+        isReplay: payload.isReplay
+      }),
     onSuccess: (response) => {
       applyAnswerReveal(response)
       setHintError(null)
       void queryClient.invalidateQueries({ queryKey: ['user-stats'] })
       void queryClient.invalidateQueries({ queryKey: ['user-progress'] })
-      void queryClient.invalidateQueries({ queryKey: puzzleQueryKey })
     },
     onError: (error) => {
       setHintError(getErrorMessage(error))
@@ -281,7 +359,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
   })
 
   useEffect(() => {
-    if (!puzzle) {
+    if (!puzzle || !isRoutePuzzleActive) {
       return
     }
 
@@ -311,7 +389,9 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     }, 800)
 
     return () => window.clearTimeout(timeout)
-  }, [puzzle, updatedAt, lastSyncedAt, status, phase, saveState, isReplayMode, saveMutation])
+  }, [puzzle, updatedAt, lastSyncedAt, status, phase, saveState, isReplayMode, saveMutation, isRoutePuzzleActive])
+
+  const assistanceDisabled = answerRevealed || phase === 'SOLVED' || (status === 'COMPLETED' && !isReplayMode)
 
   return {
     isLoading: puzzleQuery.isLoading,
@@ -335,8 +415,12 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     saveState,
     saveError,
     startedAt,
-    elapsedTimeSec: timeTakenSec ?? displayElapsedTimeSec,
+    elapsedTimeSec: isReplayMode ? displayElapsedTimeSec : timeTakenSec ?? displayElapsedTimeSec,
+    officialTimeTakenSec: timeTakenSec,
     completedAt,
+    bestAttemptTimeSec,
+    bestAttemptCompletedAt,
+    bestAttemptHintsUsed,
     lastHintMessage,
     hintError,
     submitError,
@@ -350,10 +434,15 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     isHintPending: hintMutation.isPending,
     isAnswerRevealPending: answerRevealMutation.isPending,
     isSubmitPending: submitMutation.isPending,
+    assistanceDisabled,
     requestHint: (hintType: 'reveal') => {
       if (!puzzle) return
-      if (isReplayMode) {
-        setHintError('This puzzle is already solved. You can replay it locally.')
+      if (assistanceDisabled) {
+        setHintError(
+          answerRevealed
+            ? 'The answer has already been revealed for this puzzle.'
+            : 'Reset the board to use hints in a new attempt.'
+        )
         return
       }
       if (answerRevealed) {
@@ -366,23 +455,37 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
         hintType,
         currentInputs: inputs,
         currentOutcomes: outcomes,
+        notes,
+        completedMatchIds,
+        revealedMatchIds,
+        revealedCells,
+        hintsUsed,
+        hintTypes,
         answerRevealed,
-        answerRevealedAt: usePuzzleStore.getState().answerRevealedAt
+        answerRevealedAt: usePuzzleStore.getState().answerRevealedAt,
+        isReplay: isReplayMode
       })
     },
     revealAnswer: () => {
       if (!puzzle) return
+      if (assistanceDisabled) return
       if (answerRevealed) return
-      if (isReplayMode || status === 'COMPLETED') {
+      if (status === 'COMPLETED' && !isReplayMode) {
         setHintError('This puzzle is already solved. You can replay it locally.')
         return
       }
 
-      const elapsedTimeSec = timeTakenSec ?? displayElapsedTimeSec
+      const elapsedTimeSec = isReplayMode ? displayElapsedTimeSec : timeTakenSec ?? displayElapsedTimeSec
       pauseTimer(puzzle.id, elapsedTimeSec)
       answerRevealMutation.mutate({
         puzzleId: puzzle.id,
-        elapsedTimeSec
+        elapsedTimeSec,
+        currentInputs: inputs,
+        currentOutcomes: outcomes,
+        notes,
+        hintsUsed,
+        hintTypes,
+        isReplay: isReplayMode
       })
     },
     submit: () => {
@@ -399,12 +502,22 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       const currentOutcomes = Object.fromEntries(
         Object.entries(outcomes).filter((entry): entry is [string, NonNullable<typeof entry[1]>] => entry[1] !== null)
       )
+      const elapsedTimeSec = isReplayMode ? displayElapsedTimeSec : timeTakenSec ?? displayElapsedTimeSec
+
+      pauseTimer(puzzle.id, elapsedTimeSec)
 
       submitMutation.mutate({
         puzzleId: puzzle.id,
         inputs: puzzle.campaignPack === 'BEGINNER' ? undefined : currentInputs,
         outcomes: puzzle.campaignPack === 'BEGINNER' ? currentOutcomes : undefined,
-        timeTakenSec: timeTakenSec ?? displayElapsedTimeSec
+        notes,
+        timeTakenSec: elapsedTimeSec,
+        completedMatchIds,
+        revealedMatchIds,
+        revealedCells,
+        hintsUsed,
+        hintTypes,
+        isReplay: isReplayMode
       })
     },
     refreshFromRemoteProgress: syncFromRemoteProgress
