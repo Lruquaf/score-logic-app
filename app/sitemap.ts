@@ -23,6 +23,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
       url: `${baseUrl}/login`,
       changeFrequency: 'monthly',
       priority: 0.4
+    },
+    {
+      url: `${baseUrl}/register`,
+      changeFrequency: 'monthly',
+      priority: 0.4
     }
   ]
 }

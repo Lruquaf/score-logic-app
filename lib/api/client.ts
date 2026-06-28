@@ -39,6 +39,13 @@ export interface UserStatsResponse {
   stats: UserStatsSummary | null
 }
 
+export interface RegisterAccountResponse {
+  user: {
+    id: string
+    email: string | null
+  }
+}
+
 export interface UserProgressResponse {
   user: {
     userId: string
@@ -133,6 +140,13 @@ export function fetchPuzzle(puzzleId: string) {
 
 export function fetchUserStats() {
   return requestJson<UserStatsResponse>('/api/user/stats')
+}
+
+export function registerAccount(body: { email: string; password: string }) {
+  return requestJson<RegisterAccountResponse>('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify(body)
+  })
 }
 
 export function fetchUserProgress() {

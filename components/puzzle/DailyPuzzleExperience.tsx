@@ -33,8 +33,6 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
     isReplayMode,
     violations,
     submitFeedback,
-    completedMatchIds,
-    saveState,
     saveError,
     hintsUsed,
     answerRevealed,
@@ -195,7 +193,6 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
       <PuzzleHeader
         puzzle={puzzle}
         elapsedTimeSec={elapsedTimeSec}
-        saveState={saveState}
         canSubmit={canSubmit}
         isSubmitPending={isSubmitPending}
         isAnswerPending={isAnswerRevealPending}
@@ -210,8 +207,6 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
         onSubmit={submit}
         currentStreak={stats?.currentStreak ?? 0}
         hintsUsed={hintsUsed}
-        completedMatches={completedMatchIds.length}
-        totalMatches={puzzle.matches.length}
         visibleErrors={visibleErrorCount}
         campaignNavigation={
           puzzle.mode === 'campaign'

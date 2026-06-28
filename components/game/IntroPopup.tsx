@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useSession } from 'next-auth/react'
 
 const INTRO_STORAGE_KEY = 'scorelogic-intro-dismissed'
+const INTRO_SKIP_ONCE_KEY = 'scorelogic-skip-intro-once'
 
 const introSteps = [
   ['1', 'Match score', 'A score like 2-1 has two numbers. The bigger number wins.'],
@@ -28,14 +30,31 @@ const guideTable = [
 ]
 
 export function IntroPopup() {
+  const session = useSession()
   const [isOpen, setIsOpen] = useState(false)
   const [doNotShowAgain, setDoNotShowAgain] = useState(false)
   const [isReady, setIsReady] = useState(false)
 
   useEffect(() => {
     setIsReady(true)
+
+    if (session.status === 'loading') {
+      return
+    }
+
+    if (session.status === 'authenticated') {
+      setIsOpen(false)
+      return
+    }
+
+    if (window.localStorage.getItem(INTRO_SKIP_ONCE_KEY) === 'true') {
+      window.localStorage.removeItem(INTRO_SKIP_ONCE_KEY)
+      setIsOpen(false)
+      return
+    }
+
     setIsOpen(window.localStorage.getItem(INTRO_STORAGE_KEY) !== 'true')
-  }, [])
+  }, [session.status])
 
   function closeIntro() {
     if (doNotShowAgain) {

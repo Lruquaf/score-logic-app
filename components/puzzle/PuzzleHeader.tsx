@@ -11,7 +11,6 @@ import { HelpPopover } from '@/components/ui/HelpPopover'
 interface PuzzleHeaderProps {
   puzzle: PuzzlePublicDTO
   elapsedTimeSec: number
-  saveState: 'idle' | 'saving' | 'error'
   canSubmit: boolean
   isSubmitPending: boolean
   isAnswerPending: boolean
@@ -22,20 +21,12 @@ interface PuzzleHeaderProps {
   onSubmit: () => void
   currentStreak: number
   hintsUsed: number
-  completedMatches: number
-  totalMatches: number
   visibleErrors: number
   campaignNavigation?: {
     previousHref: `/puzzles/${string}` | null
     nextHref: `/puzzles/${string}` | null
   } | null
 }
-
-const saveStateLabel = {
-  idle: 'Saved',
-  saving: 'Saving',
-  error: 'Not saved'
-} as const
 
 function HintIcon() {
   return (
@@ -72,10 +63,58 @@ function RevealIcon() {
   )
 }
 
+function TimerIcon() {
+  return (
+    <svg aria-hidden="true" className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none">
+      <path
+        d="M8 14.25A5.75 5.75 0 1 0 8 2.75a5.75 5.75 0 0 0 0 11.5Z"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.6"
+      />
+      <path
+        d="M8 5.25V8l1.75 1.25M6.25 1.75h3.5"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.6"
+      />
+    </svg>
+  )
+}
+
+function StreakIcon() {
+  return (
+    <svg aria-hidden="true" className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none">
+      <path
+        d="M8.4 1.75c.86 1.88.63 3.08-.68 4.08.17-1.12-.25-2.06-1.26-2.83-.02 2.1-2.71 2.91-2.71 5.95a4.25 4.25 0 0 0 8.5 0c0-2.2-1.23-3.88-3.85-7.2Z"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.6"
+      />
+    </svg>
+  )
+}
+
+function CheckIcon() {
+  return (
+    <svg aria-hidden="true" className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none">
+      <path
+        d="m3.25 8.4 2.7 2.6 6.8-6.75"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  )
+}
+
 export function PuzzleHeader({
   puzzle,
   elapsedTimeSec,
-  saveState,
   canSubmit,
   isSubmitPending,
   isAnswerPending,
@@ -86,8 +125,6 @@ export function PuzzleHeader({
   onSubmit,
   currentStreak,
   hintsUsed,
-  completedMatches,
-  totalMatches,
   visibleErrors,
   campaignNavigation
 }: PuzzleHeaderProps) {
@@ -96,18 +133,39 @@ export function PuzzleHeader({
     campaignOrder: puzzle.campaignOrder
   })
   const title = puzzle.mode === 'daily' ? 'Daily Puzzle' : 'Practice Puzzle'
-  const isOutcomeOnly = puzzle.campaignPack === 'BEGINNER'
   const levelLabel = puzzle.campaignPack
     ? getCampaignPackConfig(puzzle.campaignPack).title
     : puzzle.difficulty
-  const statusItems = [
-    [isOutcomeOnly ? 'Picked' : 'Filled', `${completedMatches}/${totalMatches}`],
-    ['Sync', saveStateLabel[saveState]],
-    ['Hints', String(hintsUsed)],
-    ['Streak', currentStreak > 0 ? `${currentStreak} day` : '0 day'],
-    ...(visibleErrors > 0 ? [['Checks', String(visibleErrors)]] : [])
-  ] as Array<[string, string]>
+  const streakLabel = currentStreak > 0 ? `${currentStreak}d` : '0d'
   const elapsedLabel = formatDuration(elapsedTimeSec)
+  const metricItems = [
+    {
+      label: 'Streak',
+      value: streakLabel,
+      icon: <StreakIcon />,
+      className: 'border-[var(--gold)]/35 bg-[var(--warning-soft)] text-[var(--warning)]'
+    },
+    {
+      label: 'Hints',
+      value: String(hintsUsed),
+      icon: <HintIcon />,
+      className: 'border-[var(--blue)]/25 bg-[var(--blue-soft)] text-[var(--blue)]'
+    },
+    {
+      label: 'Checks',
+      value: String(visibleErrors),
+      icon: <CheckIcon />,
+      className: visibleErrors > 0
+        ? 'border-[var(--danger)]/25 bg-[var(--danger-soft)] text-[var(--danger)]'
+        : 'border-[var(--field-line)] bg-[var(--field-soft)] text-[var(--field-deep)]'
+    },
+    {
+      label: 'Time',
+      value: elapsedLabel,
+      icon: <TimerIcon />,
+      className: 'border-[var(--line)] bg-white/72 text-[var(--ink)]'
+    }
+  ]
 
   return (
     <section className="border-b border-[var(--line)] pb-3 sm:pb-4">
@@ -127,29 +185,36 @@ export function PuzzleHeader({
           <p className="mt-1.5 max-w-xl text-sm text-[var(--ink-soft)] sm:mt-2">
             Reconstruct the fixtures from the final table.
           </p>
-          <div className="mt-2 grid min-h-10 grid-cols-2 gap-1.5 rounded-[var(--radius-md)] border border-[rgba(31,85,53,0.24)] bg-white/66 px-2 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] sm:mt-3 sm:flex sm:flex-wrap sm:items-center sm:gap-x-3 sm:gap-y-2 sm:px-3 sm:py-1.5">
-            <div className="flex min-w-0 items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--line)] bg-white/50 px-2 py-1 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0 sm:pr-3 sm:border-r">
-              <span className="text-[10px] font-bold uppercase text-[var(--muted)]">Puzzle</span>
-              <span className="truncate font-mono text-xs font-bold text-[var(--ink)]">{label}</span>
+          <div className="mt-2 grid gap-1.5 rounded-[var(--radius-md)] border border-[rgba(31,85,53,0.24)] bg-white/66 px-2 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] sm:mt-3 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center sm:gap-2 sm:px-3">
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              <div className="flex h-8 min-w-0 items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--line)] bg-white/58 px-2.5">
+                <span className="text-[10px] font-bold uppercase text-[var(--muted)]">Puzzle</span>
+                <span className="truncate font-mono text-xs font-bold text-[var(--ink)]">{label}</span>
+              </div>
+
+              <div className="inline-flex h-8 min-w-0 items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--field-line)] bg-[var(--field-soft)] px-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]">
+                <span className="text-[10px] font-bold uppercase text-[var(--field-deep)]">Level</span>
+                <span className="truncate font-mono text-xs font-bold text-[var(--field-deep)]">{levelLabel}</span>
+              </div>
             </div>
 
-            <div className="inline-flex h-7 min-w-0 items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--field-line)] bg-[var(--field-soft)] px-2.5">
-              <span className="text-[10px] font-bold uppercase text-[var(--muted)]">Level</span>
-              <span className="truncate font-mono text-xs font-bold text-[var(--field-deep)]">{levelLabel}</span>
-            </div>
-
-            <div className="col-span-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-[var(--radius-sm)] border border-[var(--line)] bg-white/50 px-2 py-1 sm:flex-1 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0">
-              {statusItems.map(([metricLabel, value]) => (
-                <div key={metricLabel} className="min-w-fit">
-                  <span className="mr-1 text-[10px] font-bold uppercase text-[var(--muted)]">{metricLabel}</span>
-                  <span className="font-mono text-xs font-bold text-[var(--ink)]">{value}</span>
+            <div className="grid min-w-0 grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:justify-end">
+              {metricItems.map((item) => (
+                <div
+                  key={item.label}
+                  className={`flex h-8 min-w-0 items-center gap-2 rounded-[var(--radius-sm)] border px-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] ${item.className}`}
+                  title={`${item.label}: ${item.value}`}
+                >
+                  <span className="flex h-5 w-5 flex-none items-center justify-center rounded-[var(--radius-sm)] bg-white/58">
+                    {item.icon}
+                  </span>
+                  <span className="min-w-0 text-[10px] font-bold uppercase text-[var(--muted)]">{item.label}</span>
+                  <span className="ml-auto font-mono text-xs font-bold tabular-nums text-current sm:ml-0">
+                    {item.value}
+                  </span>
                 </div>
               ))}
-            </div>
 
-            <div className="col-span-2 flex h-7 items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-[var(--line)] bg-white/72 px-2.5 sm:ml-auto sm:justify-start">
-              <span className="text-[10px] font-bold uppercase text-[var(--muted)]">Time</span>
-              <span className="font-mono text-xs font-bold text-[var(--ink)]">{elapsedLabel}</span>
             </div>
           </div>
         </div>

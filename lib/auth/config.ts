@@ -1,36 +1,52 @@
 import type { NextAuthConfig } from 'next-auth'
 import type { NextRequest } from 'next/server'
-import Google from 'next-auth/providers/google'
-import Resend from 'next-auth/providers/resend'
+import Credentials from 'next-auth/providers/credentials'
 import { PrismaAdapter } from '@auth/prisma-adapter'
 
 import { getAnonymousCookieValue, mergeAnonymousProgress } from '@/lib/auth/anonymous'
-import { getAuthSecret, getGoogleAuthEnv, getResendAuthEnv } from '@/lib/auth/env'
+import { getAuthSecret } from '@/lib/auth/env'
+import { normalizeEmail, verifyPassword } from '@/lib/auth/password'
 import { prisma } from '@/lib/db/prisma'
 
 export function buildAuthConfig(request?: NextRequest): NextAuthConfig {
-  const providers: NonNullable<NextAuthConfig['providers']> = []
-  const google = getGoogleAuthEnv()
-  const resend = getResendAuthEnv()
+  const providers: NonNullable<NextAuthConfig['providers']> = [
+    Credentials({
+      credentials: {
+        email: { label: 'Email', type: 'email' },
+        password: { label: 'Password', type: 'password' }
+      },
+      async authorize(credentials) {
+        const email = normalizeEmail(credentials?.email)
+        const password = typeof credentials?.password === 'string' ? credentials.password : ''
 
-  if (google.clientId && google.clientSecret) {
-    providers.push(
-      Google({
-        clientId: google.clientId,
-        clientSecret: google.clientSecret
-      })
-    )
-  }
+        if (!email || !password) {
+          return null
+        }
 
-  if (resend.apiKey) {
-    providers.push(
-      Resend({
-        apiKey: resend.apiKey,
-        from: resend.from
-      })
-    )
-  }
+        const user = await prisma.user.findUnique({
+          where: { email },
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            image: true,
+            passwordHash: true
+          }
+        })
 
+        if (!user || !(await verifyPassword(password, user.passwordHash))) {
+          return null
+        }
+
+        return {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          image: user.image
+        }
+      }
+    })
+  ]
   return {
     adapter: PrismaAdapter(prisma),
     secret: getAuthSecret(),

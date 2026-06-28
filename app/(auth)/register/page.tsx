@@ -1,15 +1,14 @@
 import Link from 'next/link'
-import type { Route } from 'next'
 
-import { LoginForm } from '@/components/auth/LoginForm'
+import { RegisterForm } from '@/components/auth/RegisterForm'
 
-interface LoginPageProps {
+interface RegisterPageProps {
   searchParams?: Promise<{
     error?: string
   }>
 }
 
-export default async function LoginPage({ searchParams }: LoginPageProps) {
+export default async function RegisterPage({ searchParams }: RegisterPageProps) {
   const params = searchParams ? await searchParams : undefined
 
   return (
@@ -23,24 +22,24 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             <span className="font-[var(--font-display)] text-xl font-semibold text-[var(--ink)]">ScoreLogic</span>
           </Link>
           <h1 className="mt-10 max-w-2xl font-[var(--font-display)] text-[clamp(2.25rem,6vw,3.5rem)] font-semibold leading-tight text-[var(--ink)]">
-            Keep your puzzle history.
+            Create your ScoreLogic account.
           </h1>
           <p className="mt-5 max-w-xl text-base leading-7 text-[var(--ink-soft)]">
-            Sign in with email and password to sync your streak, solved puzzles, and progress.
+            Use an email and password. No email verification step is required.
           </p>
         </section>
 
         <section className="panel p-6 shadow-[var(--shadow-subtle)]">
           <div className="space-y-3">
             <p className="label text-[var(--field-deep)]">Account</p>
-            <h2 className="font-[var(--font-display)] text-3xl font-semibold text-[var(--ink)]">Sign in</h2>
+            <h2 className="font-[var(--font-display)] text-3xl font-semibold text-[var(--ink)]">Register</h2>
           </div>
 
-          <LoginForm initialError={params?.error ?? null} />
+          <RegisterForm initialError={params?.error ?? null} />
 
           <div className="mt-4 space-y-4">
-            <Link href={'/register' as Route} className="btn-secondary w-full">
-              Create account
+            <Link href="/login" className="btn-secondary w-full">
+              I already have an account
             </Link>
 
             <Link href="/" className="btn-secondary w-full">

@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
 const AUTH_RULE = {
-  limit: 5,
+  limit: 20,
   windowMs: 60_000
 }
 
@@ -65,8 +65,19 @@ function evaluateAuthRateLimit(identifier: string) {
   }
 }
 
+function shouldRateLimitAuth(request: NextRequest) {
+  if (request.method !== 'POST') {
+    return false
+  }
+
+  return (
+    request.nextUrl.pathname === '/api/auth/register' ||
+    request.nextUrl.pathname.startsWith('/api/auth/callback/')
+  )
+}
+
 export async function middleware(request: NextRequest) {
-  if (request.nextUrl.pathname.startsWith('/api/auth')) {
+  if (request.nextUrl.pathname.startsWith('/api/auth') && shouldRateLimitAuth(request)) {
     const identifier = getClientIdentifier(request)
     const limited = evaluateAuthRateLimit(`auth:${identifier}`)
 
