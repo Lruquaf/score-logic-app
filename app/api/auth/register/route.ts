@@ -1,13 +1,32 @@
 import type { NextRequest } from 'next/server'
 
 import { errorResponse, jsonResponse } from '@/lib/api/http'
+import {
+  InvalidJsonBodyError,
+  readBoundedJson,
+  RequestBodyTooLargeError
+} from '@/lib/api/body'
 import { registerWithEmailPassword } from '@/lib/auth/register'
+import { captureServerError } from '@/lib/observability/server'
+import {
+  applyRateLimitHeaders,
+  enforceRateLimit,
+  RATE_LIMIT_RULES
+} from '@/lib/security/rate-limit'
 
 export const runtime = 'nodejs'
 
 export async function POST(request: NextRequest) {
   try {
-    const body = (await request.json().catch(() => null)) as {
+    const rateLimit = await enforceRateLimit(request, {
+      rule: RATE_LIMIT_RULES.auth
+    })
+    if (rateLimit.response) return rateLimit.response
+
+    const body = (await readBoundedJson(request, 16_384).catch((error) => {
+      if (error instanceof InvalidJsonBodyError) return null
+      throw error
+    })) as {
       email?: unknown
       password?: unknown
     } | null
@@ -25,9 +44,16 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    return jsonResponse({ user: result.user }, { status: 201 })
+    return applyRateLimitHeaders(
+      jsonResponse({ user: result.user }, { status: 201 }),
+      rateLimit.result
+    )
   } catch (error) {
-    console.error('POST /api/auth/register failed', error)
+    if (error instanceof RequestBodyTooLargeError) {
+      return errorResponse(413, 'PAYLOAD_TOO_LARGE', 'Registration payload is too large.')
+    }
+
+    captureServerError(error, 'POST /api/auth/register')
     return errorResponse(500, 'INTERNAL_ERROR', 'Unexpected server error.')
   }
 }

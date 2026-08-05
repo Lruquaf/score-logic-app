@@ -1,5 +1,8 @@
 import type { MatchSolutionDTO, PuzzlePrivateDTO } from '@/lib/contracts/puzzle'
-import { getPuzzleCampaignPackConfig } from '@/lib/puzzles/campaignConfig'
+import {
+  campaignPrefilledMatchCountFor,
+  getPuzzleCampaignPackConfig
+} from '@/lib/puzzles/campaignConfig'
 
 function hashString(value: string) {
   let hash = 2166136261
@@ -13,10 +16,13 @@ function hashString(value: string) {
 }
 
 export function selectInitialRevealedMatches(
-  puzzle: Pick<PuzzlePrivateDTO, 'id' | 'campaignPack' | 'solution'>
+  puzzle: Pick<PuzzlePrivateDTO, 'id' | 'campaignPack' | 'campaignLevel' | 'solution'>
 ): MatchSolutionDTO[] {
   const config = getPuzzleCampaignPackConfig(puzzle)
-  const prefilledMatchCount = config?.prefilledMatchCount ?? 0
+  const prefilledMatchCount =
+    puzzle.campaignPack && puzzle.campaignLevel
+      ? campaignPrefilledMatchCountFor(puzzle.campaignPack, puzzle.campaignLevel)
+      : config?.prefilledMatchCount ?? 0
 
   if (prefilledMatchCount <= 0) return []
 

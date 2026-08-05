@@ -11,7 +11,7 @@ export default function CampaignPage() {
           Five packs, thirty levels each.
         </h1>
         <p className="mt-1.5 max-w-2xl text-sm leading-5 text-[var(--ink-soft)] sm:mt-2 sm:leading-6">
-          Start with match results, move into scorelines, and track clean solves, hint solves, and answer-revealed levels.
+          Start with guided scorelines, move toward independent solving, and track clean solves, hint solves, and answer-revealed levels.
         </p>
       </section>
 

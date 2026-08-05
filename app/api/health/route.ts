@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db/prisma'
-import { getRedis } from '@/lib/cache/redis'
+import { getRedis, isRedisRequired } from '@/lib/cache/redis'
 import { jsonResponse } from '@/lib/api/http'
 
 export const runtime = 'nodejs'
@@ -7,7 +7,7 @@ export const runtime = 'nodejs'
 export async function GET() {
   const redis = getRedis()
   let database = 'up'
-  let redisStatus = redis ? 'up' : 'disabled'
+  let redisStatus = redis ? 'up' : isRedisRequired() ? 'required' : 'disabled'
 
   try {
     await prisma.$queryRaw`SELECT 1`
@@ -23,7 +23,8 @@ export async function GET() {
     }
   }
 
-  const ok = database === 'up' && redisStatus !== 'down'
+  const ok =
+    database === 'up' && (redisStatus === 'up' || redisStatus === 'disabled')
 
   return jsonResponse(
     {

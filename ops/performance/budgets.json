@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "engine": {
+    "iterations": 100,
+    "maximumSolverP95Ms": 50
+  },
+  "load": {
+    "durationSeconds": 15,
+    "concurrency": 12,
+    "requestTimeoutMs": 5000,
+    "maximumP95Ms": 1500,
+    "maximumErrorRate": 0.01,
+    "minimumRequestsPerSecond": 8,
+    "paths": [
+      "/api/healthz",
+      "/api/puzzles/daily",
+      "/api/puzzles/campaign"
+    ]
+  }
+}

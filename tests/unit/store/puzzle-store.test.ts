@@ -534,7 +534,7 @@ describe('puzzle store', () => {
     expect(state.drafts[sampleDailyPuzzlePublic.id]?.updatedAt).toBe('2026-06-17T10:00:00.000Z')
   })
 
-  it('resets a completed campaign puzzle into a new official attempt', () => {
+  it('resets a completed campaign puzzle into a persisted replay attempt', () => {
     const store = createPuzzleStore()
     const campaignPuzzle = {
       ...sampleDailyPuzzlePublic,
@@ -558,11 +558,11 @@ describe('puzzle store', () => {
     store.getState().setOutcome('m1', 'HOME_WIN')
 
     const state = store.getState()
-    expect(state.isReplayMode).toBe(false)
-    expect(state.status).toBe('IN_PROGRESS')
+    expect(state.isReplayMode).toBe(true)
+    expect(state.status).toBe('COMPLETED')
     expect(state.answerRevealed).toBe(false)
     expect(state.outcomes.m1).toBe('HOME_WIN')
-    expect(state.drafts[campaignPuzzle.id]?.outcomes.m1).toBe('HOME_WIN')
-    expect(state.drafts[campaignPuzzle.id]?.updatedAt).not.toBe('2026-06-17T10:00:00.000Z')
+    expect(state.drafts[campaignPuzzle.id]?.outcomes.m1).toBeUndefined()
+    expect(state.shouldForceNewAttempt).toBe(true)
   })
 })

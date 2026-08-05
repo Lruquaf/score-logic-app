@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "title": "ScoreLogic Production Core",
+  "owner": "scorelogic-oncall",
+  "panels": [
+    { "id": "availability", "title": "HTTP availability", "signal": "http.server.request.duration count by status_code", "target": ">= 99.9% successful requests over 30d" },
+    { "id": "route-latency", "title": "Route p95 latency", "signal": "http.server.request.duration p95 by http.route", "target": "p95 < 800ms" },
+    { "id": "server-errors", "title": "Server error ratio", "signal": "server_error / http requests", "target": "< 1% over 5m" },
+    { "id": "redis-readiness", "title": "Redis readiness", "signal": "health.checks.redis", "target": "up" },
+    { "id": "daily-readiness", "title": "Daily content readiness", "signal": "daily_buffer_gap and synthetic_core_check", "target": "zero gaps" },
+    { "id": "solver-health", "title": "Solver health", "signal": "solver_run status, terminationReason and durationMs", "target": "UNKNOWN < 0.5%; p95 < 500ms interactive" },
+    { "id": "product-funnel", "title": "Puzzle funnel", "signal": "puzzle_attempt_started -> puzzle_submit -> correct", "target": "monitor by mode and release" },
+    { "id": "content-quality", "title": "Content quality", "signal": "QA, editorial, calibration and synthetic events", "target": "zero active critical findings" }
+  ]
+}

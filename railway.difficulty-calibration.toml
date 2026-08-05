@@ -1,0 +1,8 @@
+[build]
+builder = "RAILPACK"
+buildCommand = "npm run db:generate"
+
+[deploy]
+startCommand = "NODE_ENV=production npm run difficulty:calibrate -- --fail-on-drift"
+cronSchedule = "30 2 * * 1"
+restartPolicyType = "NEVER"

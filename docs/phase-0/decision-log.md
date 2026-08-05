@@ -1,5 +1,9 @@
 # Decision Log
 
+> Bu dosya tarihsel teknik karar kaydıdır; yeni ürün kararları için ayrı ADR tutulmaz.
+> Güncel ürün davranışının kanonik kaynağı [`docs/product-rules.md`](../product-rules.md)
+> dosyasıdır.
+
 ## Karar Kaydi Formati
 
 Her karar su sorulari cevaplar:
@@ -13,9 +17,9 @@ Her karar su sorulari cevaplar:
 ## D-001: Platform Kaynagi Web Olacak
 
 - Celiski:
-  MVP dokumani mobil uygulama ve Express backend oneriyor. Teknik dokuman ise Next.js 15 App Router tabanli bir web uygulamasi tarif ediyor.
+  MVP dokumani mobil uygulama ve Express backend oneriyor. Teknik dokuman ise güncel Next.js App Router tabanli bir web uygulamasi tarif ediyor.
 - Karar:
-  Uygulama kaynagi Next.js 15 web mimarisi olacak.
+  Uygulama kaynagi Next.js 16 App Router web mimarisi olacak.
 - Gerekce:
   Repo hedefi dogrudan web uygulamasi. Iki farkli platform mimarisini birlikte tasimak gereksiz karar borcu olusturur.
 - Koda etkisi:
@@ -56,7 +60,7 @@ Her karar su sorulari cevaplar:
 - Koda etkisi:
   Cache, route handler ve page loader katmanlarinda public/private DTO ayrimi zorunlu olacak.
 
-## D-005: Submit Dogrulamasi Exact Solution Eslesmesi Yapacak
+## D-005: Submit Dogrulamasi Solve-any Eslesmesi Yapacak
 
 - Celiski:
   Teknik dokumandaki `validateCompleteSolution` yalnizca tum maclar dolduruldu mu ve kisit ihlali var mi diye bakiyor.
@@ -64,11 +68,14 @@ Her karar su sorulari cevaplar:
 - Karar:
   Submit sirasinda sunucu iki kontrol yapacak:
   1. gonderilen tum skorlar semantik olarak gecerli
-  2. gonderilen skorlar kayitli `solution` ile birebir ayni
+  2. gonderilen skorlar `allSolutions` icindeki herhangi bir gecerli cozumle birebir ayni
 - Gerekce:
-  "tek cozumlu bulmaca" taahhudu sunucu tarafinda exact match ile korunmali.
+  ScoreLogic coklu cozumlu puzzle'lari destekler; matematiksel olarak gecerli alternatif bir
+  cozum yalnizca kanonik `solution` olmadigi icin reddedilmemelidir.
 - Koda etkisi:
-  `validatePartialSolution` ve `validateCompleteSolution` ayrimi korunacak ama submit route'u `solution` map karsilastirmasi da yapacak.
+  `validatePartialSolution` ve `validateCompleteSolution` ayrimi korunacak; submit route'u
+  solve-any kontrolu yapacak, hint motoru mevcut girdilerle uyumlu cozum alt kumesini
+  kullanacak.
 
 ## D-006: Progress Kaydi Icin Ayrik Endpoint Olacak
 
@@ -106,16 +113,18 @@ Her karar su sorulari cevaplar:
 - Koda etkisi:
   `revealedMatchIds` ve `completedMatchIds` canonical durumda `string[]` saklanacak.
 
-## D-009: `user_stats` Materialized View Yerine Yazilabilir Aggregate Tablo Kullanilacak
+## D-009: Stats Attempt Kayitlarindan Yeniden Hesaplanabilir Olacak
 
 - Celiski:
   MVP dokumani materialized view oneriyor, teknik dokuman ise Prisma ile mutable `UserStats` modeli kullaniyor.
 - Karar:
-  Faz 1-5 araliginda mutable `UserStats` tablosu kullanilacak.
+  `PuzzleAttempt` ve attempt event'leri birincil kaynak olacak. `UserStats` okuma performansi
+  icin aggregate olarak tutulabilir, ancak bu kayitlardan yeniden hesaplanabilir olacak.
 - Gerekce:
   Prisma ile yazma ve okuma akisini basitlestirir. Materialized view refresh karmasikligini erken getirmez.
 - Koda etkisi:
-  Solve sirasinda stats transactional olarak guncellenecek.
+  `uniquePuzzlesSolved`, successful/total attempts, assisted/perfect solves ve sure metrikleri
+  ayrilacak. Idempotent submit aggregate degerleri birden fazla artirmayacak.
 
 ## D-010: Auth Stratejisi Anonymous-First Olacak
 
@@ -137,7 +146,9 @@ Her karar su sorulari cevaplar:
 - Gerekce:
   Hint secimi ve mevcut kullanici girdileri request body gerektirir.
 - Koda etkisi:
-  `hintType` ve `currentInputs` body'de tasinacak.
+  Mevcut kontratta tek hint tipi `reveal`dir. `currentInputs` ve mevcut reveal state'i body'de
+  tasinir; reveal solve-any cozum alt kumesiyle uyumlu ve overwrite yapmayacak sekilde
+  uygulanir.
 
 ## D-012: Campaign Veri Modelde Kalacak, Ilk Oynanabilir Dilimde UI Zorunlu Olmayacak
 

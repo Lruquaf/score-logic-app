@@ -1,7 +1,12 @@
 import type { GeneratedPuzzle, Match, MatchSolution, Standing, Team } from '@/lib/engine/types'
 import { analyzePuzzleDifficulty } from '@/lib/engine/difficulty'
-import { scoreMapsToSolutions, solveAll } from '@/lib/engine/solver'
+import {
+  scoreMapsToSolutions,
+  solveWithBudget,
+  solverBudgetFor
+} from '@/lib/engine/solver'
 import { selectTeamsFromPool, type TeamPoolKey } from '@/lib/fixtures/teamPools'
+import { captureSolverRun } from '@/lib/observability/solver'
 
 const DEFAULT_MAX_ATTEMPTS = 500
 const TYPICAL_GOAL_AVERAGE = 2.5
@@ -175,8 +180,22 @@ export async function generatePuzzle(
 
     const standings = computeStandings(teams, solutionMatches)
     const publicMatches = stripMatchScores(solutionMatches)
-    const solutionMaps = solveAll(standings, publicMatches)
-    const allSolutions = scoreMapsToSolutions(publicMatches, solutionMaps)
+    const solverResult = solveWithBudget(standings, publicMatches, {
+      budget: solverBudgetFor('GENERATION')
+    })
+
+    if (solverResult.status !== 'SAT' || !solverResult.exhaustive) {
+      captureSolverRun(solverResult, {
+        profile: 'GENERATION',
+        operation: 'candidate_rejected'
+      })
+      continue
+    }
+
+    const allSolutions = scoreMapsToSolutions(
+      publicMatches,
+      solverResult.solutions
+    )
 
     if (allSolutions.length < 1) {
       continue
@@ -184,7 +203,8 @@ export async function generatePuzzle(
 
     const analysis = analyzePuzzleDifficulty(standings, solutionMatches, {
       solutionCount: allSolutions.length,
-      solutionCountLimit: allSolutions.length + 1
+      solutionCountLimit: allSolutions.length + 1,
+      solutionCountCapped: false
     })
 
     return {

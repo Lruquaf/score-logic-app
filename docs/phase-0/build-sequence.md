@@ -68,8 +68,10 @@ Olusturulacak temel dosyalar:
 
 Beklenen sonuc:
 
-- solver tek cozum kontrolu yapar
-- validator partial ve submit senaryolarini ayirir
+- solver finite profile ile solve-any çözüm arar; `fixedCells`,
+  `SAT/UNSAT/UNKNOWN`, node/süre/çözüm limiti ve güvenli telemetry üretir
+- validator local partial ve submit senaryolarini ayirir; explicit Analyze Board bütün dolu
+  hücrelerle server-side global satisfiability denetimi yapar
 - bilinen puzzle fixture'lari testten gecer
 
 ### D. Veri Katmani
@@ -112,7 +114,7 @@ Olusturulacak temel dosyalar:
 Beklenen sonuc:
 
 - public puzzle DTO response'ta kullanilir
-- submit exact solution match yapar
+- submit `allSolutions` icinde solve-any match yapar
 - hint akisi canonical progress ile uyumlu calisir
 
 ### G. State ve UI
@@ -176,8 +178,8 @@ Su akisin tamami calisiyorsa Faz 1 ve erken Faz 4-7 baglaminda dogru yoldayiz:
 
 ## Bilincli Olarak Sonraya Birakilanlar
 
-- redis cache
-- upstash rate limit
+- Redis tabanlı cache optimizasyonları
+- Ek endpoint sınıfları için rate-limit politika tuning'i
 - nextauth provider config
 - campaign map UI
 - stats page UI

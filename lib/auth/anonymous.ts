@@ -1,9 +1,10 @@
-import type { Prisma, PrismaClient } from '@prisma/client'
+import type { PrismaClient } from '@prisma/client'
 import type { NextRequest } from 'next/server'
 import { getToken } from 'next-auth/jwt'
 
 import { getAuthSecret } from '@/lib/auth/env'
 import { prisma } from '@/lib/db/prisma'
+import { captureServerError } from '@/lib/observability/server'
 
 export const ANON_COOKIE = 'sl-anon-id'
 export const COOKIE_MAX_AGE = 365 * 24 * 60 * 60
@@ -25,11 +26,6 @@ export interface RequestUserResolution {
 }
 
 type UserReader = Pick<PrismaClient, 'user'>
-type MergeDatabase = Pick<PrismaClient, '$transaction'>
-type MergeTransaction = Pick<
-  Prisma.TransactionClient,
-  'user' | 'userPuzzleProgress' | 'userStats' | 'dailyStreak'
->
 
 async function findUser(userId: string, db: UserReader = prisma) {
   return db.user.findUnique({
@@ -74,7 +70,7 @@ async function resolveSessionUserId(request: NextRequest) {
       return token.sub
     }
   } catch (error) {
-    console.error('failed to resolve session token', error)
+    captureServerError(error, 'resolve session token')
   }
 
   return null
@@ -100,7 +96,10 @@ export async function getOptionalRequestUser(
 
       return {
         userId: user.id,
-        isAnonymous: user.isAnonymous
+        isAnonymous: user.isAnonymous,
+        cookie: getAnonymousCookieValue(request)
+          ? clearAnonymousCookie()
+          : undefined
       }
     }
   }
@@ -163,104 +162,4 @@ export async function ensureRequestUser(
   }
 }
 
-async function getExistingPuzzleIds(userId: string, db: Pick<MergeTransaction, 'userPuzzleProgress'>) {
-  const progress = await db.userPuzzleProgress.findMany({
-    where: { userId },
-    select: { puzzleId: true }
-  })
-
-  return progress.map((entry) => entry.puzzleId)
-}
-
-export async function mergeAnonymousProgress(
-  anonymousUserId: string,
-  realUserId: string,
-  db: MergeDatabase = prisma
-) {
-  if (!anonymousUserId || !realUserId || anonymousUserId === realUserId) {
-    return
-  }
-
-  await db.$transaction(async (tx) => {
-    const [anonymousUser, realUser] = await Promise.all([
-      tx.user.findUnique({
-        where: { id: anonymousUserId },
-        select: { id: true, isAnonymous: true }
-      }),
-      tx.user.findUnique({
-        where: { id: realUserId },
-        select: { id: true }
-      })
-    ])
-
-    if (!anonymousUser?.isAnonymous || !realUser) {
-      return
-    }
-
-    const existingPuzzleIds = await getExistingPuzzleIds(realUserId, tx)
-
-    await tx.userPuzzleProgress.updateMany({
-      where: {
-        userId: anonymousUserId,
-        ...(existingPuzzleIds.length > 0
-          ? {
-              puzzleId: {
-                notIn: existingPuzzleIds
-              }
-            }
-          : {})
-      },
-      data: { userId: realUserId }
-    })
-
-    const [anonymousStats, realStreak, anonymousStreak] = await Promise.all([
-      tx.userStats.findUnique({
-        where: { userId: anonymousUserId }
-      }),
-      tx.dailyStreak.findUnique({
-        where: { userId: realUserId }
-      }),
-      tx.dailyStreak.findUnique({
-        where: { userId: anonymousUserId }
-      })
-    ])
-
-    if (anonymousStats) {
-      await tx.userStats.upsert({
-        where: { userId: realUserId },
-        create: {
-          userId: realUserId,
-          totalSolved: anonymousStats.totalSolved,
-          perfectSolves: anonymousStats.perfectSolves,
-          totalTimeSec: anonymousStats.totalTimeSec,
-          solvedEasy: anonymousStats.solvedEasy,
-          solvedMedium: anonymousStats.solvedMedium,
-          solvedHard: anonymousStats.solvedHard
-        },
-        update: {
-          totalSolved: { increment: anonymousStats.totalSolved },
-          perfectSolves: { increment: anonymousStats.perfectSolves },
-          totalTimeSec: { increment: anonymousStats.totalTimeSec },
-          solvedEasy: { increment: anonymousStats.solvedEasy },
-          solvedMedium: { increment: anonymousStats.solvedMedium },
-          solvedHard: { increment: anonymousStats.solvedHard }
-        }
-      })
-    }
-
-    if (!realStreak && anonymousStreak) {
-      await tx.dailyStreak.create({
-        data: {
-          userId: realUserId,
-          currentStreak: anonymousStreak.currentStreak,
-          bestStreak: anonymousStreak.bestStreak,
-          lastPlayedDate: anonymousStreak.lastPlayedDate
-        }
-      })
-    }
-
-    await tx.user.delete({
-      where: { id: anonymousUserId }
-    })
-  })
-}
+export { mergeAnonymousProgress } from '@/lib/auth/anonymousMerge'

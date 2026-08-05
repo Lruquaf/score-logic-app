@@ -1,4 +1,5 @@
 import type { CampaignPack, Difficulty, PuzzlePrivateDTO, StandingDTO } from '@/lib/contracts/puzzle'
+import { getDailyTimeZone } from '@/lib/env/server'
 import { classifyDifficultyScore } from '@/lib/engine/difficulty'
 import { generatePuzzleFromPool, stripMatchScores } from '@/lib/engine/generator'
 import { createSeededRandom, type TeamPoolKey } from '@/lib/fixtures/teamPools'
@@ -6,13 +7,22 @@ import {
   buildCampaignPuzzlePlan,
   type DifficultyScoreRange
 } from '@/lib/puzzles/campaignConfig'
+import { evaluatePuzzleContentQuality } from '@/lib/puzzles/contentQuality'
+import { buildPuzzleDifficultyProfile } from '@/lib/puzzles/difficultyProfile'
 import { selectInitialRevealedMatches } from '@/lib/puzzles/prefill'
+import {
+  businessDateToDatabaseDate,
+  resolveBusinessDate,
+  resolveBusinessDateInput
+} from '@/lib/time/businessDate'
 
 export {
   buildCampaignPuzzlePlan,
   campaignBandForLevel,
+  campaignEffectiveScoreRangeFor,
   campaignOrderForPackLevel,
   campaignScoreRangeFor,
+  campaignTableScoreRangeFor,
   CAMPAIGN_PACK_ORDER,
   CAMPAIGN_PUZZLES_PER_PACK,
   CAMPAIGN_TOTAL_PUZZLES
@@ -21,35 +31,20 @@ export {
 const TEAM_POOL_ROTATION: TeamPoolKey[] = ['world-cup', 'champions-league', 'fictional']
 const MAX_GENERATION_ATTEMPTS = 3_000
 const MAX_ENGINE_ATTEMPTS_PER_CANDIDATE = 160
-const DEFAULT_DAILY_TIME_ZONE = process.env.DAILY_TIME_ZONE ?? 'Europe/Istanbul'
 
 interface GeneratePuzzleDefinitionInput {
   id: string
   mode: 'daily' | 'campaign'
   seed: string
   targetDifficulty?: Difficulty
-  targetScoreRange?: DifficultyScoreRange
+  targetTableScoreRange?: DifficultyScoreRange
+  targetEffectiveScoreRange?: DifficultyScoreRange
   dailyDate: string | null
   campaignOrder: number | null
   campaignPack: CampaignPack | null
   campaignLevel: number | null
   excludedTableSignatures: Set<string>
-}
-
-export function isoDateString(date: Date = new Date(), timeZone = DEFAULT_DAILY_TIME_ZONE) {
-  const parts = new Intl.DateTimeFormat('en', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  }).formatToParts(date)
-  const values = new Map(parts.map((part) => [part.type, part.value]))
-
-  return `${values.get('year')}-${values.get('month')}-${values.get('day')}`
-}
-
-export function toDatabaseDate(value: string) {
-  return new Date(`${value}T00:00:00.000Z`)
+  comparisonPuzzles: PuzzlePrivateDTO[]
 }
 
 export function dailyPuzzleIdForDate(date: string) {
@@ -85,12 +80,14 @@ async function generatePuzzleDefinition({
   mode,
   seed,
   targetDifficulty,
-  targetScoreRange,
+  targetTableScoreRange,
+  targetEffectiveScoreRange,
   dailyDate,
   campaignOrder,
   campaignPack,
   campaignLevel,
-  excludedTableSignatures
+  excludedTableSignatures,
+  comparisonPuzzles
 }: GeneratePuzzleDefinitionInput): Promise<PuzzlePrivateDTO> {
   for (let attempt = 0; attempt < MAX_GENERATION_ATTEMPTS; attempt += 1) {
     const pool = TEAM_POOL_ROTATION[attempt % TEAM_POOL_ROTATION.length]
@@ -105,17 +102,40 @@ async function generatePuzzleDefinition({
       continue
     }
 
-    const difficulty = classifyDifficultyScore(generated.puzzle.difficultyScore)
+    const tableDifficulty = classifyDifficultyScore(
+      generated.puzzle.difficultyScore
+    )
+    const difficultyProfile = buildPuzzleDifficultyProfile({
+      mode,
+      campaignPack,
+      campaignLevel,
+      tableDifficultyScore: generated.puzzle.difficultyScore
+    })
 
-    if (targetDifficulty && difficulty !== targetDifficulty) {
+    if (
+      targetDifficulty &&
+      difficultyProfile.effectiveDifficulty !== targetDifficulty
+    ) {
       continue
     }
 
     if (
-      targetScoreRange &&
+      targetTableScoreRange &&
       (
-        generated.puzzle.difficultyScore < targetScoreRange.min ||
-        generated.puzzle.difficultyScore > targetScoreRange.max
+        generated.puzzle.difficultyScore < targetTableScoreRange.min ||
+        generated.puzzle.difficultyScore > targetTableScoreRange.max
+      )
+    ) {
+      continue
+    }
+
+    if (
+      targetEffectiveScoreRange &&
+      (
+        difficultyProfile.effectiveDifficultyScore <
+          targetEffectiveScoreRange.min ||
+        difficultyProfile.effectiveDifficultyScore >
+          targetEffectiveScoreRange.max
       )
     ) {
       continue
@@ -127,16 +147,17 @@ async function generatePuzzleDefinition({
       continue
     }
 
-    excludedTableSignatures.add(signature)
-
     const solution = generated.puzzle.matches
-
-    return {
+    const candidate: PuzzlePrivateDTO = {
       id,
       mode,
-      difficulty,
+      difficulty: tableDifficulty,
+      effectiveDifficulty: difficultyProfile.effectiveDifficulty,
       inferenceSteps: generated.puzzle.inferenceSteps,
       tableDifficultyScore: generated.puzzle.difficultyScore,
+      presentationDifficultyScore:
+        difficultyProfile.presentationDifficultyScore,
+      effectiveDifficultyScore: difficultyProfile.effectiveDifficultyScore,
       solutionCount: generated.puzzle.solutionCount,
       teams: generated.teams,
       standings: generated.puzzle.standings,
@@ -144,6 +165,7 @@ async function generatePuzzleDefinition({
       initialRevealedMatches: selectInitialRevealedMatches({
         id,
         campaignPack,
+        campaignLevel,
         solution
       }),
       solution,
@@ -153,9 +175,26 @@ async function generatePuzzleDefinition({
       campaignPack,
       campaignLevel
     }
+
+    const qualityReport = evaluatePuzzleContentQuality(candidate, {
+      comparisonPuzzles
+    })
+    if (!qualityReport.success) {
+      continue
+    }
+
+    excludedTableSignatures.add(signature)
+    comparisonPuzzles.push(candidate)
+    return candidate
   }
 
-  const targetLabel = targetDifficulty ?? (targetScoreRange ? `${targetScoreRange.min}-${targetScoreRange.max}` : 'any')
+  const targetLabel =
+    targetDifficulty ??
+    (targetEffectiveScoreRange
+      ? `effective ${targetEffectiveScoreRange.min}-${targetEffectiveScoreRange.max}`
+      : targetTableScoreRange
+        ? `table ${targetTableScoreRange.min}-${targetTableScoreRange.max}`
+        : 'any')
   throw new Error(
     `Could not generate a ${targetLabel} ${mode} puzzle after ${MAX_GENERATION_ATTEMPTS} attempts.`
   )
@@ -164,6 +203,7 @@ async function generatePuzzleDefinition({
 export async function generateCampaignPuzzleDefinitions() {
   const excludedTableSignatures = new Set<string>()
   const puzzles: PuzzlePrivateDTO[] = []
+  const comparisonPuzzles: PuzzlePrivateDTO[] = []
 
   for (const planItem of buildCampaignPuzzlePlan()) {
     puzzles.push(
@@ -171,12 +211,14 @@ export async function generateCampaignPuzzleDefinitions() {
         id: campaignPuzzleIdForOrder(planItem.campaignOrder),
         mode: 'campaign',
         seed: `campaign-${planItem.campaignPack.toLowerCase()}-${planItem.campaignLevel}`,
-        targetScoreRange: planItem.targetScoreRange,
+        targetTableScoreRange: planItem.targetTableScoreRange,
+        targetEffectiveScoreRange: planItem.targetEffectiveScoreRange,
         dailyDate: null,
         campaignOrder: planItem.campaignOrder,
         campaignPack: planItem.campaignPack,
         campaignLevel: planItem.campaignLevel,
-        excludedTableSignatures
+        excludedTableSignatures,
+        comparisonPuzzles
       })
     )
   }
@@ -187,11 +229,13 @@ export async function generateCampaignPuzzleDefinitions() {
 export async function generateDailyPuzzleDefinition(params: {
   date?: Date | string
   excludedTableSignatures?: Set<string>
+  comparisonPuzzles?: PuzzlePrivateDTO[]
 }) {
-  const dailyDate = typeof params.date === 'string'
-    ? params.date
-    : isoDateString(params.date ?? new Date())
+  const dailyDate = params.date === undefined
+    ? resolveBusinessDate(new Date(), getDailyTimeZone())
+    : resolveBusinessDateInput(params.date, getDailyTimeZone())
   const excludedTableSignatures = params.excludedTableSignatures ?? new Set<string>()
+  const comparisonPuzzles = params.comparisonPuzzles ?? []
 
   return generatePuzzleDefinition({
     id: dailyPuzzleIdForDate(dailyDate),
@@ -201,6 +245,9 @@ export async function generateDailyPuzzleDefinition(params: {
     campaignOrder: null,
     campaignPack: null,
     campaignLevel: null,
-    excludedTableSignatures
+    excludedTableSignatures,
+    comparisonPuzzles
   })
 }
+
+export { businessDateToDatabaseDate as toDatabaseDate }

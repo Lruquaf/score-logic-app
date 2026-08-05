@@ -7,6 +7,8 @@ export type ApiErrorCode =
   | 'NOT_FOUND'
   | 'CONFLICT'
   | 'RATE_LIMITED'
+  | 'PAYLOAD_TOO_LARGE'
+  | 'SERVICE_UNAVAILABLE'
   | 'INTERNAL_ERROR'
 
 export interface ResponseCookieDescriptor {
@@ -52,4 +54,3 @@ export function withResponseCookie(
   response.cookies.set(cookie.name, cookie.value, cookie.options)
   return response
 }
-

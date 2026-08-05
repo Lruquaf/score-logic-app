@@ -1,88 +1,163 @@
-import { mergeAnonymousProgress } from '@/lib/auth/anonymous'
+import {
+  chooseFirstCompletion,
+  deriveMergedProgressSnapshot,
+  selectLatestActiveAttempt,
+  type MergeAttemptRecord
+} from '@/lib/auth/mergePolicy'
+import { clearAnonymousCookie } from '@/lib/auth/anonymous'
 
-describe('anonymous auth helpers', () => {
-  it('merges anonymous progress and stats into the real user while preserving real streaks', async () => {
-    const tx = {
-      user: {
-        findUnique: vi
-          .fn()
-          .mockResolvedValueOnce({ id: 'anon-1', isAnonymous: true })
-          .mockResolvedValueOnce({ id: 'real-1' }),
-        delete: vi.fn().mockResolvedValue({ id: 'anon-1' })
-      },
-      userPuzzleProgress: {
-        findMany: vi.fn().mockResolvedValue([{ puzzleId: 'puzzle-2' }]),
-        updateMany: vi.fn().mockResolvedValue({ count: 1 })
-      },
-      userStats: {
-        findUnique: vi.fn().mockResolvedValue({
-          userId: 'anon-1',
-          totalSolved: 2,
-          perfectSolves: 1,
-          totalTimeSec: 310,
-          solvedEasy: 1,
-          solvedMedium: 1,
-          solvedHard: 0
-        }),
-        upsert: vi.fn().mockResolvedValue(null)
-      },
-      dailyStreak: {
-        findUnique: vi
-          .fn()
-          .mockResolvedValueOnce({
-            userId: 'real-1',
-            currentStreak: 5,
-            bestStreak: 7,
-            lastPlayedDate: '2026-06-17'
-          })
-          .mockResolvedValueOnce({
-            userId: 'anon-1',
-            currentStreak: 2,
-            bestStreak: 2,
-            lastPlayedDate: '2026-06-16'
-          }),
-        create: vi.fn().mockResolvedValue(null)
+function attempt(
+  overrides: Partial<MergeAttemptRecord> & Pick<MergeAttemptRecord, 'id'>
+): MergeAttemptRecord {
+  const { id, ...rest } = overrides
+  return {
+    id,
+    kind: 'STANDARD',
+    status: 'ACTIVE',
+    startedAt: new Date('2026-07-28T08:00:00.000Z'),
+    lastEventAt: new Date('2026-07-28T08:00:00.000Z'),
+    completedAt: null,
+    elapsedTimeSec: 0,
+    hintsUsed: 0,
+    hintTypes: [],
+    answerRevealedAt: null,
+    submissionCount: 0,
+    currentState: null,
+    ...rest
+  }
+}
+
+describe('anonymous merge policy', () => {
+  it('keeps the first completion, best solve and latest active draft independently', () => {
+    const firstSolve = attempt({
+      id: 'anon-solve',
+      status: 'SOLVED',
+      completedAt: new Date('2026-07-28T08:02:00.000Z'),
+      lastEventAt: new Date('2026-07-28T08:02:00.000Z'),
+      elapsedTimeSec: 120,
+      hintsUsed: 1,
+      hintTypes: ['reveal'],
+      submissionCount: 1
+    })
+    const bestSolve = attempt({
+      id: 'real-solve',
+      status: 'SOLVED',
+      startedAt: new Date('2026-07-29T08:00:00.000Z'),
+      completedAt: new Date('2026-07-29T08:01:20.000Z'),
+      lastEventAt: new Date('2026-07-29T08:01:20.000Z'),
+      elapsedTimeSec: 80,
+      submissionCount: 2
+    })
+    const activeDraft = attempt({
+      id: 'anon-active',
+      kind: 'REPLAY',
+      startedAt: new Date('2026-07-30T08:00:00.000Z'),
+      lastEventAt: new Date('2026-07-30T08:01:00.000Z'),
+      currentState: {
+        puzzleId: 'p1',
+        inputs: {}
       }
-    }
+    })
 
-    const db = {
-      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => callback(tx))
-    }
+    const snapshot = deriveMergedProgressSnapshot({
+      attempts: [firstSolve, bestSolve, activeDraft],
+      completion: {
+        id: 'completion-anon',
+        attemptId: firstSolve.id,
+        submissionId: 'submission-anon',
+        completedAt: new Date('2026-07-28T08:02:00.000Z'),
+        timeTakenSec: 120,
+        hintsUsed: 1
+      },
+      fallbacks: []
+    })
 
-    await mergeAnonymousProgress('anon-1', 'real-1', db as never)
+    expect(snapshot).toMatchObject({
+      status: 'COMPLETED',
+      attempts: 3,
+      hintsUsed: 0,
+      timeTakenSec: 80,
+      currentAttemptId: activeDraft.id,
+      firstAttemptId: firstSolve.id,
+      bestAttemptId: bestSolve.id,
+      answerRevealed: false,
+      currentState: activeDraft.currentState
+    })
+  })
 
-    expect(tx.userPuzzleProgress.updateMany).toHaveBeenCalledWith({
-      where: {
-        userId: 'anon-1',
-        puzzleId: {
-          notIn: ['puzzle-2']
+  it('selects the latest active draft and the earliest completion deterministically', () => {
+    const older = attempt({
+      id: 'older',
+      lastEventAt: new Date('2026-07-30T08:00:00.000Z')
+    })
+    const newer = attempt({
+      id: 'newer',
+      lastEventAt: new Date('2026-07-30T09:00:00.000Z')
+    })
+
+    expect(selectLatestActiveAttempt([newer, older])?.id).toBe('newer')
+    expect(
+      chooseFirstCompletion([
+        {
+          id: 'later',
+          attemptId: null,
+          submissionId: null,
+          completedAt: new Date('2026-07-30T10:00:00.000Z'),
+          timeTakenSec: 90,
+          hintsUsed: 0
+        },
+        {
+          id: 'earlier',
+          attemptId: null,
+          submissionId: null,
+          completedAt: new Date('2026-07-29T10:00:00.000Z'),
+          timeTakenSec: 100,
+          hintsUsed: 1
         }
-      },
-      data: { userId: 'real-1' }
+      ])?.id
+    ).toBe('earlier')
+  })
+
+  it('preserves legacy progress when no attempt history exists', () => {
+    const snapshot = deriveMergedProgressSnapshot({
+      attempts: [],
+      completion: null,
+      fallbacks: [
+        {
+          status: 'IN_PROGRESS',
+          attempts: 2,
+          hintsUsed: 1,
+          hintTypes: ['reveal'],
+          answerRevealed: true,
+          answerRevealedAt: new Date('2026-07-29T10:00:00.000Z'),
+          timeTakenSec: null,
+          completedAt: null,
+          currentState: { puzzleId: 'p1', inputs: {} },
+          createdAt: new Date('2026-07-29T09:00:00.000Z'),
+          updatedAt: new Date('2026-07-29T10:00:00.000Z')
+        }
+      ]
     })
-    expect(tx.userStats.upsert).toHaveBeenCalledWith({
-      where: { userId: 'real-1' },
-      create: {
-        userId: 'real-1',
-        totalSolved: 2,
-        perfectSolves: 1,
-        totalTimeSec: 310,
-        solvedEasy: 1,
-        solvedMedium: 1,
-        solvedHard: 0
-      },
-      update: {
-        totalSolved: { increment: 2 },
-        perfectSolves: { increment: 1 },
-        totalTimeSec: { increment: 310 },
-        solvedEasy: { increment: 1 },
-        solvedMedium: { increment: 1 },
-        solvedHard: { increment: 0 }
+
+    expect(snapshot).toMatchObject({
+      status: 'IN_PROGRESS',
+      attempts: 2,
+      hintsUsed: 1,
+      answerRevealed: true,
+      currentAttemptId: null
+    })
+  })
+
+  it('expires the anonymous cookie after a successful authenticated merge', () => {
+    expect(clearAnonymousCookie()).toMatchObject({
+      name: 'sl-anon-id',
+      value: '',
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 0
       }
-    })
-    expect(tx.dailyStreak.create).not.toHaveBeenCalled()
-    expect(tx.user.delete).toHaveBeenCalledWith({
-      where: { id: 'anon-1' }
     })
   })
 })

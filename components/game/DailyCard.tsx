@@ -39,7 +39,7 @@ export function DailyCard() {
       <div className="px-5 py-5 sm:px-6">
         <div className="mb-4 flex flex-wrap gap-2">
           <span className="score-chip">Today</span>
-          <span className="score-chip">{puzzle.difficulty}</span>
+          <span className="score-chip">{puzzle.effectiveDifficulty}</span>
           <span className="score-chip">{formatPuzzleLabel(puzzle)}</span>
         </div>
 

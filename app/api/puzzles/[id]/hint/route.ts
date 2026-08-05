@@ -1,106 +1,42 @@
+import { AttemptEventType, Prisma } from '@prisma/client'
 import type { NextRequest } from 'next/server'
 import { ZodError } from 'zod'
 
 import { errorResponse, jsonResponse, withResponseCookie } from '@/lib/api/http'
 import { ensureRequestUser } from '@/lib/auth/anonymous'
+import type { MatchOutcome, RevealedScoreCell, ScoreInput } from '@/lib/contracts/progress'
+import { prisma } from '@/lib/db/prisma'
+import {
+  acquireAttemptLock,
+  appendAttemptEvent,
+  AttemptUnavailableError,
+  authoritativeElapsedTimeSec,
+  getOwnedAttempt,
+  mapAttemptProgressState,
+  mapPuzzleAttemptSummary
+} from '@/lib/db/queries/attempts'
+import { acquireUserIdentityLocks } from '@/lib/db/queries/identity'
 import { getPuzzlePrivateById } from '@/lib/db/queries/puzzles'
 import { getPuzzleProgress, upsertPuzzleProgress } from '@/lib/db/queries/progress'
-import type { HintType, MatchOutcome, PuzzleProgressState, RevealedScoreCell, ScoreInput } from '@/lib/contracts/progress'
-import { captureServerEvent } from '@/lib/observability/server'
+import { generateHint } from '@/lib/engine/hint'
+import { captureServerError, captureServerEvent } from '@/lib/observability/server'
+import {
+  campaignAccessErrorDetails,
+  getCampaignAccessDecision
+} from '@/lib/puzzles/campaignAccess'
 import {
   applyRateLimitHeaders,
   enforceRateLimit,
-  getClientIdentifier
+  RATE_LIMIT_RULES
 } from '@/lib/security/rate-limit'
-import { generateHint, type Hint } from '@/lib/engine/hint'
-import { scoreMapFromSolution } from '@/lib/engine/scoring'
-import { toScoreMap } from '@/lib/engine/validator'
-import { getPuzzleCampaignPackConfig } from '@/lib/puzzles/campaignConfig'
-import { outcomeFromScore } from '@/lib/puzzles/outcomes'
 import { buildProgressState } from '@/lib/utils/progress-state'
 import { hintRequestSchema, puzzleIdSchema } from '@/lib/validations'
 
 export const runtime = 'nodejs'
 
-const HINT_RATE_LIMIT = {
-  name: 'hint',
-  limit: 30,
-  window: '1 h' as const,
-  windowMs: 60 * 60 * 1000
-}
-
-function buildHintCurrentState(
-  puzzleId: string,
-  existingState: PuzzleProgressState | null,
-  currentInputs: Record<string, ScoreInput>,
-  currentOutcomes: Record<string, MatchOutcome | null>,
-  hintsUsed: number,
-  hintTypes: HintType[],
-  answerRevealed: boolean,
-  answerRevealedAt: string | null,
-  revealedMatchIds?: string[],
-  revealedCells?: RevealedScoreCell[]
-) {
-  return buildProgressState({
-    puzzleId,
-    inputs: {
-      ...(existingState?.inputs ?? {}),
-      ...currentInputs
-    },
-    outcomes: {
-      ...(existingState?.outcomes ?? {}),
-      ...currentOutcomes
-    },
-    notes: existingState?.notes ?? {},
-    hintsUsed,
-    hintTypes,
-    startedAt: existingState?.startedAt ?? null,
-    updatedAt: new Date().toISOString(),
-    lastSubmittedAt: existingState?.lastSubmittedAt ?? null,
-    revealedMatchIds: revealedMatchIds ?? existingState?.revealedMatchIds ?? [],
-    revealedCells: revealedCells ?? existingState?.revealedCells ?? [],
-    answerRevealed,
-    answerRevealedAt,
-    completedMatchIds: existingState?.completedMatchIds ?? []
-  })
-}
-
-function chooseUnrevealedMatch(
-  matches: { id: string }[],
-  revealedMatchIds: string[],
-  random: () => number = Math.random
-) {
-  const revealed = new Set(revealedMatchIds)
-  const candidates = matches.filter((match) => !revealed.has(match.id))
-  if (candidates.length === 0) return null
-  return candidates[Math.floor(random() * candidates.length)] ?? candidates[0]
-}
-
-function completedInputMap(inputs: Record<string, ScoreInput>) {
-  return toScoreMap(
-    Object.fromEntries(
-      Object.entries(inputs)
-        .filter(([, score]) => score.home !== null && score.away !== null)
-        .map(([matchId, score]) => [
-          matchId,
-          { home: score.home as number, away: score.away as number }
-        ])
-    )
-  )
-}
-
-function normalizeRevealedCells(params: {
-  revealedCells?: RevealedScoreCell[]
-  revealedMatchIds?: string[]
-}) {
+function normalizeRevealedCells(cells: RevealedScoreCell[]) {
   const seen = new Set<string>()
-  return [
-    ...(params.revealedCells ?? []),
-    ...(params.revealedMatchIds ?? []).flatMap((matchId) => [
-      { matchId, side: 'home' as const },
-      { matchId, side: 'away' as const }
-    ])
-  ].filter((cell) => {
+  return cells.filter((cell) => {
     const key = `${cell.matchId}:${cell.side}`
     if (seen.has(key)) return false
     seen.add(key)
@@ -115,203 +51,205 @@ export async function POST(
   const startedAt = performance.now()
   try {
     const rateLimit = await enforceRateLimit(request, {
-      rule: HINT_RATE_LIMIT,
-      key: `hint:${getClientIdentifier(request)}`
+      rule: RATE_LIMIT_RULES.hint
     })
-
-    if (rateLimit.response) {
-      return rateLimit.response
-    }
+    if (rateLimit.response) return rateLimit.response
 
     const { id } = await context.params
     const puzzleId = puzzleIdSchema.parse(id)
     const body = hintRequestSchema.parse(await request.json())
     const puzzle = await getPuzzlePrivateById(puzzleId)
-
-    if (!puzzle) {
-      return errorResponse(404, 'NOT_FOUND', 'Puzzle not found.')
-    }
+    if (!puzzle) return errorResponse(404, 'NOT_FOUND', 'Puzzle not found.')
 
     const user = await ensureRequestUser(request)
-    const existing = await getPuzzleProgress(user.userId!, puzzleId)
-    const usesClientAttemptState = body.isReplay || puzzle.mode === 'campaign'
-    const baseState = usesClientAttemptState ? null : existing?.currentState ?? null
-
-    if (existing?.status === 'COMPLETED' && puzzle.mode !== 'campaign' && !body.isReplay) {
-      return errorResponse(409, 'CONFLICT', 'Hints cannot be requested for a completed puzzle.')
+    const userId = user.userId!
+    const access = await getCampaignAccessDecision(puzzle, userId)
+    if (!access.allowed) {
+      return applyRateLimitHeaders(
+        withResponseCookie(
+          errorResponse(
+            403,
+            'FORBIDDEN',
+            'Complete the previous level in this campaign pack first.',
+            campaignAccessErrorDetails(access)
+          ),
+          user.cookie
+        ),
+        rateLimit.result
+      )
     }
 
-    const nextInputs: Record<string, ScoreInput> = {
-      ...(baseState?.inputs ?? {}),
-      ...body.currentInputs
-    }
-    const nextOutcomes: Record<string, MatchOutcome | null> = {
-      ...(baseState?.outcomes ?? {}),
-      ...body.currentOutcomes
-    }
-    const inputMap = completedInputMap(nextInputs)
-    const packConfig = getPuzzleCampaignPackConfig(puzzle)
-    const isOutcomeOnly = packConfig?.playMode === 'OUTCOME_ONLY'
-    const existingRevealedCells = normalizeRevealedCells({
-      revealedCells: usesClientAttemptState ? body.revealedCells : baseState?.revealedCells ?? [],
-      revealedMatchIds: usesClientAttemptState ? body.revealedMatchIds : baseState?.revealedMatchIds ?? []
-    })
-    const existingRevealedMatchIds = usesClientAttemptState ? body.revealedMatchIds : baseState?.revealedMatchIds ?? []
-    const hint: Hint = isOutcomeOnly
-      ? (() => {
-          const targetMatch = chooseUnrevealedMatch(puzzle.matches, existingRevealedMatchIds)
-
-          if (!targetMatch) {
-            return {
-              type: body.hintType,
-              message: 'All match results are already revealed.'
-            }
-          }
-
-          const solutionMatch = puzzle.solution.find((match) => match.id === targetMatch.id)
-          if (!solutionMatch) {
-            throw new Error(`Missing solution for match ${targetMatch.id}`)
-          }
-
-          const revealedOutcome = outcomeFromScore(solutionMatch)
-
-          return {
-            type: 'reveal' as const,
-            message: 'One match result revealed.',
-            targetMatchId: targetMatch.id,
-            revealedOutcome
-          }
-        })()
-      : generateHint(
-          puzzle.standings,
-          puzzle.matches,
-          inputMap,
-          body.hintType,
-          scoreMapFromSolution(puzzle.solution),
-          existingRevealedCells
-        )
-
-    const baseHintsUsed = usesClientAttemptState ? body.hintsUsed : existing?.hintsUsed ?? body.hintsUsed
-    const baseHintTypes = usesClientAttemptState ? body.hintTypes : existing?.hintTypes ?? body.hintTypes
-    const nextHintsUsed = baseHintsUsed + 1
-    const nextHintTypes = [...baseHintTypes, body.hintType]
-    const nextRevealedCells = [...existingRevealedCells]
-    const nextRevealedMatchIds = [...existingRevealedMatchIds]
-
-    const progressPatch: {
-      hintsUsed: number
-      hintTypes: HintType[]
-      revealedMatchIds?: string[]
-      revealedCells?: RevealedScoreCell[]
-      revealedInputs?: Record<string, Partial<Record<'home' | 'away', number>>>
-      revealedOutcomes?: Record<string, MatchOutcome>
-    } = {
-      hintsUsed: nextHintsUsed,
-      hintTypes: nextHintTypes
-    }
-
-    if (hint.revealedOutcome && hint.targetMatchId) {
-      if (!nextRevealedMatchIds.includes(hint.targetMatchId)) {
-        nextRevealedMatchIds.push(hint.targetMatchId)
+    const result = await prisma.$transaction(async (tx) => {
+      await acquireUserIdentityLocks([userId], tx)
+      await acquireAttemptLock(userId, puzzleId, tx)
+      const attempt = await getOwnedAttempt(
+        { attemptId: body.attemptId, userId, puzzleId },
+        tx
+      )
+      if (attempt.answerRevealedAt) {
+        throw new AttemptUnavailableError('ATTEMPT_TERMINAL')
       }
 
-      nextOutcomes[hint.targetMatchId] = hint.revealedOutcome
-      progressPatch.revealedMatchIds = nextRevealedMatchIds
-      progressPatch.revealedOutcomes = {
-        [hint.targetMatchId]: hint.revealedOutcome
+      const previous = mapAttemptProgressState(attempt)
+      const nextInputs: Record<string, ScoreInput> = {
+        ...(previous?.inputs ?? {}),
+        ...body.currentInputs
       }
-    }
+      const nextOutcomes: Record<string, MatchOutcome | null> = {
+        ...(previous?.outcomes ?? {}),
+        ...body.currentOutcomes
+      }
+      const revealedCells = normalizeRevealedCells(previous?.revealedCells ?? [])
+      const hint = generateHint({
+        matches: puzzle.matches,
+        userInputs: nextInputs,
+        hintType: body.hintType,
+        solutions: puzzle.allSolutions,
+        revealedCells
+      })
 
-    if (hint.type === 'reveal' && hint.revealedCell && hint.revealedScore !== undefined) {
-      if (
-        !nextRevealedCells.some(
-          (cell) => cell.matchId === hint.revealedCell?.matchId && cell.side === hint.revealedCell.side
-        )
-      ) {
-        nextRevealedCells.push(hint.revealedCell)
-      }
-
-      const currentInput = nextInputs[hint.revealedCell.matchId] ?? { home: null, away: null }
-      nextInputs[hint.revealedCell.matchId] = {
-        ...currentInput,
-        [hint.revealedCell.side]: hint.revealedScore
-      }
-      progressPatch.revealedCells = nextRevealedCells
-      progressPatch.revealedInputs = {
-        [hint.revealedCell.matchId]: {
+      if (hint.revealedCell && hint.revealedScore !== undefined) {
+        revealedCells.push(hint.revealedCell)
+        const score = nextInputs[hint.revealedCell.matchId] ?? {
+          home: null,
+          away: null
+        }
+        nextInputs[hint.revealedCell.matchId] = {
+          ...score,
           [hint.revealedCell.side]: hint.revealedScore
         }
       }
-    }
 
-    const currentState = buildHintCurrentState(
-      puzzleId,
-      baseState
-        ? {
-            ...baseState,
-            completedMatchIds: baseState.completedMatchIds
-          }
-        : {
-          puzzleId,
-          inputs: {},
-          outcomes: {},
-          notes: body.notes,
-            completedMatchIds: body.completedMatchIds,
-            revealedMatchIds: body.revealedMatchIds,
-            revealedCells: body.revealedCells,
-            hintsUsed: body.hintsUsed,
-            hintTypes: body.hintTypes,
-            answerRevealed: body.answerRevealed,
-            answerRevealedAt: body.answerRevealedAt,
-            elapsedTimeSec: 0,
-            startedAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            lastSubmittedAt: null
-          },
-      nextInputs,
-      nextOutcomes,
-      nextHintsUsed,
-      nextHintTypes,
-      body.answerRevealed,
-      body.answerRevealedAt,
-      nextRevealedMatchIds,
-      nextRevealedCells
-    )
-
-    if (!body.isReplay) {
-      await upsertPuzzleProgress({
-        userId: user.userId!,
+      const now = new Date()
+      const elapsedTimeSec = authoritativeElapsedTimeSec(attempt, now)
+      const hintsUsed = attempt.hintsUsed + 1
+      const hintTypes = [
+        ...attempt.hintTypes.filter((type): type is 'reveal' => type === 'reveal'),
+        body.hintType
+      ]
+      const currentState = buildProgressState({
         puzzleId,
-        status: puzzle.mode === 'campaign' ? 'IN_PROGRESS' : existing?.status ?? 'IN_PROGRESS',
-        attempts: existing?.attempts ?? 0,
-        hintsUsed: nextHintsUsed,
-        hintTypes: nextHintTypes,
-        answerRevealed: body.answerRevealed,
-        answerRevealedAt: body.answerRevealedAt ? new Date(body.answerRevealedAt) : null,
-        timeTakenSec: puzzle.mode === 'campaign' ? null : existing?.timeTakenSec ?? null,
-        completedAt: puzzle.mode === 'campaign' ? null : existing?.completedAt ? new Date(existing.completedAt) : null,
-        currentState
+        inputs: nextInputs,
+        outcomes: nextOutcomes,
+        notes: body.notes,
+        completedMatchIds: body.completedMatchIds,
+        revealedMatchIds: previous?.revealedMatchIds ?? [],
+        revealedCells,
+        hintsUsed,
+        hintTypes,
+        answerRevealed: false,
+        answerRevealedAt: null,
+        elapsedTimeSec,
+        startedAt: attempt.startedAt.toISOString(),
+        updatedAt: now.toISOString(),
+        lastSubmittedAt: previous?.lastSubmittedAt ?? null
       })
-    }
+
+      const updatedAttempt = await tx.puzzleAttempt.update({
+        where: { id: attempt.id },
+        data: {
+          hintsUsed,
+          hintTypes,
+          elapsedTimeSec,
+          lastEventAt: now,
+          currentState: currentState as unknown as Prisma.InputJsonValue
+        },
+        select: {
+          id: true,
+          kind: true,
+          status: true,
+          startedAt: true,
+          completedAt: true,
+          elapsedTimeSec: true,
+          hintsUsed: true,
+          hintTypes: true,
+          answerRevealedAt: true,
+          submissionCount: true
+        }
+      })
+      await appendAttemptEvent(
+        {
+          attemptId: attempt.id,
+          type: AttemptEventType.HINT_USED,
+          occurredAt: now,
+          payload: {
+            hintType: body.hintType,
+            targetMatchId: hint.targetMatchId ?? null,
+            revealedCell: hint.revealedCell
+              ? {
+                  matchId: hint.revealedCell.matchId,
+                  side: hint.revealedCell.side
+                }
+              : null,
+            elapsedTimeSec
+          } as Prisma.InputJsonValue
+        },
+        tx
+      )
+
+      const progress = await getPuzzleProgress(userId, puzzleId, tx)
+      await upsertPuzzleProgress(
+        {
+          userId,
+          puzzleId,
+          status: progress?.status ?? 'IN_PROGRESS',
+          attempts: progress?.attempts ?? 0,
+          hintsUsed,
+          hintTypes,
+          answerRevealed: false,
+          answerRevealedAt: null,
+          timeTakenSec: progress?.timeTakenSec ?? null,
+          completedAt: progress?.completedAt ? new Date(progress.completedAt) : null,
+          currentAttemptId: attempt.id,
+          currentState
+        },
+        tx
+      )
+
+      return {
+        hint,
+        attempt: mapPuzzleAttemptSummary(updatedAttempt, now),
+        progressPatch: {
+          hintsUsed,
+          hintTypes,
+          revealedCells,
+          ...(hint.revealedCell && hint.revealedScore !== undefined
+            ? {
+                revealedInputs: {
+                  [hint.revealedCell.matchId]: {
+                    [hint.revealedCell.side]: hint.revealedScore
+                  }
+                }
+              }
+            : {})
+        }
+      }
+    })
 
     captureServerEvent('puzzle_hint', {
+      userId,
       puzzleId,
       hintType: body.hintType,
       durationMs: Math.round(performance.now() - startedAt)
     })
 
     return applyRateLimitHeaders(
-      withResponseCookie(jsonResponse({ hint, progressPatch }), user.cookie),
+      withResponseCookie(jsonResponse(result), user.cookie),
       rateLimit.result
     )
   } catch (error) {
+    if (error instanceof AttemptUnavailableError) {
+      return errorResponse(409, 'CONFLICT', error.message, {
+        reason: error.code
+      })
+    }
     if (error instanceof ZodError) {
       return errorResponse(400, 'BAD_REQUEST', 'Invalid hint request.', {
         issues: error.flatten()
       })
     }
 
-    console.error('POST /api/puzzles/[id]/hint failed', error)
+    captureServerError(error, 'POST /api/puzzles/[id]/hint')
     return errorResponse(500, 'INTERNAL_ERROR', 'Unexpected server error.')
   }
 }

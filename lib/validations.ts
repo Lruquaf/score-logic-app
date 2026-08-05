@@ -58,8 +58,11 @@ export const puzzlePublicSchema = z.object({
   id: puzzleIdSchema,
   mode: puzzleModeSchema,
   difficulty: difficultySchema,
+  effectiveDifficulty: difficultySchema,
   inferenceSteps: z.number().int().min(0),
   tableDifficultyScore: z.number().int().min(0).nullable().default(null),
+  presentationDifficultyScore: z.number().int().min(0).nullable().default(null),
+  effectiveDifficultyScore: z.number().int().min(1).nullable().default(null),
   solutionCount: z.number().int().min(1).nullable().default(null),
   teams: z.array(teamSchema).length(4),
   standings: z.array(standingSchema).length(4),
@@ -120,11 +123,33 @@ export const puzzleProgressEnvelopeSchema = z.object({
   answerRevealedAt: z.string().datetime().nullable().default(null),
   timeTakenSec: z.number().int().min(0).max(7200).nullable(),
   completedAt: z.string().datetime().nullable(),
-  currentState: puzzleProgressStateSchema.nullable()
+  currentState: puzzleProgressStateSchema.nullable(),
+  currentAttempt: z.lazy(() => puzzleAttemptSummarySchema).nullable().optional(),
+  firstAttempt: z.lazy(() => puzzleAttemptSummarySchema).nullable().optional(),
+  bestAttempt: z.lazy(() => puzzleAttemptSummarySchema).nullable().optional()
 })
 
 export const saveProgressSchema = z.object({
+  attemptId: z.string().uuid(),
   progress: puzzleProgressStateSchema
+})
+
+export const puzzleAttemptSummarySchema = z.object({
+  id: z.string().uuid(),
+  kind: z.enum(['STANDARD', 'REPLAY']),
+  status: z.enum(['ACTIVE', 'SOLVED', 'REVEALED', 'ABANDONED']),
+  startedAt: z.string().datetime(),
+  completedAt: z.string().datetime().nullable(),
+  elapsedTimeSec: z.number().int().min(0).max(7200),
+  hintsUsed: z.number().int().min(0),
+  hintTypes: hintTypesSchema,
+  answerRevealedAt: z.string().datetime().nullable(),
+  submissionCount: z.number().int().min(0)
+})
+
+export const startPuzzleAttemptSchema = z.object({
+  kind: z.enum(['STANDARD', 'REPLAY']),
+  forceNew: z.boolean().default(false)
 })
 
 const submitScoreInputSchema = z.object({
@@ -133,6 +158,7 @@ const submitScoreInputSchema = z.object({
 })
 
 export const submitPuzzleSchema = z.object({
+  attemptId: z.string().uuid(),
   inputs: z.record(submitScoreInputSchema).default({}),
   outcomes: z.record(matchOutcomeSchema).default({}),
   notes: z.record(matchNoteSchema).default({}),
@@ -145,7 +171,17 @@ export const submitPuzzleSchema = z.object({
   isReplay: z.boolean().default(false)
 })
 
+export const idempotencyKeySchema = z
+  .string()
+  .min(16)
+  .max(128)
+  .regex(
+    /^[A-Za-z0-9._:-]+$/,
+    'Idempotency key may contain only letters, numbers, dot, underscore, colon, and hyphen.'
+  )
+
 export const hintRequestSchema = z.object({
+  attemptId: z.string().uuid(),
   hintType: hintTypeSchema,
   currentInputs: z.record(scoreInputSchema).default({}),
   currentOutcomes: z.record(matchOutcomeSchema.nullable()).default({}),
@@ -160,7 +196,17 @@ export const hintRequestSchema = z.object({
   isReplay: z.boolean().default(false)
 })
 
+export const analyzeBoardRequestSchema = z.object({
+  inputs: z
+    .record(scoreInputSchema)
+    .refine((inputs) => Object.keys(inputs).length <= 6, {
+      message: 'Board analysis accepts at most six match entries.'
+    })
+    .default({})
+})
+
 export const answerRevealSchema = z.object({
+  attemptId: z.string().uuid(),
   elapsedTimeSec: z.number().int().min(0).max(7200).optional(),
   currentInputs: z.record(scoreInputSchema).default({}),
   currentOutcomes: z.record(matchOutcomeSchema.nullable()).default({}),

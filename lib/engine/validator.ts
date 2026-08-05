@@ -1,4 +1,9 @@
-import type { ConstraintViolation, Match, Standing } from '@/lib/engine/types'
+import type {
+  ConstraintViolation,
+  Match,
+  MatchSolution,
+  Standing
+} from '@/lib/engine/types'
 import {
   computeStats,
   matchesExactSolution,
@@ -185,6 +190,30 @@ export function validateCompleteSolution(
 
   const violations = validatePartialSolution(standings, matches, userInputs, maxGoalsPerMatch)
   return { isCorrect: violations.length === 0, violations }
+}
+
+export function validateSolveAnySolution(
+  standings: Standing[],
+  matches: Match[],
+  userInputs: ScoreMap,
+  solutions: ReadonlyArray<ReadonlyMap<string, ScoreValue> | MatchSolution[]>,
+  maxGoalsPerMatch = DEFAULT_MAX_GOALS_PER_MATCH
+): { isCorrect: boolean; violations: ConstraintViolation[] } {
+  const semanticValidation = validateCompleteSolution(
+    standings,
+    matches,
+    userInputs,
+    maxGoalsPerMatch
+  )
+
+  if (!semanticValidation.isCorrect) {
+    return semanticValidation
+  }
+
+  return {
+    isCorrect: solutions.some((solution) => matchesExactSolution(userInputs, solution)),
+    violations: semanticValidation.violations
+  }
 }
 
 export function toScoreMap(

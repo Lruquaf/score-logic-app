@@ -62,11 +62,7 @@ export function buildAuthConfig(request?: NextRequest): NextAuthConfig {
           return true
         }
 
-        try {
-          await mergeAnonymousProgress(anonymousUserId, user.id)
-        } catch (error) {
-          console.error('anonymous progress merge failed during sign-in', error)
-        }
+        await mergeAnonymousProgress(anonymousUserId, user.id)
 
         return true
       },

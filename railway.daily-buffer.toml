@@ -1,0 +1,8 @@
+[build]
+builder = "RAILPACK"
+buildCommand = "npm run db:generate"
+
+[deploy]
+startCommand = "NODE_ENV=production npm run db:daily-buffer"
+cronSchedule = "15 21,3 * * *"
+restartPolicyType = "NEVER"

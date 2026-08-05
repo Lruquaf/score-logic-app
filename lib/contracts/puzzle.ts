@@ -44,9 +44,13 @@ export interface MatchSolutionDTO extends MatchPublicDTO {
 export interface PuzzlePublicDTO {
   id: string
   mode: PuzzleMode
+  /** Mathematical table classification retained for content compatibility. */
   difficulty: Difficulty
+  effectiveDifficulty: Difficulty
   inferenceSteps: number
   tableDifficultyScore: number | null
+  presentationDifficultyScore: number | null
+  effectiveDifficultyScore: number | null
   solutionCount: number | null
   teams: TeamDTO[]
   standings: StandingDTO[]
@@ -61,6 +65,17 @@ export interface PuzzlePublicDTO {
 export interface PuzzlePrivateDTO extends PuzzlePublicDTO {
   solution: MatchSolutionDTO[]
   allSolutions: MatchSolutionDTO[][]
+}
+
+export interface CampaignPuzzleCatalogItem {
+  id: string
+  contentKey: string
+  difficulty: Difficulty
+  effectiveDifficulty: Difficulty
+  campaignOrder: number
+  campaignPack: CampaignPack
+  campaignLevel: number
+  isUnlocked: boolean
 }
 
 export interface PuzzleRecordJSON {

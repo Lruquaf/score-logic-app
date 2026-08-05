@@ -1,6 +1,10 @@
-import type { HintType, MatchOutcome, RevealedScoreCell } from '@/lib/contracts/progress'
-import type { Match, Standing } from '@/lib/engine/types'
-import type { ScoreMap, ScoreValue } from '@/lib/engine/scoring'
+import type {
+  HintType,
+  PuzzleProgressState,
+  RevealedScoreCell,
+  ScoreInput
+} from '@/lib/contracts/progress'
+import type { Match, MatchSolution } from '@/lib/engine/types'
 
 export interface Hint {
   type: HintType
@@ -8,71 +12,141 @@ export interface Hint {
   targetMatchId?: string
   revealedCell?: RevealedScoreCell
   revealedScore?: number
-  revealedOutcome?: MatchOutcome
+}
+
+interface GenerateHintInput {
+  matches: Match[]
+  userInputs: PuzzleProgressState['inputs']
+  hintType: HintType
+  solutions: MatchSolution[][]
+  revealedCells?: ReadonlyArray<RevealedScoreCell>
+  random?: () => number
 }
 
 function cellKey(cell: RevealedScoreCell) {
   return `${cell.matchId}:${cell.side}`
 }
 
-function isCellRevealed(cell: RevealedScoreCell, revealedCells: ReadonlySet<string>) {
-  return revealedCells.has(cellKey(cell))
+function scoreForCell(solution: MatchSolution[], cell: RevealedScoreCell) {
+  const match = solution.find((candidate) => candidate.id === cell.matchId)
+  if (!match) {
+    throw new Error(`Solution is missing match ${cell.matchId}.`)
+  }
+
+  return cell.side === 'home' ? match.homeScore : match.awayScore
 }
 
-function getUnrevealedCellsForMatch(match: Match, revealedCells: ReadonlySet<string>): RevealedScoreCell[] {
-  return (['home', 'away'] as const)
-    .map((side) => ({ matchId: match.id, side }))
-    .filter((cell) => !isCellRevealed(cell, revealedCells))
+function solutionMatchesInputs(
+  solution: MatchSolution[],
+  userInputs: Readonly<Record<string, ScoreInput>>
+) {
+  const solutionMap = new Map(solution.map((match) => [match.id, match]))
+
+  for (const [matchId, input] of Object.entries(userInputs)) {
+    if (input.home === null && input.away === null) continue
+
+    const match = solutionMap.get(matchId)
+    if (!match) return false
+    if (input.home !== null && input.home !== match.homeScore) return false
+    if (input.away !== null && input.away !== match.awayScore) return false
+  }
+
+  return true
 }
 
-function chooseRandomRevealCell(
+export function compatibleSolutionsForInputs(
+  solutions: MatchSolution[][],
+  userInputs: Readonly<Record<string, ScoreInput>>
+) {
+  return solutions.filter((solution) => solutionMatchesInputs(solution, userInputs))
+}
+
+function candidateCells(
   matches: Match[],
-  revealedCells: ReadonlyArray<RevealedScoreCell>,
-  random: () => number
+  userInputs: Readonly<Record<string, ScoreInput>>,
+  revealedCells: ReadonlyArray<RevealedScoreCell>
 ) {
   const revealedSet = new Set(revealedCells.map(cellKey))
-  const cells = matches.flatMap((match) => getUnrevealedCellsForMatch(match, revealedSet))
 
-  if (cells.length === 0) return null
-
-  const cell = cells[Math.floor(random() * cells.length)] ?? cells[0]
-  const match = matches.find((candidate) => candidate.id === cell.matchId)
-
-  return match ? { match, cell } : null
+  return matches.flatMap((match) =>
+    (['home', 'away'] as const)
+      .map((side) => ({ matchId: match.id, side }))
+      .filter((cell) => {
+        const input = userInputs[cell.matchId]?.[cell.side] ?? null
+        return input === null && !revealedSet.has(cellKey(cell))
+      })
+  )
 }
 
-export function generateHint(
-  standings: Standing[],
-  matches: Match[],
-  userInputs: ScoreMap,
-  hintType: HintType,
-  solution: ReadonlyMap<string, ScoreValue>,
-  revealedCells: ReadonlyArray<RevealedScoreCell> = [],
-  random: () => number = Math.random
-): Hint {
-  const target = chooseRandomRevealCell(matches, revealedCells, random)
-  void standings
-  void userInputs
+function safeRevealCells(
+  candidates: RevealedScoreCell[],
+  compatibleSolutions: MatchSolution[][]
+) {
+  return candidates.flatMap((cell) => {
+    const revealedScore = scoreForCell(compatibleSolutions[0], cell)
+    const isShared = compatibleSolutions.every(
+      (solution) => scoreForCell(solution, cell) === revealedScore
+    )
 
-  if (!target) {
+    return isShared ? [{ cell, revealedScore }] : []
+  })
+}
+
+export function generateHint({
+  matches,
+  userInputs,
+  hintType,
+  solutions,
+  revealedCells = [],
+  random = Math.random
+}: GenerateHintInput): Hint {
+  if (solutions.length === 0) {
+    throw new Error('Hint generation requires at least one valid solution.')
+  }
+
+  const compatibleSolutions = compatibleSolutionsForInputs(solutions, userInputs)
+
+  if (compatibleSolutions.length === 0) {
     return {
       type: hintType,
-      message: 'All score cells have already been revealed.'
+      message: 'The current entries conflict with every valid solution. Recheck an entered score before revealing another cell.'
     }
   }
 
-  const solutionScore = solution.get(target.match.id)
-  if (!solutionScore) {
-    throw new Error(`Missing solution for match ${target.match.id}`)
+  const candidates = candidateCells(matches, userInputs, revealedCells)
+  if (candidates.length === 0) {
+    return {
+      type: hintType,
+      message: 'All available score cells are already filled or revealed.'
+    }
   }
 
-  const revealedScore = solutionScore[target.cell.side]
+  const safeCells = safeRevealCells(candidates, compatibleSolutions)
+  if (safeCells.length === 0) {
+    return {
+      type: hintType,
+      message: 'Several valid solution paths remain, but they do not share a safe score cell yet. Use the table or Analyze Board to narrow the possibilities.'
+    }
+  }
+
+  const target = safeCells[Math.floor(random() * safeCells.length)] ?? safeCells[0]
+  const nextInputs = {
+    ...userInputs,
+    [target.cell.matchId]: {
+      ...(userInputs[target.cell.matchId] ?? { home: null, away: null }),
+      [target.cell.side]: target.revealedScore
+    }
+  }
+
+  if (compatibleSolutionsForInputs(compatibleSolutions, nextInputs).length === 0) {
+    throw new Error('Generated hint would leave the puzzle without a valid completion.')
+  }
 
   return {
     type: 'reveal',
-    message: `${target.cell.side === 'home' ? 'Home' : 'Away'} score cell is ${revealedScore}.`,
-    targetMatchId: target.match.id,
+    message: `${target.cell.side === 'home' ? 'Home' : 'Away'} score cell is ${target.revealedScore}.`,
+    targetMatchId: target.cell.matchId,
     revealedCell: target.cell,
-    revealedScore
+    revealedScore: target.revealedScore
   }
 }

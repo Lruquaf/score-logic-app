@@ -1,6 +1,8 @@
 import type { PuzzleRecord } from '@/lib/db/mappers/puzzle'
 import { mapPuzzleRecordToPrivateDTO, mapPuzzleRecordToPublicDTO } from '@/lib/db/mappers/puzzle'
 import { sampleDailyPuzzlePrivate } from '@/lib/fixtures/samplePuzzle'
+import { buildPuzzleDifficultyProfile } from '@/lib/puzzles/difficultyProfile'
+import { selectInitialRevealedMatches } from '@/lib/puzzles/prefill'
 
 function asRecordJson<T>(value: T): PuzzleRecord['teamsConfig'] {
   return value as unknown as PuzzleRecord['teamsConfig']
@@ -9,19 +11,43 @@ function asRecordJson<T>(value: T): PuzzleRecord['teamsConfig'] {
 function buildPuzzleRecord(overrides: Partial<PuzzleRecord> = {}): PuzzleRecord {
   return {
     id: sampleDailyPuzzlePrivate.id,
+    contentKey: 'daily:2026-06-17',
+    contentRevision: 1,
+    supersedesId: null,
     difficulty: sampleDailyPuzzlePrivate.difficulty,
     inferenceSteps: sampleDailyPuzzlePrivate.inferenceSteps,
     campaignPack: sampleDailyPuzzlePrivate.campaignPack,
     campaignLevel: sampleDailyPuzzlePrivate.campaignLevel,
     tableDifficultyScore: sampleDailyPuzzlePrivate.tableDifficultyScore,
+    presentationDifficultyScore:
+      sampleDailyPuzzlePrivate.presentationDifficultyScore!,
+    effectiveDifficultyScore:
+      sampleDailyPuzzlePrivate.effectiveDifficultyScore!,
     solutionCount: sampleDailyPuzzlePrivate.solutionCount,
     teamsConfig: asRecordJson(sampleDailyPuzzlePrivate.teams),
     standings: asRecordJson(sampleDailyPuzzlePrivate.standings),
     matchIds: asRecordJson(sampleDailyPuzzlePrivate.matches),
+    initialRevealedMatches: asRecordJson(
+      sampleDailyPuzzlePrivate.initialRevealedMatches
+    ),
     solution: asRecordJson(sampleDailyPuzzlePrivate.solution),
     allSolutions: asRecordJson(sampleDailyPuzzlePrivate.allSolutions),
     dailyDate: new Date('2026-06-17T00:00:00.000Z'),
     campaignOrder: null,
+    contentVersion: 'daily-2026-06-17-v1',
+    generatorVersion: 'scorelogic-generator-v1',
+    rulesVersion: 'solve-any-v1',
+    contentHash: '0'.repeat(64),
+    contentQaVersion: 'scorelogic-content-qa-v1',
+    contentQaReport: asRecordJson({
+      version: 'scorelogic-content-qa-v1',
+      success: true,
+      metrics: {},
+      issues: []
+    }),
+    publishedAt: new Date('2026-06-17T00:00:00.000Z'),
+    activatedAt: new Date('2026-06-17T00:00:00.000Z'),
+    retiredAt: null,
     isActive: true,
     isTested: true,
     createdAt: new Date('2026-06-17T00:00:00.000Z'),
@@ -47,11 +73,28 @@ describe('puzzle mapper', () => {
   })
 
   it('adds pack-specific prefilled scores to public campaign puzzles', () => {
+    const difficultyProfile = buildPuzzleDifficultyProfile({
+      mode: 'campaign',
+      campaignPack: 'EASY',
+      campaignLevel: 1,
+      tableDifficultyScore: sampleDailyPuzzlePrivate.tableDifficultyScore!
+    })
     const record = buildPuzzleRecord({
       dailyDate: null,
       campaignOrder: 31,
       campaignPack: 'EASY',
-      campaignLevel: 1
+      campaignLevel: 1,
+      presentationDifficultyScore:
+        difficultyProfile.presentationDifficultyScore,
+      effectiveDifficultyScore: difficultyProfile.effectiveDifficultyScore,
+      initialRevealedMatches: asRecordJson(
+        selectInitialRevealedMatches({
+          id: sampleDailyPuzzlePrivate.id,
+          campaignPack: 'EASY',
+          campaignLevel: 1,
+          solution: sampleDailyPuzzlePrivate.solution
+        })
+      )
     })
     const puzzle = mapPuzzleRecordToPublicDTO(record)
 

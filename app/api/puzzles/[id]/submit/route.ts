@@ -1,41 +1,62 @@
+import { AttemptEventType, AttemptStatus, Prisma } from '@prisma/client'
 import type { NextRequest } from 'next/server'
 import { ZodError } from 'zod'
 
 import { errorResponse, jsonResponse, withResponseCookie } from '@/lib/api/http'
 import { ensureRequestUser } from '@/lib/auth/anonymous'
 import { prisma } from '@/lib/db/prisma'
+import {
+  appendAttemptEvent,
+  AttemptUnavailableError,
+  authoritativeElapsedTimeSec,
+  getOwnedAttempt,
+  mapAttemptProgressState
+} from '@/lib/db/queries/attempts'
+import { acquireUserIdentityLocks } from '@/lib/db/queries/identity'
 import { getPuzzlePrivateById } from '@/lib/db/queries/puzzles'
 import { getPuzzleProgress, upsertPuzzleProgress } from '@/lib/db/queries/progress'
-import { updateDailyStreakOnSolve, updateUserStatsOnSolve } from '@/lib/db/queries/users'
-import { captureServerEvent } from '@/lib/observability/server'
+import {
+  acquirePuzzleSubmissionLock,
+  buildSubmitRequestHash,
+  finalizePuzzleSubmission,
+  IdempotencyConflictError,
+  recordFirstPuzzleCompletion,
+  registerPuzzleSubmission
+} from '@/lib/db/queries/submissions'
+import { rebuildUserAggregates } from '@/lib/db/queries/stats'
+import { toScoreMap, validateSolveAnySolution } from '@/lib/engine/validator'
+import { captureServerError, captureServerEvent } from '@/lib/observability/server'
+import {
+  campaignAccessErrorDetails,
+  getCampaignAccessDecision
+} from '@/lib/puzzles/campaignAccess'
+import { buildSubmitFeedback } from '@/lib/puzzles/submitFeedback'
+import { buildPuzzleContentKey } from '@/lib/puzzles/publication'
 import {
   applyRateLimitHeaders,
   enforceRateLimit,
-  getClientIdentifier
+  RATE_LIMIT_RULES
 } from '@/lib/security/rate-limit'
-import { toScoreMap, validateCompleteSolution } from '@/lib/engine/validator'
-import { getPuzzleCampaignPackConfig } from '@/lib/puzzles/campaignConfig'
-import { validateCompleteOutcomes } from '@/lib/puzzles/outcomes'
-import { buildSubmitFeedback } from '@/lib/puzzles/submitFeedback'
 import { buildProgressState } from '@/lib/utils/progress-state'
-import { puzzleIdSchema, submitPuzzleSchema } from '@/lib/validations'
+import {
+  idempotencyKeySchema,
+  puzzleIdSchema,
+  puzzleProgressEnvelopeSchema,
+  submitPuzzleSchema
+} from '@/lib/validations'
 
 export const runtime = 'nodejs'
 
-const SUBMIT_RATE_LIMIT = {
-  name: 'submit',
-  limit: 10,
-  window: '1 m' as const,
-  windowMs: 60_000
-}
-
-function completedInputPayload(inputs: Record<string, { home: number | null; away: number | null }>) {
+function completedInputPayload(
+  inputs: Record<string, { home: number | null; away: number | null }>
+) {
   return Object.fromEntries(
-    Object.entries(inputs)
-      .filter((entry): entry is [string, { home: number; away: number }] => {
+    Object.entries(inputs).filter(
+      (entry): entry is [string, { home: number; away: number }] => {
         const [, score] = entry
         return score.home !== null && score.away !== null
-      })
+      }
+    )
   )
 }
 
@@ -46,188 +67,295 @@ export async function POST(
   const startedAt = performance.now()
   try {
     const rateLimit = await enforceRateLimit(request, {
-      rule: SUBMIT_RATE_LIMIT,
-      key: `submit:${getClientIdentifier(request)}`
+      rule: RATE_LIMIT_RULES.submit
     })
+    if (rateLimit.response) return rateLimit.response
 
-    if (rateLimit.response) {
-      return rateLimit.response
+    const rawIdempotencyKey = request.headers.get('idempotency-key')
+    if (!rawIdempotencyKey) {
+      return applyRateLimitHeaders(
+        errorResponse(400, 'BAD_REQUEST', 'Idempotency-Key header is required.'),
+        rateLimit.result
+      )
     }
 
     const { id } = await context.params
     const puzzleId = puzzleIdSchema.parse(id)
+    const idempotencyKey = idempotencyKeySchema.parse(rawIdempotencyKey)
     const body = submitPuzzleSchema.parse(await request.json())
+    const requestHash = buildSubmitRequestHash(puzzleId, body)
     const puzzle = await getPuzzlePrivateById(puzzleId)
-
-    if (!puzzle) {
-      return errorResponse(404, 'NOT_FOUND', 'Puzzle not found.')
-    }
+    if (!puzzle) return errorResponse(404, 'NOT_FOUND', 'Puzzle not found.')
 
     const user = await ensureRequestUser(request)
-    const existing = await getPuzzleProgress(user.userId!, puzzleId)
-
-    if (existing?.answerRevealed && !body.isReplay && puzzle.mode !== 'campaign') {
-      return errorResponse(409, 'CONFLICT', 'Solutions cannot be submitted after the answer is revealed.')
+    const userId = user.userId!
+    const access = await getCampaignAccessDecision(puzzle, userId)
+    if (!access.allowed) {
+      return applyRateLimitHeaders(
+        withResponseCookie(
+          errorResponse(
+            403,
+            'FORBIDDEN',
+            'Complete the previous level in this campaign pack first.',
+            campaignAccessErrorDetails(access)
+          ),
+          user.cookie
+        ),
+        rateLimit.result
+      )
     }
 
-    const completeInputs = completedInputPayload(body.inputs)
-    const inputMap = toScoreMap(completeInputs)
-    const packConfig = getPuzzleCampaignPackConfig(puzzle)
-    const isOutcomeOnly = packConfig?.playMode === 'OUTCOME_ONLY'
-    const validation = isOutcomeOnly
-      ? { ...validateCompleteOutcomes(puzzle.standings, puzzle.matches, body.outcomes), violations: [] }
-      : validateCompleteSolution(puzzle.standings, puzzle.matches, inputMap)
+    const inputMap = toScoreMap(completedInputPayload(body.inputs))
+    const validation = validateSolveAnySolution(
+      puzzle.standings,
+      puzzle.matches,
+      inputMap,
+      puzzle.allSolutions
+    )
     const isCorrect = validation.isCorrect
+    const contentKey = buildPuzzleContentKey(puzzle)
     const feedback = buildSubmitFeedback({
       puzzle,
-      userInputs: isOutcomeOnly ? undefined : inputMap,
-      userOutcomes: isOutcomeOnly ? body.outcomes : undefined,
+      userInputs: inputMap,
       isCorrect,
       violations: validation.violations
     })
-    const nowIso = new Date().toISOString()
-    const usesClientAttemptState = body.isReplay || puzzle.mode === 'campaign'
-    const progressHintsUsed = usesClientAttemptState ? body.hintsUsed : existing?.hintsUsed ?? body.hintsUsed
-    const progressHintTypes = usesClientAttemptState ? body.hintTypes : existing?.hintTypes ?? body.hintTypes
-    const progressAnswerRevealed = usesClientAttemptState ? false : existing?.answerRevealed ?? false
-    const progressAnswerRevealedAt = usesClientAttemptState ? null : existing?.answerRevealedAt ?? null
-    const progressRevealedMatchIds = usesClientAttemptState
-      ? body.revealedMatchIds
-      : existing?.currentState?.revealedMatchIds ?? body.revealedMatchIds
-    const progressRevealedCells = usesClientAttemptState
-      ? body.revealedCells
-      : existing?.currentState?.revealedCells ?? body.revealedCells
-    const progressCompletedMatchIds = usesClientAttemptState
-      ? body.completedMatchIds
-      : existing?.currentState?.completedMatchIds ?? body.completedMatchIds
 
-    const currentState = buildProgressState({
-      puzzleId,
-      inputs: body.inputs,
-      outcomes: body.outcomes,
-      notes: usesClientAttemptState ? body.notes : existing?.currentState?.notes ?? body.notes,
-      hintsUsed: progressHintsUsed,
-      hintTypes: progressHintTypes,
-      answerRevealed: progressAnswerRevealed,
-      answerRevealedAt: progressAnswerRevealedAt,
-      startedAt: existing?.currentState?.startedAt ?? null,
-      updatedAt: nowIso,
-      lastSubmittedAt: nowIso,
-      revealedMatchIds: progressRevealedMatchIds,
-      revealedCells: progressRevealedCells,
-      completedMatchIds: progressCompletedMatchIds
-    })
-
-    const attempts = (existing?.attempts ?? 0) + 1
-
-    if (body.isReplay || (existing?.status === 'COMPLETED' && puzzle.mode !== 'campaign')) {
-      const replayProgress = {
-        ...existing,
-        puzzleId,
-        status: existing?.status ?? 'IN_PROGRESS',
-        attempts: existing?.attempts ?? 0,
-        hintsUsed: existing?.hintsUsed ?? progressHintsUsed,
-        hintTypes: existing?.hintTypes ?? progressHintTypes,
-        answerRevealed: existing?.answerRevealed ?? false,
-        answerRevealedAt: existing?.answerRevealedAt ?? null,
-        timeTakenSec: existing?.timeTakenSec ?? null,
-        completedAt: existing?.completedAt ?? null,
-        currentState: buildProgressState({
+    const transactionResult = await prisma.$transaction(async (tx) => {
+      await acquireUserIdentityLocks([userId], tx)
+      await acquirePuzzleSubmissionLock(userId, contentKey, tx)
+      const submission = await registerPuzzleSubmission(
+        {
+          userId,
           puzzleId,
-          inputs: body.inputs,
-          outcomes: body.outcomes,
-          notes: usesClientAttemptState ? body.notes : existing?.currentState?.notes ?? body.notes,
-          hintsUsed: progressHintsUsed,
-          hintTypes: progressHintTypes,
-          answerRevealed: false,
-          answerRevealedAt: null,
-          startedAt: nowIso,
-          updatedAt: nowIso,
-          lastSubmittedAt: nowIso,
-          revealedMatchIds: progressRevealedMatchIds,
-          revealedCells: progressRevealedCells,
-          completedMatchIds: progressCompletedMatchIds
-        })
+          attemptId: body.attemptId,
+          idempotencyKey,
+          requestHash,
+          isCorrect
+        },
+        tx
+      )
+
+      if (submission.kind === 'duplicate') {
+        const snapshot = puzzleProgressEnvelopeSchema.safeParse(
+          submission.progressSnapshot
+        )
+        if (!snapshot.success) {
+          throw new Error(
+            `Submission receipt ${submission.submissionId} contains an invalid progress snapshot.`
+          )
+        }
+        return {
+          progress: snapshot.data,
+          isFirstCompletion: submission.isFirstCompletion,
+          idempotencyReplayed: true
+        }
       }
 
-      const response = jsonResponse({
-        isCorrect,
-        violations: isCorrect ? [] : validation.violations,
-        feedback,
-        progress: replayProgress
-      })
-
-      captureServerEvent('puzzle_submit_replay', {
+      const attempt = await getOwnedAttempt(
+        { attemptId: body.attemptId, userId, puzzleId },
+        tx
+      )
+      if (attempt.answerRevealedAt) {
+        throw new AttemptUnavailableError('ATTEMPT_TERMINAL')
+      }
+      const previous = mapAttemptProgressState(attempt)
+      const now = new Date()
+      const elapsedTimeSec = authoritativeElapsedTimeSec(attempt, now)
+      const hintTypes = attempt.hintTypes.filter(
+        (type): type is 'reveal' => type === 'reveal'
+      )
+      const currentState = buildProgressState({
         puzzleId,
-        isCorrect,
-        durationMs: Math.round(performance.now() - startedAt)
+        inputs: body.inputs,
+        outcomes: body.outcomes,
+        notes: body.notes,
+        completedMatchIds: body.completedMatchIds,
+        revealedMatchIds: previous?.revealedMatchIds ?? [],
+        revealedCells: previous?.revealedCells ?? [],
+        hintsUsed: attempt.hintsUsed,
+        hintTypes,
+        answerRevealed: false,
+        answerRevealedAt: null,
+        elapsedTimeSec,
+        startedAt: attempt.startedAt.toISOString(),
+        updatedAt: now.toISOString(),
+        lastSubmittedAt: now.toISOString()
       })
 
-      return applyRateLimitHeaders(withResponseCookie(response, user.cookie), rateLimit.result)
-    }
+      const nextSubmissionCount = attempt.submissionCount + 1
+      await tx.puzzleAttempt.update({
+        where: { id: attempt.id },
+        data: {
+          status: isCorrect ? AttemptStatus.SOLVED : AttemptStatus.ACTIVE,
+          completedAt: isCorrect ? now : null,
+          elapsedTimeSec,
+          submissionCount: nextSubmissionCount,
+          lastEventAt: now,
+          currentState: currentState as unknown as Prisma.InputJsonValue
+        }
+      })
+      await appendAttemptEvent(
+        {
+          attemptId: attempt.id,
+          type: AttemptEventType.SUBMITTED,
+          occurredAt: now,
+          payload: {
+            isCorrect,
+            submissionId: submission.submissionId,
+            elapsedTimeSec,
+            submissionCount: nextSubmissionCount
+          }
+        },
+        tx
+      )
+      if (isCorrect) {
+        await appendAttemptEvent(
+          {
+            attemptId: attempt.id,
+            type: AttemptEventType.COMPLETED,
+            occurredAt: now,
+            payload: { elapsedTimeSec, hintsUsed: attempt.hintsUsed }
+          },
+          tx
+        )
+      }
 
-    const savedProgress = await prisma.$transaction(async (tx) => {
+      const currentProgress = await getPuzzleProgress(userId, puzzleId, tx)
+      let isFirstCompletion = false
+      if (isCorrect) {
+        isFirstCompletion = await recordFirstPuzzleCompletion(
+          {
+            userId,
+            puzzleId,
+            contentKey,
+            submissionId: submission.submissionId,
+            attemptId: attempt.id,
+            completedAt: now,
+            timeTakenSec: elapsedTimeSec,
+            hintsUsed: attempt.hintsUsed
+          },
+          tx
+        )
+      }
+
+      const currentBest = currentProgress?.bestAttempt
+      const isBestCompletion =
+        isCorrect &&
+        (
+          !currentBest ||
+          elapsedTimeSec < currentBest.elapsedTimeSec ||
+          (
+            elapsedTimeSec === currentBest.elapsedTimeSec &&
+            attempt.hintsUsed < currentBest.hintsUsed
+          )
+        )
+      const bestAttemptId = isBestCompletion
+        ? attempt.id
+        : currentBest?.id ?? currentProgress?.firstAttempt?.id
+      const bestTimeTakenSec = isBestCompletion
+        ? elapsedTimeSec
+        : currentBest?.elapsedTimeSec ?? currentProgress?.timeTakenSec ?? null
+      const bestHintsUsed = isBestCompletion
+        ? attempt.hintsUsed
+        : currentBest?.hintsUsed ?? currentProgress?.hintsUsed ?? attempt.hintsUsed
+      const bestHintTypes = isBestCompletion
+        ? hintTypes
+        : currentBest?.hintTypes ?? currentProgress?.hintTypes ?? hintTypes
+
       const progress = await upsertPuzzleProgress(
         {
-          userId: user.userId!,
+          userId,
           puzzleId,
-          status: isCorrect ? 'COMPLETED' : 'IN_PROGRESS',
-          attempts,
-          hintsUsed: progressHintsUsed,
-          hintTypes: progressHintTypes,
-          answerRevealed: progressAnswerRevealed,
-          answerRevealedAt: progressAnswerRevealedAt ? new Date(progressAnswerRevealedAt) : null,
-          timeTakenSec: isCorrect ? body.timeTakenSec : puzzle.mode === 'campaign' ? null : existing?.timeTakenSec ?? null,
-          completedAt: isCorrect ? new Date(nowIso) : null,
+          status: isCorrect ? 'COMPLETED' : currentProgress?.status ?? 'IN_PROGRESS',
+          attempts: (currentProgress?.attempts ?? 0) + 1,
+          hintsUsed: isCorrect ? bestHintsUsed : attempt.hintsUsed,
+          hintTypes: isCorrect ? bestHintTypes : hintTypes,
+          answerRevealed: false,
+          answerRevealedAt: null,
+          timeTakenSec: isCorrect ? bestTimeTakenSec : currentProgress?.timeTakenSec ?? null,
+          completedAt: isCorrect
+            ? currentProgress?.completedAt
+              ? new Date(currentProgress.completedAt)
+              : now
+            : currentProgress?.completedAt
+              ? new Date(currentProgress.completedAt)
+              : null,
+          currentAttemptId: attempt.id,
+          firstAttemptId:
+            currentProgress?.firstAttempt?.id ??
+            (isFirstCompletion ? attempt.id : undefined),
+          bestAttemptId,
           currentState
         },
         tx
       )
 
       if (isCorrect) {
-        await updateUserStatsOnSolve(
-          {
-            userId: user.userId!,
-            difficulty: puzzle.difficulty,
-            timeTakenSec: body.timeTakenSec,
-            hintsUsed: progressHintsUsed
-          },
-          tx
-        )
-        await updateDailyStreakOnSolve(
-          {
-            userId: user.userId!,
-            dailyDate: puzzle.dailyDate ? new Date(`${puzzle.dailyDate}T00:00:00.000Z`) : null
-          },
-          tx
-        )
+        await rebuildUserAggregates(userId, tx)
       }
 
-      return progress
+      await finalizePuzzleSubmission(
+        {
+          submissionId: submission.submissionId,
+          isFirstCompletion,
+          progress,
+          processedAt: now
+        },
+        tx
+      )
+
+      return {
+        progress,
+        isFirstCompletion,
+        idempotencyReplayed: false
+      }
     })
 
     const response = jsonResponse({
       isCorrect,
+      isFirstCompletion: transactionResult.isFirstCompletion,
+      idempotencyReplayed: transactionResult.idempotencyReplayed,
       violations: isCorrect ? [] : validation.violations,
       feedback,
-      progress: savedProgress
+      progress: transactionResult.progress
     })
 
-    captureServerEvent('puzzle_submit', {
-      puzzleId,
-      isCorrect,
-      durationMs: Math.round(performance.now() - startedAt)
-    })
+    captureServerEvent(
+      transactionResult.idempotencyReplayed
+        ? 'puzzle_submit_idempotent_replay'
+        : 'puzzle_submit',
+      {
+        userId,
+        puzzleId,
+        isCorrect,
+        isFirstCompletion: transactionResult.isFirstCompletion,
+        durationMs: Math.round(performance.now() - startedAt)
+      }
+    )
 
-    return applyRateLimitHeaders(withResponseCookie(response, user.cookie), rateLimit.result)
+    return applyRateLimitHeaders(
+      withResponseCookie(response, user.cookie),
+      rateLimit.result
+    )
   } catch (error) {
+    if (error instanceof IdempotencyConflictError) {
+      return errorResponse(409, 'CONFLICT', error.message, {
+        reason: 'IDEMPOTENCY_KEY_REUSE'
+      })
+    }
+    if (error instanceof AttemptUnavailableError) {
+      return errorResponse(409, 'CONFLICT', error.message, {
+        reason: error.code
+      })
+    }
     if (error instanceof ZodError) {
       return errorResponse(400, 'BAD_REQUEST', 'Invalid submit payload.', {
         issues: error.flatten()
       })
     }
 
-    console.error('POST /api/puzzles/[id]/submit failed', error)
+    captureServerError(error, 'POST /api/puzzles/[id]/submit')
     return errorResponse(500, 'INTERNAL_ERROR', 'Unexpected server error.')
   }
 }

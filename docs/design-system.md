@@ -202,7 +202,8 @@ Her alanın kendine ait kalın border'lı bir kutuya dönüşmesi yasaktır.
 - Small brand accents.
 - Very subtle page highlights.
 
-`--danger` yalnızca final check sonrası görünmelidir. Skor yazarken anlık kırmızı hata gösterimi yapılmamalıdır.
+`--danger` yalnızca bilinçli check veya Analyze Board sonucu görünmelidir. Skor yazarken anlık
+kırmızı hata gösterimi yapılmamalıdır.
 
 `--gold` başarı/ödül anlarında çok kontrollü kullanılabilir. Ana renk haline gelmemelidir.
 
@@ -860,7 +861,7 @@ Something went wrong while saving. Your local board is still safe.
 Completed replay conflict:
 
 ```text
-This puzzle is already solved. You can replay it locally.
+This puzzle is already solved. Reset the board to start a replay.
 ```
 
 ---
@@ -1093,9 +1094,27 @@ Kurallar:
 
 - Table başlığı `Final Table` olmalı.
 - Numeric values mono veya tabular.
-- Highlight sadece check sonrası.
+- Final Table değişmez referans veridir; kullanıcı girdisiyle değerleri, rengi veya dekorasyonu
+  değişmez.
+- Kalan değer, projection ve constraint sonuçları tablo içine yazılmaz.
 
-### 15.5 Feedback Panel
+### 15.5 Analyze Board
+
+Analyze Board, Final Table'dan ayrı ve yalnız kullanıcı isteğiyle açılan bir snapshot panelidir.
+
+- Tamamlanmış scoreline'ların tablo katkısını gösterir; global kontrol tek taraflı olanlar
+  dahil bütün dolu skor hücrelerini hesaba katar.
+- Her metrikte `entered / target` ve kalan değeri gösterir.
+- Panel `en az bir completion var`, `global dead-end` ve `analiz belirsiz` durumlarını açıkça
+  ayırır; solver safety limit'i yanlış cevap gibi gösterilmez.
+- Yerel tablo taşmaları ve global constraint sorunları panelin kendi içinde gösterilir.
+- Yeni skor girişi snapshot'ı geçersiz kılar.
+- Beginner 1–3'te `Guided`, 4–15'te `Assisted` etiketi kullanılır.
+- Analiz yalnız düğmeye basıldığında server-side çalışır ve response çözüm/skor önerisi
+  içermez.
+- Final Table görsel olarak hiçbir zaman analiz state'ine bağlanmaz.
+
+### 15.6 Feedback Panel
 
 Feedback panel her zaman görünmemelidir.
 
@@ -1179,7 +1198,7 @@ Play another
 - `Solved.`
 - `Every score fits the final table.`
 - `We could not save your progress. Your local board is still safe.`
-- `This puzzle is already solved. You can replay it locally.`
+- `This puzzle is already solved. Reset the board to start a replay.`
 
 ### Stats
 
@@ -1213,4 +1232,3 @@ Tasarım sistemi uygulanmış sayılmak için:
 - CSS asset doğru yükleniyor.
 - `type-check`, `lint`, `build` temiz.
 - Kritik puzzle akışı e2e veya manuel smoke test ile doğrulanmış.
-

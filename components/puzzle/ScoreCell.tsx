@@ -64,12 +64,17 @@ export function ScoreCell({
       max={19}
       inputMode="numeric"
       value={value ?? ''}
+      readOnly={isRevealed}
       className={`h-11 w-14 rounded-[var(--radius-sm)] border text-center font-mono text-xl font-bold outline-none transition [appearance:textfield] placeholder:text-[var(--faint)] focus:ring-0 max-sm:h-10 max-sm:w-[52px] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none ${tone} ${
         isSelected ? 'shadow-[0_0_0_3px_var(--light-glow),0_0_18px_rgba(57,209,123,0.16)]' : ''
       }`}
       placeholder="-"
-      onFocus={() => selectCell({ matchId, side })}
-      onClick={() => selectCell({ matchId, side })}
+      onFocus={() => {
+        if (!isRevealed) selectCell({ matchId, side })
+      }}
+      onClick={() => {
+        if (!isRevealed) selectCell({ matchId, side })
+      }}
       onChange={(event) => {
         const nextValue = event.currentTarget.value
         if (nextValue === '') {

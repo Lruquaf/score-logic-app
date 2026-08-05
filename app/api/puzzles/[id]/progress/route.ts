@@ -1,34 +1,58 @@
 import type { NextRequest } from 'next/server'
 import { ZodError } from 'zod'
+import { AttemptEventType, Prisma } from '@prisma/client'
 
+import {
+  InvalidJsonBodyError,
+  readBoundedJson,
+  RequestBodyTooLargeError
+} from '@/lib/api/body'
 import { errorResponse, jsonResponse, withResponseCookie } from '@/lib/api/http'
 import { ensureRequestUser } from '@/lib/auth/anonymous'
 import { getPuzzle } from '@/lib/db/queries/puzzles'
 import { getPuzzleProgress, upsertPuzzleProgress } from '@/lib/db/queries/progress'
-import { captureServerEvent } from '@/lib/observability/server'
+import { prisma } from '@/lib/db/prisma'
+import {
+  acquireAttemptLock,
+  appendAttemptEvent,
+  AttemptUnavailableError,
+  authoritativeElapsedTimeSec,
+  getOwnedAttempt,
+  mapAttemptProgressState
+} from '@/lib/db/queries/attempts'
+import { acquireUserIdentityLocks } from '@/lib/db/queries/identity'
+import {
+  campaignAccessErrorDetails,
+  getCampaignAccessDecision
+} from '@/lib/puzzles/campaignAccess'
+import { captureServerError, captureServerEvent } from '@/lib/observability/server'
 import {
   applyRateLimitHeaders,
   enforceRateLimit,
-  getClientIdentifier
+  RATE_LIMIT_RULES
 } from '@/lib/security/rate-limit'
 import { saveProgressSchema, puzzleIdSchema } from '@/lib/validations'
 
 export const runtime = 'nodejs'
 
-const PROGRESS_RATE_LIMIT = {
-  name: 'progress',
-  limit: 120,
-  window: '1 h' as const,
-  windowMs: 60 * 60 * 1000
-}
-
 function isIncomingProgressStale(
   existingUpdatedAt: string | null,
-  incomingUpdatedAt: string
+  incomingUpdatedAt: string,
+  attemptStartedAt: Date
 ) {
   if (!existingUpdatedAt) return false
+
+  // A new attempt is created with a server-authored baseline snapshot. The
+  // local draft that immediately follows may predate that baseline by a few
+  // milliseconds and is still the first real save, not stale user data.
+  if (new Date(existingUpdatedAt).getTime() <= attemptStartedAt.getTime()) {
+    return false
+  }
+
   return new Date(incomingUpdatedAt).getTime() < new Date(existingUpdatedAt).getTime()
 }
+
+class StaleProgressError extends Error {}
 
 export async function PUT(
   request: NextRequest,
@@ -37,8 +61,7 @@ export async function PUT(
   const startedAt = performance.now()
   try {
     const rateLimit = await enforceRateLimit(request, {
-      rule: PROGRESS_RATE_LIMIT,
-      key: `progress:${getClientIdentifier(request)}`
+      rule: RATE_LIMIT_RULES.progress
     })
 
     if (rateLimit.response) {
@@ -47,7 +70,7 @@ export async function PUT(
 
     const { id } = await context.params
     const puzzleId = puzzleIdSchema.parse(id)
-    const body = saveProgressSchema.parse(await request.json())
+    const body = saveProgressSchema.parse(await readBoundedJson(request, 65_536))
 
     if (body.progress.puzzleId !== puzzleId) {
       return errorResponse(400, 'BAD_REQUEST', 'Progress payload does not match the puzzle id.')
@@ -59,34 +82,96 @@ export async function PUT(
     }
 
     const user = await ensureRequestUser(request)
-    const existing = await getPuzzleProgress(user.userId!, puzzleId)
-
-    if (existing?.status === 'COMPLETED' && puzzle.mode !== 'campaign') {
-      return errorResponse(409, 'CONFLICT', 'This puzzle is already solved. You can replay it locally.')
+    const access = await getCampaignAccessDecision(puzzle, user.userId)
+    if (!access.allowed) {
+      return withResponseCookie(
+        errorResponse(
+          403,
+          'FORBIDDEN',
+          'Complete the previous level in this campaign pack first.',
+          campaignAccessErrorDetails(access)
+        ),
+        user.cookie
+      )
     }
 
-    if (
-      existing?.currentState &&
-      isIncomingProgressStale(existing.currentState.updatedAt, body.progress.updatedAt)
-    ) {
-      return errorResponse(409, 'CONFLICT', 'Incoming progress is stale.')
-    }
+    const userId = user.userId!
+    const progress = await prisma.$transaction(async (tx) => {
+      await acquireUserIdentityLocks([userId], tx)
+      await acquireAttemptLock(userId, puzzleId, tx)
+      const attempt = await getOwnedAttempt(
+        {
+          attemptId: body.attemptId,
+          userId,
+          puzzleId
+        },
+        tx
+      )
+      const attemptState = mapAttemptProgressState(attempt)
+      if (
+        attemptState &&
+        isIncomingProgressStale(
+          attemptState.updatedAt,
+          body.progress.updatedAt,
+          attempt.startedAt
+        )
+      ) {
+        throw new StaleProgressError('Incoming progress is stale.')
+      }
 
-    const progress = await upsertPuzzleProgress({
-      userId: user.userId!,
-      puzzleId,
-      status: puzzle.mode === 'campaign' ? 'IN_PROGRESS' : existing?.status ?? 'IN_PROGRESS',
-      attempts: existing?.attempts ?? 0,
-      hintsUsed: body.progress.hintsUsed,
-      hintTypes: body.progress.hintTypes,
-      answerRevealed: body.progress.answerRevealed,
-      answerRevealedAt: body.progress.answerRevealedAt ? new Date(body.progress.answerRevealedAt) : null,
-      timeTakenSec: puzzle.mode === 'campaign' ? null : existing?.timeTakenSec ?? null,
-      completedAt: puzzle.mode === 'campaign' ? null : existing?.completedAt ? new Date(existing.completedAt) : null,
-      currentState: body.progress
+      const now = new Date()
+      const elapsedTimeSec = authoritativeElapsedTimeSec(attempt, now)
+      const currentState = {
+        ...body.progress,
+        hintsUsed: attempt.hintsUsed,
+        hintTypes: attempt.hintTypes.filter((type): type is 'reveal' => type === 'reveal'),
+        answerRevealed: attempt.answerRevealedAt !== null,
+        answerRevealedAt: attempt.answerRevealedAt?.toISOString() ?? null,
+        elapsedTimeSec,
+        startedAt: attempt.startedAt.toISOString(),
+        updatedAt: now.toISOString()
+      }
+
+      await tx.puzzleAttempt.update({
+        where: { id: attempt.id },
+        data: {
+          currentState: currentState as unknown as Prisma.InputJsonValue,
+          elapsedTimeSec,
+          lastEventAt: now
+        }
+      })
+      await appendAttemptEvent(
+        {
+          attemptId: attempt.id,
+          type: AttemptEventType.PROGRESS_SAVED,
+          occurredAt: now,
+          payload: { elapsedTimeSec }
+        },
+        tx
+      )
+
+      const existing = await getPuzzleProgress(userId, puzzleId, tx)
+      return upsertPuzzleProgress(
+        {
+          userId,
+          puzzleId,
+          status: existing?.status ?? 'IN_PROGRESS',
+          attempts: existing?.attempts ?? 0,
+          hintsUsed: attempt.hintsUsed,
+          hintTypes: currentState.hintTypes,
+          answerRevealed: false,
+          answerRevealedAt: null,
+          timeTakenSec: existing?.timeTakenSec ?? null,
+          completedAt: existing?.completedAt ? new Date(existing.completedAt) : null,
+          currentAttemptId: attempt.id,
+          currentState
+        },
+        tx
+      )
     })
 
     captureServerEvent('puzzle_progress_save', {
+      userId,
       puzzleId,
       durationMs: Math.round(performance.now() - startedAt)
     })
@@ -96,13 +181,29 @@ export async function PUT(
       rateLimit.result
     )
   } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return errorResponse(413, 'PAYLOAD_TOO_LARGE', 'Progress payload is too large.')
+    }
+    if (error instanceof InvalidJsonBodyError) {
+      return errorResponse(400, 'BAD_REQUEST', 'Invalid progress payload.')
+    }
+    if (error instanceof StaleProgressError) {
+      return errorResponse(409, 'CONFLICT', error.message, {
+        reason: 'STALE_PROGRESS'
+      })
+    }
+    if (error instanceof AttemptUnavailableError) {
+      return errorResponse(409, 'CONFLICT', error.message, {
+        reason: error.code
+      })
+    }
     if (error instanceof ZodError) {
       return errorResponse(400, 'BAD_REQUEST', 'Invalid progress payload.', {
         issues: error.flatten()
       })
     }
 
-    console.error('PUT /api/puzzles/[id]/progress failed', error)
+    captureServerError(error, 'PUT /api/puzzles/[id]/progress')
     return errorResponse(500, 'INTERNAL_ERROR', 'Unexpected server error.')
   }
 }

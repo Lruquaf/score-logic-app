@@ -1,0 +1,8 @@
+[build]
+builder = "RAILPACK"
+buildCommand = "npm run db:generate"
+
+[deploy]
+startCommand = "NODE_ENV=production npm run ops:backup"
+cronSchedule = "15 23 * * *"
+restartPolicyType = "NEVER"

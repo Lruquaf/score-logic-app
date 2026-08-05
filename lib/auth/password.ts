@@ -25,11 +25,11 @@ export function validateEmailPasswordInput(input: {
     }
   }
 
-  if (password.length < 8) {
+  if (password.length < 8 || password.length > 128) {
     return {
       success: false as const,
       code: 'WEAK_PASSWORD' as const,
-      message: 'Password must be at least 8 characters.'
+      message: 'Password must be between 8 and 128 characters.'
     }
   }
 

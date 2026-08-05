@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion'
 import Link from 'next/link'
+import type { ReactNode } from 'react'
 
 import type { PuzzlePublicDTO } from '@/lib/contracts/puzzle'
 import { getCampaignPackConfig } from '@/lib/puzzles/campaignConfig'
@@ -22,9 +23,12 @@ interface PuzzleHeaderProps {
   currentStreak: number
   hintsUsed: number
   visibleErrors: number
+  analyzeBoardAction?: ReactNode
   campaignNavigation?: {
     previousHref: `/puzzles/${string}` | null
+    previousPackTitle: string | null
     nextHref: `/puzzles/${string}` | null
+    nextPackTitle: string | null
   } | null
 }
 
@@ -126,6 +130,7 @@ export function PuzzleHeader({
   currentStreak,
   hintsUsed,
   visibleErrors,
+  analyzeBoardAction,
   campaignNavigation
 }: PuzzleHeaderProps) {
   const label = formatPuzzleLabel({
@@ -135,7 +140,7 @@ export function PuzzleHeader({
   const title = puzzle.mode === 'daily' ? 'Daily Puzzle' : 'Practice Puzzle'
   const levelLabel = puzzle.campaignPack
     ? getCampaignPackConfig(puzzle.campaignPack).title
-    : puzzle.difficulty
+    : puzzle.effectiveDifficulty
   const streakLabel = currentStreak > 0 ? `${currentStreak}d` : '0d'
   const elapsedLabel = formatDuration(elapsedTimeSec)
   const metricItems = [
@@ -225,11 +230,19 @@ export function PuzzleHeader({
               {campaignNavigation.previousHref ? (
                 <Link
                   href={campaignNavigation.previousHref}
-                  aria-label="Previous campaign puzzle"
+                  aria-label={
+                    campaignNavigation.previousPackTitle
+                      ? `Go to ${campaignNavigation.previousPackTitle} campaign pack`
+                      : 'Previous campaign puzzle'
+                  }
                   className="flex h-7 items-center gap-1 rounded-full px-2.5 text-[var(--ink-soft)] transition hover:bg-[var(--field-soft)] hover:text-[var(--field-deep)]"
                 >
                   <span className="font-mono text-[10px]">&lt;</span>
-                  <span>Prev</span>
+                  <span>
+                    {campaignNavigation.previousPackTitle
+                      ? `${campaignNavigation.previousPackTitle} pack`
+                      : 'Prev'}
+                  </span>
                 </Link>
               ) : (
                 <span
@@ -256,10 +269,18 @@ export function PuzzleHeader({
               {campaignNavigation.nextHref ? (
                 <Link
                   href={campaignNavigation.nextHref}
-                  aria-label="Next campaign puzzle"
+                  aria-label={
+                    campaignNavigation.nextPackTitle
+                      ? `Go to ${campaignNavigation.nextPackTitle} campaign pack`
+                      : 'Next campaign puzzle'
+                  }
                   className="flex h-7 items-center gap-1 rounded-full px-2.5 text-[var(--ink-soft)] transition hover:bg-[var(--field-soft)] hover:text-[var(--field-deep)]"
                 >
-                  <span>Next</span>
+                  <span>
+                    {campaignNavigation.nextPackTitle
+                      ? `${campaignNavigation.nextPackTitle} pack`
+                      : 'Next'}
+                  </span>
                   <span className="font-mono text-[10px]">&gt;</span>
                 </Link>
               ) : (
@@ -274,9 +295,13 @@ export function PuzzleHeader({
             </div>
           ) : null}
 
-          <div className={`grid grid-cols-[0.9fr_1.35fr_0.9fr] items-center gap-1.5 sm:flex sm:flex-nowrap sm:justify-end sm:gap-2 ${
+          <div className={`grid items-center gap-1.5 sm:flex sm:flex-nowrap sm:justify-end sm:gap-2 ${
+            analyzeBoardAction ? 'grid-cols-2' : 'grid-cols-[0.9fr_1.35fr_0.9fr]'
+          } ${
             campaignNavigation ? 'lg:mt-9' : 'lg:mt-20'
           }`}>
+            {analyzeBoardAction}
+
             <motion.button
               type="button"
               className="group flex min-h-9 min-w-0 items-center justify-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--blue)]/25 bg-[var(--blue-soft)] px-2 py-2 text-xs font-bold text-[var(--blue)] shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] transition hover:-translate-y-0.5 hover:border-[var(--blue)]/44 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 sm:gap-2 sm:px-3"

@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "alerts": [
+    { "id": "synthetic-core-down", "severity": "critical", "panelId": "daily-readiness", "condition": "2 consecutive synthetic failures", "window": "10m", "owner": "scorelogic-oncall", "runbook": "docs/operations/incident-response.md#synthetic-core-down" },
+    { "id": "api-error-budget-burn", "severity": "critical", "panelId": "server-errors", "condition": "5xx ratio > 5%", "window": "5m", "owner": "scorelogic-oncall", "runbook": "docs/operations/incident-response.md#api-error-budget-burn" },
+    { "id": "redis-unavailable", "severity": "critical", "panelId": "redis-readiness", "condition": "readiness redis != up", "window": "5m", "owner": "scorelogic-oncall", "runbook": "docs/operations/incident-response.md#redis-unavailable" },
+    { "id": "daily-buffer-gap", "severity": "critical", "panelId": "daily-readiness", "condition": "daily_buffer_gap count > 0", "window": "5m", "owner": "scorelogic-content", "runbook": "docs/operations/incident-response.md#daily-buffer-gap" },
+    { "id": "route-latency-high", "severity": "warning", "panelId": "route-latency", "condition": "p95 > 800ms", "window": "15m", "owner": "scorelogic-oncall", "runbook": "docs/operations/incident-response.md#route-latency-high" },
+    { "id": "solver-unknown-high", "severity": "warning", "panelId": "solver-health", "condition": "UNKNOWN ratio > 0.5%", "window": "15m", "owner": "scorelogic-engine", "runbook": "docs/operations/incident-response.md#solver-unknown-high" },
+    { "id": "content-quality-failed", "severity": "warning", "panelId": "content-quality", "condition": "active QA, editorial or calibration critical finding > 0", "window": "30m", "owner": "scorelogic-content", "runbook": "docs/operations/incident-response.md#content-quality-failed" }
+  ]
+}

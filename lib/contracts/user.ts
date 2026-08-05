@@ -3,8 +3,14 @@ import type { PuzzleProgressStatus } from '@/lib/contracts/progress'
 
 export interface UserStatsSummary {
   totalSolved: number
+  successfulAttempts: number
+  totalAttempts: number
+  firstTrySolves: number
+  assistedSolves: number
+  answerReveals: number
   perfectSolves: number
   totalTimeSec: number
+  bestDurationSec: number | null
   solvedEasy: number
   solvedMedium: number
   solvedHard: number
@@ -25,6 +31,7 @@ export interface UserProgressSummaryItem {
   updatedAt: string
   puzzle: {
     id: string
+    contentKey: string
     mode: 'daily' | 'campaign'
     difficulty: Difficulty
     dailyDate: string | null
@@ -39,4 +46,9 @@ export interface UserProgressSummary {
   totalCompleted: number
   byStatus: Record<PuzzleProgressStatus, number>
   entries: UserProgressSummaryItem[]
+  pageInfo: {
+    limit: number
+    hasMore: boolean
+    nextCursor: string | null
+  }
 }

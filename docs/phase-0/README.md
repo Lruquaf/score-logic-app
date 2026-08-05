@@ -1,5 +1,9 @@
 # Phase 0 Baseline
 
+> Bu klasör ilk geliştirme başlangıcındaki teknik baseline'ı kaydeder. Güncel ürün davranışı
+> için kanonik kaynak [`docs/product-rules.md`](../product-rules.md) dosyasıdır. Bu klasördeki
+> bir ifade kanonik ürün kurallarıyla çelişirse kanonik kurallar geçerlidir.
+
 ## Amaç
 
 Bu klasor, ScoreLogic web uygulamasinin kod yazimina baslamadan once sabitlenmis teknik kararlarini, domain kontratlarini ve uygulama sirasini toplar.
@@ -37,12 +41,19 @@ Bu dokuman setinin amaci:
    Client, route handler veya cache katmaninda public cevaplara karismayacaktir.
 
 5. Submit dogrulamasi yalnizca "kisit ihlali yok" seviyesinde kalmayacaktir.
-   Sunucu, gonderilen skorlarin kayitli cozumle birebir eslestigini dogrulayacaktir.
+   Sunucu, gonderilen skorlarin `allSolutions` icindeki herhangi bir gecerli cozumle birebir
+   eslestigini dogrulayacaktir.
 
 6. Progress persist iki kaynaga ayrilacaktir.
    Runtime UI state local store'da, canonical puzzle progress ise veritabaninda tutulacaktir.
 
 7. Kampanya modu ve istatistik ekrani veri modeli icinde korunacak, ancak ilk oynanabilir dilimin zorunlu teslimi olmayacaktir.
+
+8. Campaign'de her pack'in ilk seviyesi aciktir; pack icindeki sonraki seviyeler normal
+   completion ile sirali acilir. Answer reveal unlock uretmez.
+
+9. Ana "Solved" metrigi benzersiz tamamlanan puzzle sayisidir. Replay ve tekrar submit bu
+   metrigi artirmaz.
 
 ## Engineering MVP Siniri
 
@@ -51,6 +62,7 @@ Asagidaki ozellikler ilk uygulama diliminde zorunludur:
 - `GET /api/puzzles/daily`
 - `GET /api/puzzles/[id]`
 - `POST /api/puzzles/[id]/submit`
+- `POST /api/puzzles/[id]/analyze`
 - `POST /api/puzzles/[id]/hint`
 - `PUT /api/puzzles/[id]/progress`
 - anonim kullanici cookie akisi
@@ -93,7 +105,7 @@ Faz 1'e gecmeden once asagidaki noktalar bu klasordeki dokumanlarla sabitlenmis 
 
 Faz 1 sonunda su altyapi calisiyor olmali:
 
-- Next.js 15 app iskeleti
+- Next.js 16 App Router iskeleti
 - TypeScript ve test altyapisi
 - Prisma schema
 - base design tokens

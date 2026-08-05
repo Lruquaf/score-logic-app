@@ -1,5 +1,7 @@
 import Link from 'next/link'
 import { cookies } from 'next/headers'
+import { unstable_rethrow } from 'next/navigation'
+import * as React from 'react'
 
 import { auth } from '@/auth'
 import { ANON_COOKIE } from '@/lib/auth/anonymous'
@@ -16,30 +18,41 @@ async function getPreviewUserId() {
   return cookieStore.get(ANON_COOKIE)?.value ?? null
 }
 
-export async function DailyPreviewPanel() {
-  const daily = await getDailyPuzzleWithProgress({
-    userId: await getPreviewUserId()
-  })
-
-  if (!daily) {
-    return (
-      <div className="panel bg-[var(--paper-soft)] px-5 py-5">
-        <p className="label">Today preview</p>
-        <h2 className="mt-2 font-[var(--font-display)] text-2xl font-semibold text-[var(--ink)]">
-          Daily board unavailable
-        </h2>
-      </div>
-    )
-  }
-
-  const { puzzle, progress } = daily
-  const teamMap = new Map(puzzle.teams.map((team) => [team.id, team]))
-  const completedMatches = progress?.currentState?.completedMatchIds.length ?? 0
-  const totalMatches = puzzle.matches.length
-  const isCompleted = progress?.status === 'COMPLETED'
-
+export function DailyPreviewUnavailable() {
   return (
-    <div className="panel overflow-hidden bg-[var(--paper-soft)]">
+    <div className="panel bg-[var(--paper-soft)] px-5 py-5">
+      <p className="label">Today preview</p>
+      <h2 className="mt-2 font-[var(--font-display)] text-2xl font-semibold text-[var(--ink)]">
+        Daily board temporarily unavailable
+      </h2>
+      <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+        The game guide is still available. Try opening today&apos;s puzzle again shortly.
+      </p>
+      <Link href="/daily" className="btn-secondary mt-4 min-h-9 px-3 py-2 text-xs">
+        Retry daily
+      </Link>
+    </div>
+  )
+}
+
+export async function DailyPreviewPanel() {
+  try {
+    const daily = await getDailyPuzzleWithProgress({
+      userId: await getPreviewUserId()
+    })
+
+    if (!daily) {
+      return <DailyPreviewUnavailable />
+    }
+
+    const { puzzle, progress } = daily
+    const teamMap = new Map(puzzle.teams.map((team) => [team.id, team]))
+    const completedMatches = progress?.currentState?.completedMatchIds.length ?? 0
+    const totalMatches = puzzle.matches.length
+    const isCompleted = progress?.status === 'COMPLETED'
+
+    return (
+      <div className="panel overflow-hidden bg-[var(--paper-soft)]">
       <div className="border-b border-[var(--line)] px-4 py-3">
         <div className="grid gap-3">
           <div className="flex items-start justify-between gap-3">
@@ -57,7 +70,7 @@ export async function DailyPreviewPanel() {
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex flex-wrap gap-2">
               <span className="score-chip">Today</span>
-              <span className="score-chip">{puzzle.difficulty}</span>
+              <span className="score-chip">{puzzle.effectiveDifficulty}</span>
               <span className="score-chip">{formatPuzzleLabel(puzzle)}</span>
             </div>
           </div>
@@ -138,6 +151,11 @@ export async function DailyPreviewPanel() {
           })}
         </div>
       </div>
-    </div>
-  )
+      </div>
+    )
+  } catch (error) {
+    unstable_rethrow(error)
+    console.error('Daily preview is unavailable; rendering isolated fallback.', error)
+    return <DailyPreviewUnavailable />
+  }
 }

@@ -63,6 +63,20 @@ function ensureDatabaseExists({ host, port, user, database }) {
   }
 }
 
+function testDatabaseConfig(databaseConfig) {
+  const database = databaseConfig.database.endsWith('_test')
+    ? databaseConfig.database
+    : `${databaseConfig.database}_test`
+  const url = new URL(databaseConfig.url)
+  url.pathname = `/${database}`
+
+  return {
+    ...databaseConfig,
+    database,
+    url: url.toString()
+  }
+}
+
 async function main() {
   ensureLocalDirs()
 
@@ -84,6 +98,8 @@ async function main() {
   }
 
   ensureDatabaseExists(db)
+  const testDb = testDatabaseConfig(db)
+  ensureDatabaseExists(testDb)
 
   for (let index = 0; index < 20; index += 1) {
     if (isPostgresReady(db.host, db.port, db.user, db.database)) {
@@ -99,6 +115,13 @@ async function main() {
 
   console.log('Applying migrations and seeding data...')
   runCommand('npm', ['run', 'db:setup'])
+  console.log(`Applying migrations to test database "${testDb.database}"...`)
+  runCommand('npm', ['run', 'db:deploy'], {
+    env: {
+      ...process.env,
+      DATABASE_URL: testDb.url
+    }
+  })
 
   const previousPid = readManagedNextPid()
   if (previousPid) {

@@ -1,21 +1,40 @@
-import type { Prisma, PuzzleStatus, UserPuzzleProgress as PrismaUserPuzzleProgress } from '@prisma/client'
+import type { Prisma, PuzzleStatus } from '@prisma/client'
 
 import type { HintType, PuzzleProgressEnvelope, PuzzleProgressState } from '@/lib/contracts/progress'
 import { hintTypeSchema, puzzleProgressEnvelopeSchema, puzzleProgressStateSchema } from '@/lib/validations'
+import {
+  mapPuzzleAttemptSummary,
+  puzzleAttemptSummarySelect
+} from '@/lib/db/queries/attempts'
 
-export type UserPuzzleProgressRecord = Pick<
-  PrismaUserPuzzleProgress,
-  | 'puzzleId'
-  | 'status'
-  | 'attempts'
-  | 'hintsUsed'
-  | 'hintTypes'
-  | 'answerRevealed'
-  | 'answerRevealedAt'
-  | 'timeTakenSec'
-  | 'completedAt'
-  | 'currentState'
->
+type FullUserPuzzleProgressRecord = Prisma.UserPuzzleProgressGetPayload<{
+  select: {
+    puzzleId: true
+    status: true
+    attempts: true
+    hintsUsed: true
+    hintTypes: true
+    answerRevealed: true
+    answerRevealedAt: true
+    timeTakenSec: true
+    completedAt: true
+    currentState: true
+    currentAttempt: { select: typeof puzzleAttemptSummarySelect }
+    firstAttempt: { select: typeof puzzleAttemptSummarySelect }
+    bestAttempt: { select: typeof puzzleAttemptSummarySelect }
+  }
+}>
+
+export type UserPuzzleProgressRecord = Omit<
+  FullUserPuzzleProgressRecord,
+  'currentAttempt' | 'firstAttempt' | 'bestAttempt'
+> &
+  Partial<
+    Pick<
+      FullUserPuzzleProgressRecord,
+      'currentAttempt' | 'firstAttempt' | 'bestAttempt'
+    >
+  >
 
 function toIsoDateTimeString(value: Date | null): string | null {
   if (!value) return null
@@ -65,7 +84,16 @@ export function mapUserPuzzleProgressRecord(
     answerRevealedAt: toIsoDateTimeString(record.answerRevealedAt),
     timeTakenSec: record.timeTakenSec,
     completedAt: toIsoDateTimeString(record.completedAt),
-    currentState: mapProgressStateFromJson(record.puzzleId, record.currentState)
+    currentState: mapProgressStateFromJson(record.puzzleId, record.currentState),
+    currentAttempt: record.currentAttempt
+      ? mapPuzzleAttemptSummary(record.currentAttempt)
+      : null,
+    firstAttempt: record.firstAttempt
+      ? mapPuzzleAttemptSummary(record.firstAttempt)
+      : null,
+    bestAttempt: record.bestAttempt
+      ? mapPuzzleAttemptSummary(record.bestAttempt)
+      : null
   }
 
   return puzzleProgressEnvelopeSchema.parse(envelope)

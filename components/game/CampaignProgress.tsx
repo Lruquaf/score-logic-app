@@ -3,9 +3,13 @@
 import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
 
-import type { CampaignBand, CampaignPack, PuzzlePublicDTO } from '@/lib/contracts/puzzle'
+import type {
+  CampaignBand,
+  CampaignPack,
+  CampaignPuzzleCatalogItem
+} from '@/lib/contracts/puzzle'
 import type { UserProgressSummaryItem } from '@/lib/contracts/user'
-import { fetchCampaignPuzzles, fetchUserProgress } from '@/lib/api/client'
+import { fetchCampaignPuzzles } from '@/lib/api/client'
 import {
   CAMPAIGN_BANDS,
   CAMPAIGN_PACK_ORDER,
@@ -72,7 +76,7 @@ function isCleared(progress: UserProgressSummaryItem | undefined) {
 }
 
 function levelState(params: {
-  puzzle: PuzzlePublicDTO
+  puzzle: CampaignPuzzleCatalogItem
   progress: UserProgressSummaryItem | undefined
   unlocked: boolean
 }): CampaignLevelState {
@@ -116,8 +120,8 @@ function stateLabel(state: CampaignLevelState) {
 function packDescription(pack: CampaignPack) {
   const config = getCampaignPackConfig(pack)
 
-  if (config.playMode === 'OUTCOME_ONLY') {
-    return 'Pick only win, draw, or loss for each fixture.'
+  if (pack === 'BEGINNER') {
+    return 'Guided scorelines: 5 given matches at first, tapering to 3.'
   }
 
   if (config.prefilledMatchCount > 0) {
@@ -127,27 +131,17 @@ function packDescription(pack: CampaignPack) {
   return 'No prefilled scorelines.'
 }
 
-function nextCampaignPuzzle(puzzles: PuzzlePublicDTO[], progressMap: Map<string, UserProgressSummaryItem>) {
-  return [...puzzles]
-    .sort((left, right) => (left.campaignOrder ?? 0) - (right.campaignOrder ?? 0))
-    .find((puzzle) => !isCleared(progressMap.get(puzzle.id)))
-}
-
-function isCampaignPuzzleUnlocked(params: {
-  puzzle: PuzzlePublicDTO
-  packPuzzles: PuzzlePublicDTO[]
+function nextCampaignPuzzle(
+  puzzles: CampaignPuzzleCatalogItem[],
   progressMap: Map<string, UserProgressSummaryItem>
-}) {
-  if (isCleared(params.progressMap.get(params.puzzle.id))) return true
-
-  const campaignLevel = params.puzzle.campaignLevel
-  if (!campaignLevel) return false
-
-  const firstPackLevel = params.packPuzzles[0]?.campaignLevel
-  if (campaignLevel === firstPackLevel) return true
-
-  const previousPuzzle = params.packPuzzles.find((candidate) => candidate.campaignLevel === campaignLevel - 1)
-  return previousPuzzle ? isCleared(params.progressMap.get(previousPuzzle.id)) : false
+) {
+  return [...puzzles]
+    .sort((left, right) => left.campaignOrder - right.campaignOrder)
+    .find(
+      (puzzle) =>
+        puzzle.isUnlocked &&
+        !isCleared(progressMap.get(puzzle.id))
+    )
 }
 
 export function CampaignProgress() {
@@ -157,18 +151,12 @@ export function CampaignProgress() {
     staleTime: Infinity,
     gcTime: 24 * 60 * 60 * 1000
   })
-  const progressQuery = useQuery({
-    queryKey: ['user-progress'],
-    queryFn: fetchUserProgress,
-    staleTime: 30_000
-  })
-
-  if (campaignQuery.isLoading || progressQuery.isLoading) {
+  if (campaignQuery.isLoading) {
     return <div className="panel h-[320px] animate-pulse" />
   }
 
   const puzzles = campaignQuery.data?.puzzles ?? []
-  const progressEntries = progressQuery.data?.progress?.entries ?? []
+  const progressEntries = campaignQuery.data?.progress ?? []
   const progressMap = new Map(progressEntries.map((entry) => [entry.puzzleId, entry]))
   const clearedCount = puzzles.filter((puzzle) => isCleared(progressMap.get(puzzle.id))).length
   const completedCount = puzzles.filter((puzzle) => progressMap.get(puzzle.id)?.status === 'COMPLETED').length
@@ -181,7 +169,7 @@ export function CampaignProgress() {
         <div>
           <h2 className="font-[var(--font-display)] text-2xl font-semibold text-[var(--ink)]">Campaign packs</h2>
           <p className="mt-1 max-w-2xl text-sm leading-5 text-[var(--muted)]">
-            Clear each pack from beginner result picking to expert scoreline solving.
+            Clear each pack from guided beginner scorelines to expert solving.
           </p>
         </div>
         <div className="flex max-w-xl flex-wrap gap-1.5 rounded-[var(--radius-md)] border border-[var(--line)] bg-white/62 px-2 py-2 text-[10px] font-bold text-[var(--ink-soft)] lg:justify-end">
@@ -215,7 +203,7 @@ export function CampaignProgress() {
             const config = getCampaignPackConfig(pack)
             const packPuzzles = puzzles
               .filter((puzzle) => puzzle.campaignPack === pack)
-              .sort((left, right) => (left.campaignLevel ?? 0) - (right.campaignLevel ?? 0))
+              .sort((left, right) => left.campaignLevel - right.campaignLevel)
             const packCleared = packPuzzles.filter((puzzle) => isCleared(progressMap.get(puzzle.id))).length
             const packCompleted = packPuzzles.filter((puzzle) => progressMap.get(puzzle.id)?.status === 'COMPLETED').length
             const packProgress = packPuzzles.length > 0
@@ -242,7 +230,7 @@ export function CampaignProgress() {
 
                   <div className="flex flex-wrap gap-1.5 lg:justify-end">
                     <span className="rounded-[var(--radius-sm)] border border-[var(--field-line)] bg-white/76 px-2 py-0.5 text-[10px] font-bold text-[var(--field-deep)]">
-                      {config.playMode === 'OUTCOME_ONLY' ? 'Outcome only' : 'Scorelines'}
+                      Scorelines
                     </span>
                     <span className="rounded-[var(--radius-sm)] border border-[var(--line)] bg-white/70 px-2 py-0.5 text-[10px] font-bold text-[var(--ink-soft)]">
                       {feedbackLabels[config.feedbackMode]}
@@ -259,8 +247,8 @@ export function CampaignProgress() {
 
                 <div className="mt-1.5 grid gap-1.5 border-t border-[var(--line)] pt-1.5">
                   {CAMPAIGN_BANDS.map((band) => {
-                    const bandPuzzles = packPuzzles.filter((puzzle) =>
-                      puzzle.campaignLevel ? campaignBandForLevel(puzzle.campaignLevel) === band : false
+                    const bandPuzzles = packPuzzles.filter(
+                      (puzzle) => campaignBandForLevel(puzzle.campaignLevel) === band
                     )
 
                     return (
@@ -280,8 +268,11 @@ export function CampaignProgress() {
                         <div className="grid grid-cols-10 gap-0.5 sm:grid-cols-[repeat(10,2rem)] sm:gap-1">
                           {bandPuzzles.map((puzzle) => {
                             const progress = progressMap.get(puzzle.id)
-                            const unlocked = isCampaignPuzzleUnlocked({ puzzle, packPuzzles, progressMap })
-                            const state = levelState({ puzzle, progress, unlocked })
+                            const state = levelState({
+                              puzzle,
+                              progress,
+                              unlocked: puzzle.isUnlocked
+                            })
                             const tone = stateTone[state]
                             const hoverTone = stateHoverTone[state]
                             const label = `${config.title} level ${puzzle.campaignLevel}: ${stateLabel(state)}`

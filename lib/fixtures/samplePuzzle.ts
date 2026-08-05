@@ -3,6 +3,8 @@ import type { PuzzleProgressEnvelope, PuzzleProgressState } from '@/lib/contract
 import { computeStandings, stripMatchScores } from '@/lib/engine/generator'
 import { scoreMapsToSolutions, solveAll } from '@/lib/engine/solver'
 import { createSeededRandom, selectTeamsFromPool } from '@/lib/fixtures/teamPools'
+import { selectInitialRevealedMatches } from '@/lib/puzzles/prefill'
+import { buildPuzzleDifficultyProfile } from '@/lib/puzzles/difficultyProfile'
 
 export const SAMPLE_IDS = {
   puzzles: {
@@ -55,12 +57,23 @@ export const sampleStandings = computeStandings(sampleTeams, sampleSolution)
 export const sampleMatches = stripMatchScores(sampleSolution)
 export const sampleAllSolutions = scoreMapsToSolutions(sampleMatches, solveAll(sampleStandings, sampleMatches))
 
+const sampleDailyDifficultyProfile = buildPuzzleDifficultyProfile({
+  mode: 'daily',
+  campaignPack: null,
+  campaignLevel: null,
+  tableDifficultyScore: 33
+})
+
 export const sampleDailyPuzzlePrivate: PuzzlePrivateDTO = {
   id: SAMPLE_IDS.puzzles.daily,
   mode: 'daily',
   difficulty: 'MEDIUM',
+  effectiveDifficulty: sampleDailyDifficultyProfile.effectiveDifficulty,
   inferenceSteps: 11,
   tableDifficultyScore: 33,
+  presentationDifficultyScore:
+    sampleDailyDifficultyProfile.presentationDifficultyScore,
+  effectiveDifficultyScore: sampleDailyDifficultyProfile.effectiveDifficultyScore,
   solutionCount: 1,
   teams: sampleTeams,
   standings: sampleStandings,
@@ -74,22 +87,46 @@ export const sampleDailyPuzzlePrivate: PuzzlePrivateDTO = {
   campaignLevel: null
 }
 
-export const sampleCampaignPuzzlePrivate: PuzzlePrivateDTO = {
+const sampleCampaignPuzzleBase: PuzzlePrivateDTO = {
   ...sampleDailyPuzzlePrivate,
   id: SAMPLE_IDS.puzzles.campaign,
   mode: 'campaign',
   difficulty: 'MEDIUM',
   inferenceSteps: 11,
   dailyDate: null,
-  campaignOrder: 1
+  campaignOrder: 1,
+  campaignPack: 'BEGINNER',
+  campaignLevel: 1,
+  initialRevealedMatches: []
+}
+
+const sampleCampaignDifficultyProfile = buildPuzzleDifficultyProfile({
+  mode: 'campaign',
+  campaignPack: 'BEGINNER',
+  campaignLevel: 1,
+  tableDifficultyScore: sampleCampaignPuzzleBase.tableDifficultyScore!
+})
+
+export const sampleCampaignPuzzlePrivate: PuzzlePrivateDTO = {
+  ...sampleCampaignPuzzleBase,
+  effectiveDifficulty: sampleCampaignDifficultyProfile.effectiveDifficulty,
+  presentationDifficultyScore:
+    sampleCampaignDifficultyProfile.presentationDifficultyScore,
+  effectiveDifficultyScore:
+    sampleCampaignDifficultyProfile.effectiveDifficultyScore,
+  initialRevealedMatches: selectInitialRevealedMatches(sampleCampaignPuzzleBase)
 }
 
 export const sampleDailyPuzzlePublic: PuzzlePublicDTO = {
   id: sampleDailyPuzzlePrivate.id,
   mode: sampleDailyPuzzlePrivate.mode,
   difficulty: sampleDailyPuzzlePrivate.difficulty,
+  effectiveDifficulty: sampleDailyPuzzlePrivate.effectiveDifficulty,
   inferenceSteps: sampleDailyPuzzlePrivate.inferenceSteps,
   tableDifficultyScore: sampleDailyPuzzlePrivate.tableDifficultyScore,
+  presentationDifficultyScore:
+    sampleDailyPuzzlePrivate.presentationDifficultyScore,
+  effectiveDifficultyScore: sampleDailyPuzzlePrivate.effectiveDifficultyScore,
   solutionCount: sampleDailyPuzzlePrivate.solutionCount,
   teams: sampleDailyPuzzlePrivate.teams,
   standings: sampleDailyPuzzlePrivate.standings,
@@ -132,5 +169,8 @@ export const sampleProgressEnvelope: PuzzleProgressEnvelope = {
   answerRevealedAt: null,
   timeTakenSec: null,
   completedAt: null,
-  currentState: sampleProgressState
+  currentState: sampleProgressState,
+  currentAttempt: null,
+  firstAttempt: null,
+  bestAttempt: null
 }

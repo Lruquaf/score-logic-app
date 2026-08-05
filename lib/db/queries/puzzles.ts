@@ -1,50 +1,85 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
 
-import type { PuzzlePrivateDTO, PuzzlePublicDTO } from '@/lib/contracts/puzzle'
+import type {
+  CampaignPuzzleCatalogItem,
+  PuzzlePrivateDTO,
+  PuzzlePublicDTO
+} from '@/lib/contracts/puzzle'
 import type { PuzzleProgressEnvelope } from '@/lib/contracts/progress'
+import { getDailyTimeZone } from '@/lib/env/server'
+import { classifyDifficultyScore } from '@/lib/engine/difficulty'
 import {
   mapPuzzleRecordToPrivateDTO,
   mapPuzzleRecordToPublicDTO,
-  serializePuzzleJson,
+  type PuzzlePublicRecord,
   type PuzzleRecord
 } from '@/lib/db/mappers/puzzle'
 import { prisma } from '@/lib/db/prisma'
 import { getPuzzleProgress } from '@/lib/db/queries/progress'
 import {
-  generateDailyPuzzleDefinition,
-  puzzleTableShapeSignature
-} from '@/lib/puzzles/factory'
+  businessDateToDatabaseDate,
+  resolveBusinessDateInput
+} from '@/lib/time/businessDate'
 
 export const puzzleRecordSelect = {
   id: true,
+  contentKey: true,
+  contentRevision: true,
+  supersedesId: true,
   difficulty: true,
   inferenceSteps: true,
   campaignPack: true,
   campaignLevel: true,
   tableDifficultyScore: true,
+  presentationDifficultyScore: true,
+  effectiveDifficultyScore: true,
   solutionCount: true,
   teamsConfig: true,
   standings: true,
   matchIds: true,
   solution: true,
   allSolutions: true,
+  initialRevealedMatches: true,
   dailyDate: true,
   campaignOrder: true,
+  contentVersion: true,
+  generatorVersion: true,
+  rulesVersion: true,
+  contentHash: true,
+  contentQaVersion: true,
+  contentQaReport: true,
+  editorialStatus: true,
+  editorialReviewedAt: true,
+  editorialReviewedBy: true,
+  editorialReviewNote: true,
+  scheduledActivationAt: true,
+  publishedAt: true,
+  activatedAt: true,
+  retiredAt: true,
   isActive: true,
   isTested: true,
   createdAt: true
 } satisfies Prisma.PuzzleSelect
 
+export const puzzlePublicRecordSelect = {
+  id: true,
+  difficulty: true,
+  inferenceSteps: true,
+  campaignPack: true,
+  campaignLevel: true,
+  tableDifficultyScore: true,
+  presentationDifficultyScore: true,
+  effectiveDifficultyScore: true,
+  solutionCount: true,
+  teamsConfig: true,
+  standings: true,
+  matchIds: true,
+  initialRevealedMatches: true,
+  dailyDate: true,
+  campaignOrder: true
+} satisfies Prisma.PuzzleSelect
+
 type PuzzleReader = Pick<PrismaClient, 'puzzle' | 'userPuzzleProgress'>
-type PuzzleReaderWriter = Pick<PrismaClient, 'puzzle' | 'userPuzzleProgress'>
-
-function toDatabaseDate(input: Date | string): Date {
-  if (input instanceof Date) {
-    return new Date(Date.UTC(input.getUTCFullYear(), input.getUTCMonth(), input.getUTCDate()))
-  }
-
-  return new Date(`${input}T00:00:00.000Z`)
-}
 
 interface QueryOptions {
   includeInactive?: boolean
@@ -55,7 +90,7 @@ function buildPuzzleWhereClause(id: string, options?: QueryOptions): Prisma.Puzz
     return { id }
   }
 
-  return { id, isActive: true }
+  return { id, isActive: true, isTested: true }
 }
 
 export async function getPuzzleRecordById(
@@ -85,89 +120,20 @@ export async function getDailyPuzzleRecord(
   db: Pick<PrismaClient, 'puzzle'> = prisma,
   options?: QueryOptions
 ): Promise<PuzzleRecord | null> {
-  const databaseDate = toDatabaseDate(date)
+  const businessDate = resolveBusinessDateInput(date, getDailyTimeZone())
+  const databaseDate = businessDateToDatabaseDate(businessDate)
   const record = await db.puzzle.findFirst({
     where: {
       dailyDate: databaseDate,
-      ...(options?.includeInactive ? {} : { isActive: true })
+      ...(options?.includeInactive ? {} : { isActive: true, isTested: true })
+    },
+    orderBy: {
+      contentRevision: 'desc'
     },
     select: puzzleRecordSelect
   })
 
   return record as PuzzleRecord | null
-}
-
-function isUniqueConstraintError(error: unknown) {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: string }).code === 'P2002'
-  )
-}
-
-async function getExistingTableSignatures(db: Pick<PrismaClient, 'puzzle'>) {
-  const records = await db.puzzle.findMany({
-    where: {
-      isActive: true
-    },
-    select: puzzleRecordSelect
-  })
-
-  return new Set(
-    records.map((record) =>
-      puzzleTableShapeSignature(mapPuzzleRecordToPrivateDTO(record as PuzzleRecord))
-    )
-  )
-}
-
-export async function ensureDailyPuzzleRecord(
-  date: Date | string = new Date(),
-  db: Pick<PrismaClient, 'puzzle'> = prisma
-): Promise<PuzzleRecord> {
-  const existing = await getDailyPuzzleRecord(date, db)
-  if (existing) return existing
-
-  const databaseDate = toDatabaseDate(date)
-  const dailyDate = databaseDate.toISOString().slice(0, 10)
-  const excludedTableSignatures = await getExistingTableSignatures(db)
-  const puzzle = await generateDailyPuzzleDefinition({
-    date: dailyDate,
-    excludedTableSignatures
-  })
-
-  try {
-    const created = await db.puzzle.create({
-      data: {
-        id: puzzle.id,
-        difficulty: puzzle.difficulty,
-        inferenceSteps: puzzle.inferenceSteps,
-        campaignPack: puzzle.campaignPack,
-        campaignLevel: puzzle.campaignLevel,
-        tableDifficultyScore: puzzle.tableDifficultyScore,
-        solutionCount: puzzle.solutionCount,
-        teamsConfig: serializePuzzleJson(puzzle.teams),
-        standings: serializePuzzleJson(puzzle.standings),
-        matchIds: serializePuzzleJson(puzzle.matches),
-        solution: serializePuzzleJson(puzzle.solution),
-        allSolutions: serializePuzzleJson(puzzle.allSolutions),
-        dailyDate: databaseDate,
-        campaignOrder: null,
-        isActive: true,
-        isTested: true
-      },
-      select: puzzleRecordSelect
-    })
-
-    return created as PuzzleRecord
-  } catch (error) {
-    if (isUniqueConstraintError(error)) {
-      const record = await getDailyPuzzleRecord(date, db)
-      if (record) return record
-    }
-
-    throw error
-  }
 }
 
 export async function getPuzzlePrivateById(
@@ -179,12 +145,41 @@ export async function getPuzzlePrivateById(
   return record ? mapPuzzleRecordToPrivateDTO(record) : null
 }
 
+async function getPuzzlePublicRecordById(
+  id: string,
+  db: Pick<PrismaClient, 'puzzle'> = prisma,
+  options?: QueryOptions
+): Promise<PuzzlePublicRecord | null> {
+  const record = await db.puzzle.findFirst({
+    where: buildPuzzleWhereClause(id, options) as Prisma.PuzzleWhereInput,
+    select: puzzlePublicRecordSelect
+  })
+  return record as PuzzlePublicRecord | null
+}
+
+async function getDailyPuzzlePublicRecord(
+  date: Date | string = new Date(),
+  db: Pick<PrismaClient, 'puzzle'> = prisma,
+  options?: QueryOptions
+): Promise<PuzzlePublicRecord | null> {
+  const businessDate = resolveBusinessDateInput(date, getDailyTimeZone())
+  const record = await db.puzzle.findFirst({
+    where: {
+      dailyDate: businessDateToDatabaseDate(businessDate),
+      ...(options?.includeInactive ? {} : { isActive: true, isTested: true })
+    },
+    orderBy: { contentRevision: 'desc' },
+    select: puzzlePublicRecordSelect
+  })
+  return record as PuzzlePublicRecord | null
+}
+
 export async function getPuzzle(
   id: string,
   db: Pick<PrismaClient, 'puzzle'> = prisma,
   options?: QueryOptions
 ): Promise<PuzzlePublicDTO | null> {
-  const record = await getPuzzleRecordById(id, db, options)
+  const record = await getPuzzlePublicRecordById(id, db, options)
   return record ? mapPuzzleRecordToPublicDTO(record) : null
 }
 
@@ -193,7 +188,7 @@ export async function getDailyPuzzle(
   db: Pick<PrismaClient, 'puzzle'> = prisma,
   options?: QueryOptions
 ): Promise<PuzzlePublicDTO | null> {
-  const record = await getDailyPuzzleRecord(date, db, options)
+  const record = await getDailyPuzzlePublicRecord(date, db, options)
   return record ? mapPuzzleRecordToPublicDTO(record) : null
 }
 
@@ -215,15 +210,63 @@ export async function listCampaignPuzzles(
       campaignOrder: {
         not: null
       },
-      ...(options?.includeInactive ? {} : { isActive: true })
+      ...(options?.includeInactive ? {} : { isActive: true, isTested: true })
     },
     orderBy: {
       campaignOrder: 'asc'
     },
-    select: puzzleRecordSelect
+    select: puzzlePublicRecordSelect
   })
 
-  return records.map((record) => mapPuzzleRecordToPublicDTO(record as PuzzleRecord))
+  return records.map((record) => mapPuzzleRecordToPublicDTO(record as PuzzlePublicRecord))
+}
+
+export async function listCampaignPuzzleCatalogEntries(
+  db: Pick<PrismaClient, 'puzzle'> = prisma,
+  options?: QueryOptions
+): Promise<Array<Omit<CampaignPuzzleCatalogItem, 'isUnlocked'>>> {
+  const records = await db.puzzle.findMany({
+    where: {
+      campaignOrder: {
+        not: null
+      },
+      campaignPack: {
+        not: null
+      },
+      campaignLevel: {
+        not: null
+      },
+      ...(options?.includeInactive ? {} : { isActive: true, isTested: true })
+    },
+    orderBy: {
+      campaignOrder: 'asc'
+    },
+    select: {
+      id: true,
+      contentKey: true,
+      difficulty: true,
+      effectiveDifficultyScore: true,
+      campaignOrder: true,
+      campaignPack: true,
+      campaignLevel: true
+    }
+  })
+
+  return records.flatMap((record) =>
+    record.campaignOrder && record.campaignPack && record.campaignLevel
+      ? [{
+          id: record.id,
+          contentKey: record.contentKey,
+          difficulty: record.difficulty,
+          effectiveDifficulty: classifyDifficultyScore(
+            record.effectiveDifficultyScore
+          ),
+          campaignOrder: record.campaignOrder,
+          campaignPack: record.campaignPack,
+          campaignLevel: record.campaignLevel
+        }]
+      : []
+  )
 }
 
 export interface PuzzleWithProgress {
@@ -254,12 +297,14 @@ export async function getDailyPuzzleWithProgress(
     date?: Date | string
     userId?: string | null
   },
-  db: PuzzleReaderWriter = prisma,
+  db: PuzzleReader = prisma,
   options?: QueryOptions
 ): Promise<PuzzleWithProgress | null> {
-  const record = options?.includeInactive
-    ? await getDailyPuzzleRecord(params.date ?? new Date(), db, options)
-    : await ensureDailyPuzzleRecord(params.date ?? new Date(), db)
+  const record = await getDailyPuzzlePublicRecord(
+    params.date ?? new Date(),
+    db,
+    options
+  )
   if (!record) return null
 
   const puzzle = mapPuzzleRecordToPublicDTO(record)

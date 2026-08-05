@@ -21,32 +21,148 @@ model Team {
 }
 
 model Puzzle {
-  id                   String        @id @default(cuid())
-  difficulty           Difficulty
-  inferenceSteps       Int
-  teamsConfig          Json
-  standings            Json
-  matchIds             Json
-  solution             Json
-  allSolutions         Json?
-  dailyDate            DateTime?     @unique @db.Date
-  campaignOrder        Int?          @unique
-  campaignPack         CampaignPack?
-  campaignLevel        Int?
-  tableDifficultyScore Int?
-  solutionCount        Int?
-  isActive             Boolean       @default(true)
-  isTested             Boolean       @default(false)
-  createdAt            DateTime      @default(now())
+  id                          String                @id @default(cuid())
+  contentKey                  String
+  contentRevision             Int                   @default(1)
+  supersedesId                String?               @unique
+  difficulty                  Difficulty
+  inferenceSteps              Int
+  teamsConfig                 Json
+  standings                   Json
+  matchIds                    Json
+  solution                    Json
+  allSolutions                Json?
+  initialRevealedMatches      Json                  @default("[]")
+  dailyDate                   DateTime?             @db.Date
+  campaignOrder               Int?
+  campaignPack                CampaignPack?
+  campaignLevel               Int?
+  tableDifficultyScore        Int?
+  presentationDifficultyScore Int
+  effectiveDifficultyScore    Int
+  solutionCount               Int?
+  contentVersion              String                @default("legacy-v1")
+  generatorVersion            String                @default("legacy")
+  rulesVersion                String                @default("solve-any-v1")
+  contentHash                 String                @default("legacy-unverified") @db.VarChar(64)
+  contentQaVersion            String                @default("legacy")
+  contentQaReport             Json?
+  editorialStatus             EditorialReviewStatus @default(PENDING_REVIEW)
+  editorialReviewedAt         DateTime?
+  editorialReviewedBy         String?               @db.VarChar(128)
+  editorialReviewNote         String?               @db.VarChar(2000)
+  scheduledActivationAt       DateTime?
+  publishedAt                 DateTime              @default(now())
+  activatedAt                 DateTime?
+  retiredAt                   DateTime?
+  isActive                    Boolean               @default(true)
+  isTested                    Boolean               @default(false)
+  createdAt                   DateTime              @default(now())
 
-  progress UserPuzzleProgress[]
+  progress               UserPuzzleProgress[]
+  attempts               PuzzleAttempt[]
+  submissions            PuzzleSubmission[]
+  completions            PuzzleCompletion[]
+  supersedes             Puzzle?                       @relation("PuzzleSupersession", fields: [supersedesId], references: [id], onDelete: Restrict)
+  supersededBy           Puzzle?                       @relation("PuzzleSupersession")
+  editorialEvents        PuzzleEditorialEvent[]
+  difficultyObservations PuzzleDifficultyObservation[]
 
+  @@unique([contentKey, contentRevision])
+  @@index([contentKey, isActive])
   @@index([dailyDate])
   @@index([campaignOrder])
   @@index([campaignPack, campaignLevel])
   @@index([tableDifficultyScore])
   @@index([difficulty])
+  @@index([editorialStatus, scheduledActivationAt])
   @@map("puzzles")
+}
+
+model PuzzleEditorialEvent {
+  id               String             @id @default(uuid())
+  puzzleId         String
+  contentKey       String
+  contentRevision  Int
+  type             EditorialEventType
+  actor            String             @db.VarChar(128)
+  note             String?            @db.VarChar(2000)
+  scheduledFor     DateTime?
+  previousPuzzleId String?
+  createdAt        DateTime           @default(now())
+
+  puzzle Puzzle @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
+
+  @@index([puzzleId, createdAt])
+  @@index([contentKey, contentRevision, createdAt])
+  @@index([type, createdAt])
+  @@map("puzzle_editorial_events")
+}
+
+model DifficultyCalibrationRun {
+  id                   String   @id @default(uuid())
+  algorithmVersion     String   @db.VarChar(64)
+  windowStart          DateTime
+  windowEnd            DateTime
+  windowDays           Int
+  minimumSampleSize    Int
+  staleAttemptHours    Int
+  puzzleCount          Int
+  eligiblePuzzleCount  Int
+  terminalAttemptCount Int
+  driftedPuzzleCount   Int
+  meanAbsoluteError    Float?
+  signedBias           Float?
+  summary              Json
+  createdAt            DateTime @default(now())
+
+  observations PuzzleDifficultyObservation[]
+
+  @@unique([algorithmVersion, windowStart, windowEnd, minimumSampleSize, staleAttemptHours], map: "difficulty_calibration_runs_window_key")
+  @@index([windowEnd, createdAt])
+  @@map("difficulty_calibration_runs")
+}
+
+model PuzzleDifficultyObservation {
+  id                       String                      @id @default(uuid())
+  runId                    String
+  puzzleId                 String
+  contentKey               String
+  contentRevision          Int
+  predictedDifficultyScore Int
+  observedDifficultyScore  Int?
+  observedDifficulty       Difficulty?
+  calibrationStatus        DifficultyCalibrationStatus
+  confidence               Float
+  distinctUserCount        Int
+  terminalAttemptCount     Int
+  solvedAttemptCount       Int
+  revealedAttemptCount     Int
+  abandonedAttemptCount    Int
+  staleAttemptCount        Int
+  activeAttemptCount       Int
+  hintedAttemptCount       Int
+  firstTrySolveCount       Int
+  totalSubmissionCount     Int
+  completionRate           Float?
+  revealRate               Float?
+  abandonmentRate          Float?
+  hintRate                 Float?
+  firstTrySolveRate        Float?
+  averageSubmissionCount   Float?
+  medianSolveTimeSec       Int?
+  p75SolveTimeSec          Int?
+  scoreDelta               Int?
+  createdAt                DateTime                    @default(now())
+
+  run    DifficultyCalibrationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  puzzle Puzzle                   @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, puzzleId])
+  @@index([puzzleId, createdAt])
+  @@index([calibrationStatus, confidence])
+  @@index([contentKey, contentRevision, createdAt])
+  @@map("puzzle_difficulty_observations")
 }
 
 model User {
@@ -60,11 +176,14 @@ model User {
   createdAt     DateTime  @default(now())
   lastActiveAt  DateTime  @default(now())
 
-  accounts Account[]
-  sessions Session[]
-  progress UserPuzzleProgress[]
-  streak   DailyStreak?
-  stats    UserStats?
+  accounts    Account[]
+  sessions    Session[]
+  progress    UserPuzzleProgress[]
+  attempts    PuzzleAttempt[]
+  submissions PuzzleSubmission[]
+  completions PuzzleCompletion[]
+  streak      DailyStreak?
+  stats       UserStats?
 
   @@map("users")
 }
@@ -82,15 +201,114 @@ model UserPuzzleProgress {
   timeTakenSec     Int?
   currentState     Json?
   completedAt      DateTime?
+  currentAttemptId String?      @unique
+  firstAttemptId   String?      @unique
+  bestAttemptId    String?      @unique
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  puzzle Puzzle @relation(fields: [puzzleId], references: [id])
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  puzzle         Puzzle         @relation(fields: [puzzleId], references: [id])
+  currentAttempt PuzzleAttempt? @relation("CurrentPuzzleAttempt", fields: [currentAttemptId], references: [id], onDelete: SetNull)
+  firstAttempt   PuzzleAttempt? @relation("FirstPuzzleAttempt", fields: [firstAttemptId], references: [id], onDelete: SetNull)
+  bestAttempt    PuzzleAttempt? @relation("BestPuzzleAttempt", fields: [bestAttemptId], references: [id], onDelete: SetNull)
 
   @@unique([userId, puzzleId])
   @@index([userId, status])
   @@map("user_puzzle_progress")
+}
+
+model PuzzleAttempt {
+  id               String        @id @default(uuid())
+  userId           String
+  puzzleId         String
+  kind             AttemptKind
+  status           AttemptStatus @default(ACTIVE)
+  startedAt        DateTime      @default(now())
+  lastEventAt      DateTime      @default(now())
+  completedAt      DateTime?
+  elapsedTimeSec   Int           @default(0)
+  hintsUsed        Int           @default(0)
+  hintTypes        String[]      @default([])
+  answerRevealedAt DateTime?
+  submissionCount  Int           @default(0)
+  currentState     Json?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  puzzle             Puzzle              @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
+  events             AttemptEvent[]
+  submissions        PuzzleSubmission[]
+  completion         PuzzleCompletion?
+  currentForProgress UserPuzzleProgress? @relation("CurrentPuzzleAttempt")
+  firstForProgress   UserPuzzleProgress? @relation("FirstPuzzleAttempt")
+  bestForProgress    UserPuzzleProgress? @relation("BestPuzzleAttempt")
+
+  @@index([userId, puzzleId, startedAt])
+  @@index([userId, puzzleId, status])
+  @@map("puzzle_attempts")
+}
+
+model AttemptEvent {
+  id         String           @id @default(uuid())
+  attemptId  String
+  sequence   Int
+  type       AttemptEventType
+  payload    Json?
+  occurredAt DateTime         @default(now())
+
+  attempt PuzzleAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  @@unique([attemptId, sequence])
+  @@index([attemptId, occurredAt])
+  @@map("attempt_events")
+}
+
+model PuzzleSubmission {
+  id                String    @id @default(cuid())
+  userId            String
+  puzzleId          String
+  attemptId         String?
+  idempotencyKey    String    @db.VarChar(128)
+  requestHash       String    @db.VarChar(64)
+  isCorrect         Boolean
+  isFirstCompletion Boolean   @default(false)
+  progressSnapshot  Json?
+  createdAt         DateTime  @default(now())
+  processedAt       DateTime?
+
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  puzzle     Puzzle            @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
+  attempt    PuzzleAttempt?    @relation(fields: [attemptId], references: [id], onDelete: SetNull)
+  completion PuzzleCompletion?
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, puzzleId, createdAt])
+  @@index([attemptId, createdAt])
+  @@map("puzzle_submissions")
+}
+
+model PuzzleCompletion {
+  id           String   @id @default(cuid())
+  userId       String
+  puzzleId     String
+  contentKey   String
+  submissionId String?  @unique
+  attemptId    String?  @unique
+  completedAt  DateTime @default(now())
+  timeTakenSec Int
+  hintsUsed    Int
+
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  puzzle     Puzzle            @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
+  submission PuzzleSubmission? @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+  attempt    PuzzleAttempt?    @relation(fields: [attemptId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, puzzleId])
+  @@unique([userId, contentKey])
+  @@index([puzzleId, completedAt])
+  @@map("puzzle_completions")
 }
 
 model DailyStreak {
@@ -106,17 +324,35 @@ model DailyStreak {
 }
 
 model UserStats {
-  userId        String @id
-  totalSolved   Int    @default(0)
-  perfectSolves Int    @default(0)
-  totalTimeSec  Int    @default(0)
-  solvedEasy    Int    @default(0)
-  solvedMedium  Int    @default(0)
-  solvedHard    Int    @default(0)
+  userId             String @id
+  totalSolved        Int    @default(0)
+  successfulAttempts Int    @default(0)
+  totalAttempts      Int    @default(0)
+  firstTrySolves     Int    @default(0)
+  assistedSolves     Int    @default(0)
+  answerReveals      Int    @default(0)
+  perfectSolves      Int    @default(0)
+  totalTimeSec       Int    @default(0)
+  bestDurationSec    Int?
+  solvedEasy         Int    @default(0)
+  solvedMedium       Int    @default(0)
+  solvedHard         Int    @default(0)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_stats")
+}
+
+model AnonymousUserMerge {
+  sourceUserId         String   @id
+  targetUserId         String
+  affectedPuzzleCount  Int      @default(0)
+  movedAttemptCount    Int      @default(0)
+  movedSubmissionCount Int      @default(0)
+  mergedAt             DateTime @default(now())
+
+  @@index([targetUserId, mergedAt])
+  @@map("anonymous_user_merges")
 }
 
 model Account {
@@ -165,6 +401,32 @@ enum Difficulty {
   HARD
 }
 
+enum EditorialReviewStatus {
+  PENDING_REVIEW
+  APPROVED
+  CHANGES_REQUESTED
+  REJECTED
+}
+
+enum EditorialEventType {
+  SUBMITTED
+  APPROVED
+  CHANGES_REQUESTED
+  REJECTED
+  ACTIVATION_SCHEDULED
+  ACTIVATION_CANCELLED
+  ACTIVATED
+  RETIRED
+  ROLLED_BACK
+}
+
+enum DifficultyCalibrationStatus {
+  INSUFFICIENT_DATA
+  ALIGNED
+  UNDER_ESTIMATED
+  OVER_ESTIMATED
+}
+
 enum CampaignPack {
   BEGINNER
   EASY
@@ -175,6 +437,28 @@ enum CampaignPack {
 
 enum PuzzleStatus {
   IN_PROGRESS
+  COMPLETED
+  ABANDONED
+}
+
+enum AttemptKind {
+  STANDARD
+  REPLAY
+}
+
+enum AttemptStatus {
+  ACTIVE
+  SOLVED
+  REVEALED
+  ABANDONED
+}
+
+enum AttemptEventType {
+  STARTED
+  PROGRESS_SAVED
+  HINT_USED
+  ANSWER_REVEALED
+  SUBMITTED
   COMPLETED
   ABANDONED
 }

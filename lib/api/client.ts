@@ -1,14 +1,20 @@
 import type { ConstraintViolation } from '@/lib/engine/types'
+import type { AnalyzeBoardResponse } from '@/lib/contracts/boardAnalysis'
 import type {
   HintType,
   MatchNote,
   MatchOutcome,
   PuzzleProgressEnvelope,
   PuzzleProgressState,
+  PuzzleAttemptSummary,
   RevealedScoreCell,
   ScoreInput
 } from '@/lib/contracts/progress'
-import type { MatchSolutionDTO, PuzzlePublicDTO } from '@/lib/contracts/puzzle'
+import type {
+  CampaignPuzzleCatalogItem,
+  MatchSolutionDTO,
+  PuzzlePublicDTO
+} from '@/lib/contracts/puzzle'
 import type { SubmitFeedback } from '@/lib/contracts/submit'
 import type { UserProgressSummary, UserStatsSummary } from '@/lib/contracts/user'
 
@@ -55,17 +61,21 @@ export interface UserProgressResponse {
 }
 
 export interface CampaignPuzzlesResponse {
-  puzzles: PuzzlePublicDTO[]
+  puzzles: CampaignPuzzleCatalogItem[]
+  progress: UserProgressSummary['entries']
 }
 
 export interface SubmitPuzzleResponse {
   isCorrect: boolean
+  isFirstCompletion: boolean
+  idempotencyReplayed: boolean
   violations: ConstraintViolation[]
   feedback: SubmitFeedback
   progress: PuzzleProgressEnvelope
 }
 
 export interface HintResponse {
+  attempt: PuzzleAttemptSummary
   hint: {
     type: HintType
     message: string
@@ -138,6 +148,19 @@ export function fetchPuzzle(puzzleId: string) {
   return requestJson<PuzzleResponse>(`/api/puzzles/${puzzleId}`)
 }
 
+export function analyzePuzzleBoard(
+  puzzleId: string,
+  inputs: Record<string, ScoreInput>
+) {
+  return requestJson<AnalyzeBoardResponse>(
+    `/api/puzzles/${puzzleId}/analyze`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ inputs })
+    }
+  )
+}
+
 export function fetchUserStats() {
   return requestJson<UserStatsResponse>('/api/user/stats')
 }
@@ -149,24 +172,44 @@ export function registerAccount(body: { email: string; password: string }) {
   })
 }
 
-export function fetchUserProgress() {
-  return requestJson<UserProgressResponse>('/api/user/progress')
+export function fetchUserProgress(options: { limit?: number; cursor?: string } = {}) {
+  const searchParams = new URLSearchParams()
+  if (options.limit) searchParams.set('limit', String(options.limit))
+  if (options.cursor) searchParams.set('cursor', options.cursor)
+  const query = searchParams.size > 0 ? `?${searchParams.toString()}` : ''
+  return requestJson<UserProgressResponse>(`/api/user/progress${query}`)
 }
 
 export function fetchCampaignPuzzles() {
   return requestJson<CampaignPuzzlesResponse>('/api/puzzles/campaign')
 }
 
-export function savePuzzleProgress(puzzleId: string, progress: PuzzleProgressState) {
+export function startPuzzleAttempt(
+  puzzleId: string,
+  body: { kind: 'STANDARD' | 'REPLAY'; forceNew?: boolean }
+) {
+  return requestJson<{ attempt: PuzzleAttemptSummary }>(`/api/puzzles/${puzzleId}/attempt`, {
+    method: 'POST',
+    body: JSON.stringify(body)
+  })
+}
+
+export function savePuzzleProgress(
+  puzzleId: string,
+  attemptId: string,
+  progress: PuzzleProgressState
+) {
   return requestJson<{ progress: PuzzleProgressEnvelope }>(`/api/puzzles/${puzzleId}/progress`, {
     method: 'PUT',
-    body: JSON.stringify({ progress })
+    body: JSON.stringify({ attemptId, progress })
   })
 }
 
 export function submitPuzzle(
   puzzleId: string,
   body: {
+    idempotencyKey: string
+    attemptId: string
     inputs?: Record<string, { home: number; away: number }>
     outcomes?: Record<string, MatchOutcome>
     notes?: Record<string, MatchNote>
@@ -179,9 +222,14 @@ export function submitPuzzle(
     isReplay?: boolean
   }
 ) {
+  const { idempotencyKey, ...payload } = body
+
   return requestJson<SubmitPuzzleResponse>(`/api/puzzles/${puzzleId}/submit`, {
     method: 'POST',
-    body: JSON.stringify(body)
+    headers: {
+      'Idempotency-Key': idempotencyKey
+    },
+    body: JSON.stringify(payload)
   })
 }
 
@@ -189,6 +237,7 @@ export function requestPuzzleHint(
   puzzleId: string,
   body: {
     hintType: HintType
+    attemptId: string
     currentInputs: Record<string, ScoreInput>
     currentOutcomes?: Record<string, MatchOutcome | null>
     notes?: Record<string, MatchNote>
@@ -212,13 +261,14 @@ export function revealPuzzleAnswer(
   puzzleId: string,
   body: {
     elapsedTimeSec?: number
+    attemptId: string
     currentInputs?: Record<string, ScoreInput>
     currentOutcomes?: Record<string, MatchOutcome | null>
     notes?: Record<string, MatchNote>
     hintsUsed?: number
     hintTypes?: HintType[]
     isReplay?: boolean
-  } = {}
+  }
 ) {
   return requestJson<AnswerRevealResponse>(`/api/puzzles/${puzzleId}/answer`, {
     method: 'POST',

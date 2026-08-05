@@ -1,5 +1,4 @@
 import type { PuzzlePrivateDTO } from '@/lib/contracts/puzzle'
-import type { MatchOutcome } from '@/lib/contracts/progress'
 import { sampleDailyPuzzlePrivate } from '@/lib/fixtures/samplePuzzle'
 import { toScoreMap } from '@/lib/engine/validator'
 import { buildSubmitFeedback } from '@/lib/puzzles/submitFeedback'
@@ -114,7 +113,7 @@ describe('submit feedback', () => {
     expect(feedback.errorCount).toBeNull()
   })
 
-  it('uses outcome feedback for beginner campaign puzzles', () => {
+  it('uses exact score-cell feedback for beginner campaign puzzles', () => {
     const inputs = Object.fromEntries(
       sampleDailyPuzzlePrivate.solution.map((match, index) => [
         match.id,
@@ -131,36 +130,12 @@ describe('submit feedback', () => {
       violations: []
     })
 
-    expect(feedback.mode).toBe('EXACT_WRONG_OUTCOMES')
-    expect(feedback.wrongOutcomeMatchIds).toEqual(['m1'])
+    expect(feedback.mode).toBe('EXACT_WRONG_CELLS')
     expect(feedback.wrongMatchIds).toEqual(['m1'])
-    expect(feedback.wrongCells).toEqual([])
-  })
-
-  it('uses submitted outcomes directly for beginner feedback', () => {
-    const outcomes: Record<string, MatchOutcome> = Object.fromEntries(
-      sampleDailyPuzzlePrivate.solution.map((match, index) => [
-        match.id,
-        index === 0
-          ? 'HOME_WIN'
-          : match.homeScore > match.awayScore
-            ? 'HOME_WIN'
-            : match.homeScore < match.awayScore
-              ? 'AWAY_WIN'
-              : 'DRAW'
-      ])
-    )
-
-    const feedback = buildSubmitFeedback({
-      puzzle: puzzleForPack('BEGINNER'),
-      userOutcomes: outcomes,
-      isCorrect: false,
-      violations: []
-    })
-
-    expect(feedback.mode).toBe('EXACT_WRONG_OUTCOMES')
-    expect(feedback.wrongMatchIds).toEqual(['m1'])
-    expect(feedback.errorCount).toBe(1)
+    expect(feedback.wrongCells).toEqual([
+      { matchId: 'm1', side: 'home' },
+      { matchId: 'm1', side: 'away' }
+    ])
   })
 
   it('keeps legacy constraint violations for daily puzzles', () => {

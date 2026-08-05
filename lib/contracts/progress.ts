@@ -6,6 +6,8 @@ export type HintType = (typeof HINT_TYPE_VALUES)[number]
 export type PuzzleProgressStatus = (typeof PUZZLE_PROGRESS_STATUS_VALUES)[number]
 export type ScoreSide = 'home' | 'away'
 export type MatchOutcome = (typeof MATCH_OUTCOME_VALUES)[number]
+export type PuzzleAttemptKind = 'STANDARD' | 'REPLAY'
+export type PuzzleAttemptStatus = 'ACTIVE' | 'SOLVED' | 'REVEALED' | 'ABANDONED'
 
 export interface ScoreInput {
   home: number | null
@@ -52,4 +54,20 @@ export interface PuzzleProgressEnvelope {
   timeTakenSec: number | null
   completedAt: string | null
   currentState: PuzzleProgressState | null
+  currentAttempt?: PuzzleAttemptSummary | null
+  firstAttempt?: PuzzleAttemptSummary | null
+  bestAttempt?: PuzzleAttemptSummary | null
+}
+
+export interface PuzzleAttemptSummary {
+  id: string
+  kind: PuzzleAttemptKind
+  status: PuzzleAttemptStatus
+  startedAt: string
+  completedAt: string | null
+  elapsedTimeSec: number
+  hintsUsed: number
+  hintTypes: HintType[]
+  answerRevealedAt: string | null
+  submissionCount: number
 }

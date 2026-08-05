@@ -8,6 +8,7 @@ import {
 } from '@/lib/db/mappers/progress'
 import type { HintType, PuzzleProgressEnvelope, PuzzleProgressState } from '@/lib/contracts/progress'
 import type { PuzzleProgressStatus } from '@/lib/contracts/progress'
+import { puzzleAttemptSummarySelect } from '@/lib/db/queries/attempts'
 
 export const userPuzzleProgressSelect = {
   puzzleId: true,
@@ -19,7 +20,10 @@ export const userPuzzleProgressSelect = {
   answerRevealedAt: true,
   timeTakenSec: true,
   completedAt: true,
-  currentState: true
+  currentState: true,
+  currentAttempt: { select: puzzleAttemptSummarySelect },
+  firstAttempt: { select: puzzleAttemptSummarySelect },
+  bestAttempt: { select: puzzleAttemptSummarySelect }
 } satisfies Prisma.UserPuzzleProgressSelect
 
 type ProgressReader = Pick<PrismaClient, 'userPuzzleProgress'>
@@ -67,6 +71,9 @@ export interface UpsertPuzzleProgressInput {
   timeTakenSec?: number | null
   completedAt?: Date | null
   currentState?: PuzzleProgressState | null
+  currentAttemptId?: string | null
+  firstAttemptId?: string | null
+  bestAttemptId?: string | null
 }
 
 export async function upsertPuzzleProgress(
@@ -90,6 +97,10 @@ export async function upsertPuzzleProgress(
       timeTakenSec: input.timeTakenSec,
       completedAt: input.completedAt,
       currentState: serializeNullableProgressState(input.currentState)
+      ,
+      currentAttemptId: input.currentAttemptId,
+      firstAttemptId: input.firstAttemptId,
+      bestAttemptId: input.bestAttemptId
     },
     create: {
       userId: input.userId,
@@ -103,6 +114,10 @@ export async function upsertPuzzleProgress(
       timeTakenSec: input.timeTakenSec ?? null,
       completedAt: input.completedAt ?? null,
       currentState: serializeNullableProgressState(input.currentState ?? null)
+      ,
+      currentAttemptId: input.currentAttemptId ?? null,
+      firstAttemptId: input.firstAttemptId ?? null,
+      bestAttemptId: input.bestAttemptId ?? null
     },
     select: userPuzzleProgressSelect
   })

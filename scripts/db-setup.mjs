@@ -79,3 +79,37 @@ await runWithRetry('Prisma seed', ['run', 'db:seed'], {
   attempts: 6,
   baseDelayMs: 2_000
 })
+await runWithRetry('Publish deterministic puzzle content', ['run', 'db:publish'], {
+  attempts: 1
+})
+await runWithRetry('Approve local bootstrap content', [
+  'run',
+  'db:editorial',
+  '--',
+  '--approve-pending',
+  '--activate',
+  '--actor',
+  'system:local-bootstrap',
+  '--note',
+  'Local and CI bootstrap approval.'
+], { attempts: 1 })
+await runWithRetry('Fill daily future buffer', ['run', 'db:daily-buffer'], {
+  attempts: 1
+})
+await runWithRetry('Approve local future buffer', [
+  'run',
+  'db:editorial',
+  '--',
+  '--approve-pending',
+  '--activate',
+  '--actor',
+  'system:local-bootstrap',
+  '--note',
+  'Local and CI future-buffer approval.'
+], { attempts: 1 })
+await runWithRetry('Verify daily future buffer', [
+  'run',
+  'db:daily-buffer',
+  '--',
+  '--check'
+], { attempts: 1 })

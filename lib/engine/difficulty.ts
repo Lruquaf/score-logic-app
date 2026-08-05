@@ -6,12 +6,17 @@ import {
   scoreMapFromSolution,
   type ScoreMap
 } from '@/lib/engine/scoring'
-import { solve } from '@/lib/engine/solver'
+import {
+  SolverBudgetExceededError,
+  solveWithBudget,
+  solverBudgetFor
+} from '@/lib/engine/solver'
 
 export interface DifficultyAnalyzerOptions {
   maxGoalsPerMatch?: number
   solutionCount?: number
   solutionCountLimit?: number
+  solutionCountCapped?: boolean
 }
 
 export interface DifficultyMetrics {
@@ -229,7 +234,7 @@ function buildDifficultyMetrics(
   return {
     inferenceSteps: inference.inferenceSteps,
     solutionCount: options.solutionCount,
-    solutionCountCapped: options.solutionCount >= options.solutionCountLimit,
+    solutionCountCapped: options.solutionCountCapped,
     forcedMatchCount: inference.forcedMatchCount,
     choiceMatchCount: inference.choiceMatchCount,
     deadEndCount: inference.deadEndCount,
@@ -298,17 +303,32 @@ export function analyzePuzzleDifficulty(
 ): DifficultyAnalysis {
   const solutionCountLimit = options.solutionCountLimit ?? 12
   const publicMatches = publicMatchesFromSolution(solutionMatches)
-  const solutionCount = options.solutionCount ??
-    solve(
-      standings,
-      publicMatches,
-      solutionCountLimit,
-      options.maxGoalsPerMatch ?? DEFAULT_MAX_GOALS_PER_MATCH
-    ).length
+  const solverResult = options.solutionCount === undefined
+    ? solveWithBudget(standings, publicMatches, {
+        budget: solverBudgetFor('DIFFICULTY', {
+          maxSolutions: solutionCountLimit
+        }),
+        maxGoalsPerMatch:
+          options.maxGoalsPerMatch ?? DEFAULT_MAX_GOALS_PER_MATCH
+      })
+    : null
+  if (solverResult?.status === 'UNKNOWN') {
+    throw new SolverBudgetExceededError(
+      `Difficulty analysis could not determine satisfiability before ${solverResult.terminationReason}.`,
+      solverResult
+    )
+  }
+  const solutionCount = options.solutionCount ?? solverResult!.solutions.length
+  const solutionCountCapped = options.solutionCountCapped ?? (
+    solverResult
+      ? !solverResult.exhaustive
+      : solutionCount >= solutionCountLimit
+  )
   const metrics = buildDifficultyMetrics(standings, solutionMatches, {
     maxGoalsPerMatch: options.maxGoalsPerMatch ?? DEFAULT_MAX_GOALS_PER_MATCH,
     solutionCount,
-    solutionCountLimit
+    solutionCountLimit,
+    solutionCountCapped
   })
   const score = tableDifficultyScoreFromMetrics(metrics)
 

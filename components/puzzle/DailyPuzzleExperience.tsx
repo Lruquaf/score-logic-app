@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 
+import { AnalyzeBoard } from '@/components/puzzle/AnalyzeBoard'
 import { FixtureGrid } from '@/components/puzzle/FixtureGrid'
 import { HintModal } from '@/components/puzzle/HintModal'
 import { PuzzleHeader } from '@/components/puzzle/PuzzleHeader'
@@ -10,6 +11,7 @@ import { StandingsTable } from '@/components/puzzle/StandingsTable'
 import { VictoryScreen } from '@/components/puzzle/VictoryScreen'
 import { useDailyPuzzle } from '@/hooks/usePuzzle'
 import { fetchCampaignPuzzles } from '@/lib/api/client'
+import { campaignAnalyzeBoardModeFor, getCampaignPackConfig } from '@/lib/puzzles/campaignConfig'
 import { formatDuration } from '@/lib/utils/format'
 import { usePuzzleStore } from '@/store/puzzleStore'
 import { useUserStore } from '@/store/userStore'
@@ -77,8 +79,7 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
     }
 
     const orderedPuzzles = [...(campaignQuery.data?.puzzles ?? [])]
-      .filter((candidate) => candidate.campaignOrder !== null)
-      .sort((left, right) => (left.campaignOrder ?? 0) - (right.campaignOrder ?? 0))
+      .sort((left, right) => left.campaignOrder - right.campaignOrder)
     const currentIndex = orderedPuzzles.findIndex((candidate) => candidate.id === puzzle.id)
 
     if (currentIndex === -1) {
@@ -86,8 +87,15 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
     }
 
     return {
-      previous: orderedPuzzles[currentIndex - 1] ?? null,
-      next: orderedPuzzles[currentIndex + 1] ?? null
+      previous:
+        orderedPuzzles
+          .slice(0, currentIndex)
+          .reverse()
+          .find((candidate) => candidate.isUnlocked) ?? null,
+      next:
+        orderedPuzzles
+          .slice(currentIndex + 1)
+          .find((candidate) => candidate.isUnlocked) ?? null
     }
   }, [campaignQuery.data?.puzzles, puzzle?.campaignOrder, puzzle?.id])
 
@@ -99,10 +107,6 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
   const visibleErrorCount = visibleFeedback
     ? visibleFeedback.errorCount ?? (visibleFeedback.message ? 1 : 0)
     : 0
-  const violationTeamIds = useMemo(
-    () => [...new Set(visibleViolations.map((violation) => violation.teamId))],
-    [visibleViolations]
-  )
   const savedAttemptNotice = useMemo(() => {
     if (answerRevealed) {
       return null
@@ -188,6 +192,11 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
     )
   }
 
+  const analyzeBoardMode =
+    puzzle.campaignPack && puzzle.campaignLevel
+      ? campaignAnalyzeBoardModeFor(puzzle.campaignPack, puzzle.campaignLevel)
+      : null
+
   return (
     <main className="flex flex-1 flex-col gap-3 pb-6 pt-2 sm:gap-5 sm:pb-8 sm:pt-3">
       <PuzzleHeader
@@ -208,15 +217,30 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
         currentStreak={stats?.currentStreak ?? 0}
         hintsUsed={hintsUsed}
         visibleErrors={visibleErrorCount}
+        analyzeBoardAction={
+          analyzeBoardMode && !assistanceDisabled
+            ? <AnalyzeBoard puzzle={puzzle} mode={analyzeBoardMode} />
+            : null
+        }
         campaignNavigation={
           puzzle.mode === 'campaign'
             ? {
                 previousHref: adjacentCampaignPuzzles.previous
                   ? `/puzzles/${adjacentCampaignPuzzles.previous.id}` as const
                   : null,
+                previousPackTitle:
+                  adjacentCampaignPuzzles.previous &&
+                  adjacentCampaignPuzzles.previous.campaignPack !== puzzle.campaignPack
+                    ? getCampaignPackConfig(adjacentCampaignPuzzles.previous.campaignPack).title
+                    : null,
                 nextHref: adjacentCampaignPuzzles.next
                   ? `/puzzles/${adjacentCampaignPuzzles.next.id}` as const
-                  : null
+                  : null,
+                nextPackTitle:
+                  adjacentCampaignPuzzles.next &&
+                  adjacentCampaignPuzzles.next.campaignPack !== puzzle.campaignPack
+                    ? getCampaignPackConfig(adjacentCampaignPuzzles.next.campaignPack).title
+                    : null
               }
             : null
         }
@@ -226,8 +250,6 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
         <div className="flex min-w-0 flex-col gap-3 sm:gap-5">
           <StandingsTable
             puzzle={puzzle}
-            violationTeamIds={violationTeamIds}
-            highlightTeamId={visibleViolations[0]?.teamId ?? null}
             className="h-full"
           />
         </div>
@@ -342,7 +364,6 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
         }}
         isPending={isHintPending}
         answerRevealed={answerRevealed || assistanceDisabled}
-        isOutcomeOnly={puzzle.campaignPack === 'BEGINNER'}
         lastHintMessage={lastHintMessage}
         hintError={hintError}
         hintsUsed={hintsUsed}

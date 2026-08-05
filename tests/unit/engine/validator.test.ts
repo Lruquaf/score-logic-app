@@ -4,7 +4,8 @@ import {
   toScoreMap,
   validateCompleteSolution,
   validateExactSolution,
-  validatePartialSolution
+  validatePartialSolution,
+  validateSolveAnySolution
 } from '@/lib/engine/validator'
 
 describe('validator', () => {
@@ -64,5 +65,33 @@ describe('validator', () => {
 
     expect(validateExactSolution(solutionMap, solutionMap)).toBe(true)
     expect(validateExactSolution(wrongSolution, solutionMap)).toBe(false)
+  })
+
+  it('uses allSolutions as the final solve-any authority', () => {
+    const alternate = sampleDailyPuzzlePrivate.solution.map((match, index) =>
+      index === 0
+        ? { ...match, homeScore: match.homeScore + 1 }
+        : match
+    )
+    const alternateStandings = sampleDailyPuzzlePrivate.standings.map((standing) => ({
+      ...standing
+    }))
+
+    expect(
+      validateSolveAnySolution(
+        standings,
+        matches,
+        solutionMap,
+        [sampleDailyPuzzlePrivate.solution]
+      ).isCorrect
+    ).toBe(true)
+    expect(
+      validateSolveAnySolution(
+        alternateStandings,
+        matches,
+        solutionMap,
+        [alternate]
+      ).isCorrect
+    ).toBe(false)
   })
 })

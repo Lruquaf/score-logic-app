@@ -40,12 +40,29 @@ describe('user API routes', () => {
 
     vi.mocked(getOptionalRequestUser).mockResolvedValue({
       userId: 'user-1',
-      isAnonymous: true
+      isAnonymous: false,
+      cookie: {
+        name: 'sl-anon-id',
+        value: '',
+        options: {
+          httpOnly: true,
+          sameSite: 'lax',
+          secure: false,
+          path: '/',
+          maxAge: 0
+        }
+      }
     })
     vi.mocked(getUserStatsSummary).mockResolvedValue({
       totalSolved: 3,
+      successfulAttempts: 4,
+      totalAttempts: 6,
+      firstTrySolves: 2,
+      assistedSolves: 1,
+      answerReveals: 1,
       perfectSolves: 1,
       totalTimeSec: 420,
+      bestDurationSec: 80,
       solvedEasy: 1,
       solvedMedium: 2,
       solvedHard: 0,
@@ -60,9 +77,11 @@ describe('user API routes', () => {
     expect(response.status).toBe(200)
     expect(json.user).toEqual({
       userId: 'user-1',
-      isAnonymous: true
+      isAnonymous: false
     })
     expect(json.stats.totalSolved).toBe(3)
+    expect(response.headers.get('set-cookie')).toContain('sl-anon-id=')
+    expect(response.headers.get('set-cookie')).toContain('Max-Age=0')
   })
 
   it('returns the current user progress summary payload', async () => {
@@ -82,6 +101,11 @@ describe('user API routes', () => {
         COMPLETED: 1,
         ABANDONED: 0
       },
+      pageInfo: {
+        limit: 20,
+        hasMore: false,
+        nextCursor: null
+      },
       entries: [
         {
           puzzleId: 'ckscoredaily0000000000000001',
@@ -95,6 +119,7 @@ describe('user API routes', () => {
           updatedAt: '2026-06-17T10:00:00.000Z',
           puzzle: {
             id: 'ckscoredaily0000000000000001',
+            contentKey: 'daily:2026-06-17',
             mode: 'daily',
             difficulty: 'MEDIUM',
             dailyDate: '2026-06-17',
@@ -112,5 +137,27 @@ describe('user API routes', () => {
     expect(response.status).toBe(200)
     expect(json.user.userId).toBe('user-1')
     expect(json.progress.totalCompleted).toBe(1)
+    expect(getUserProgressSummary).toHaveBeenCalledWith('user-1', undefined, {
+      cursor: null,
+      limit: 20
+    })
+  })
+
+  it('rejects malformed progress pagination input', async () => {
+    const { getOptionalRequestUser } = await import('@/lib/auth/anonymous')
+    const { getUserProgressSummary } = await import('@/lib/db/queries/users')
+    const { GET } = await import('@/app/api/user/progress/route')
+
+    vi.mocked(getOptionalRequestUser).mockResolvedValue({
+      userId: 'user-1',
+      isAnonymous: false
+    })
+
+    const response = await GET(
+      new NextRequest('http://localhost/api/user/progress?limit=51')
+    )
+
+    expect(response.status).toBe(400)
+    expect(getUserProgressSummary).not.toHaveBeenCalled()
   })
 })

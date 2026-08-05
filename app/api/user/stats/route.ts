@@ -1,9 +1,13 @@
 import type { NextRequest } from 'next/server'
 
-import { jsonResponse, errorResponse } from '@/lib/api/http'
+import {
+  jsonResponse,
+  errorResponse,
+  withResponseCookie
+} from '@/lib/api/http'
 import { getOptionalRequestUser } from '@/lib/auth/anonymous'
 import { getUserStatsSummary } from '@/lib/db/queries/users'
-import { captureServerEvent } from '@/lib/observability/server'
+import { captureServerError, captureServerEvent } from '@/lib/observability/server'
 
 export const runtime = 'nodejs'
 
@@ -24,15 +28,18 @@ export async function GET(request: NextRequest) {
       isAnonymous: user.isAnonymous
     })
 
-    return jsonResponse({
-      user: {
-        userId: user.userId,
-        isAnonymous: user.isAnonymous
-      },
-      stats
-    })
+    return withResponseCookie(
+      jsonResponse({
+        user: {
+          userId: user.userId,
+          isAnonymous: user.isAnonymous
+        },
+        stats
+      }),
+      user.cookie
+    )
   } catch (error) {
-    console.error('GET /api/user/stats failed', error)
+    captureServerError(error, 'GET /api/user/stats')
     return errorResponse(500, 'INTERNAL_ERROR', 'Unexpected server error.')
   }
 }

@@ -15,6 +15,37 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: scorelogic_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d scorelogic_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/scorelogic_test
+      AUTH_SECRET: ci-only-auth-secret-with-at-least-32-characters
+      AUTH_URL: http://127.0.0.1:3100
+      AUTH_TRUST_HOST: true
+      DAILY_TIME_ZONE: Europe/Istanbul
+      UPSTASH_REDIS_REST_URL: https://ci-placeholder.upstash.io
+      UPSTASH_REDIS_REST_TOKEN: ci-placeholder-upstash-token
+      RATE_LIMIT_TRUSTED_PROXY_HOPS: 1
+      OBSERVABILITY_HASH_SALT: ci-observability-hash-salt-at-least-32-characters
+      SENTRY_DSN: https://public@ci.ingest.sentry.io/1
+      NEXT_PUBLIC_SENTRY_DSN: https://public@ci.ingest.sentry.io/1
+      OTEL_EXPORTER_OTLP_ENDPOINT: https://otel-ci.example.com
+      OTEL_TRACES_SAMPLER_ARG: 0.1
+      POSTHOG_API_KEY: phc_ci_placeholder_key
+      POSTHOG_HOST: https://eu.i.posthog.com
+      SYNTHETIC_MONITOR_TOKEN: ci-synthetic-monitor-token-at-least-32-characters
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,6 +58,15 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Audit production dependencies
+        run: npm run audit:prod
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Apply database migrations
+        run: npm run db:deploy
 
       - name: Type check
         run: npm run type-check
@@ -34,8 +74,17 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Validate observability operations
+        run: npm run ops:validate
+
       - name: Unit tests
         run: npm run test:unit
+
+      - name: Engine performance budget
+        run: npm run perf:check
+
+      - name: Integration tests
+        run: npm run test:integration
 
       - name: Production build
         run: npm run build
@@ -43,7 +92,39 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     needs: verify
-    timeout-minutes: 20
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: scorelogic_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d scorelogic_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/scorelogic_test
+      AUTH_SECRET: ci-only-auth-secret-with-at-least-32-characters
+      AUTH_URL: http://127.0.0.1:3100
+      AUTH_TRUST_HOST: true
+      DAILY_TIME_ZONE: Europe/Istanbul
+      E2E_PORT: 3100
+      UPSTASH_REDIS_REST_URL: https://ci-placeholder.upstash.io
+      UPSTASH_REDIS_REST_TOKEN: ci-placeholder-upstash-token
+      RATE_LIMIT_TRUSTED_PROXY_HOPS: 1
+      OBSERVABILITY_HASH_SALT: ci-observability-hash-salt-at-least-32-characters
+      SENTRY_DSN: https://public@ci.ingest.sentry.io/1
+      NEXT_PUBLIC_SENTRY_DSN: https://public@ci.ingest.sentry.io/1
+      OTEL_EXPORTER_OTLP_ENDPOINT: https://otel-ci.example.com
+      OTEL_TRACES_SAMPLER_ARG: 0.1
+      POSTHOG_API_KEY: phc_ci_placeholder_key
+      POSTHOG_HOST: https://eu.i.posthog.com
+      SYNTHETIC_MONITOR_TOKEN: ci-synthetic-monitor-token-at-least-32-characters
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -57,8 +138,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Prepare test database
+        run: npm run db:setup
+
+      - name: Audit published puzzle content
+        run: npm run db:audit-content
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
       - name: Run E2E tests
         run: npm run test:e2e
+
+      - name: Run bounded application load test
+        env:
+          LOAD_TEST_DURATION_SECONDS: 10
+          LOAD_TEST_CONCURRENCY: 8
+        run: npm run perf:load:local

@@ -2,6 +2,11 @@
 ### Uçtan Uca Mimari, Tasarım Sistemi ve İmplementasyon Rehberi
 **Sürüm 1.0 — Haziran 2026**
 
+> Bu belge ilk mimari tasarımın tarihsel kaydıdır; içindeki kod blokları güncel
+> implementasyon sözleşmesi değildir. Güncel ürün davranışı için
+> [`docs/product-rules.md`](docs/product-rules.md), çalışan kurulum için `README.md` ve
+> deployment için `docs/deployment.md` esas alınır.
+
 ---
 
 ## İçindekiler
@@ -30,7 +35,7 @@
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    FRONTEND                             │
-│  Next.js 15 (App Router)   TypeScript 5                │
+│  Next.js 16 (App Router)   TypeScript 5                │
 │  Tailwind CSS 4            Framer Motion 11             │
 │  Zustand 5                 React Query 5                │
 └─────────────────────────────────────────────────────────┘
@@ -51,7 +56,7 @@
 
 | Karar | Seçilen | Reddedilen | Gerekçe |
 |-------|---------|-----------|---------|
-| Framework | Next.js 15 App Router | Vite + React SPA | SSR, SEO, API routes tek repoda; App Router RSC ile sunucu yükü azalır |
+| Framework | Next.js 16 App Router | Vite + React SPA | SSR, SEO, API routes tek repoda; App Router RSC ile sunucu yükü azalır |
 | Stil | Tailwind 4 | Styled Components | Tailwind v4 ile CSS variables native; daha az bundle |
 | State | Zustand | Redux Toolkit | Puzzle state için Zustand yeterli; Redux overkill |
 | ORM | Prisma | Drizzle | Daha olgun ekosistem; auto-generated types bulmaca modeli için kritik |
@@ -624,6 +629,12 @@ export interface GeneratedPuzzle {
 
 ### 5.2 Backtracking Çözücü
 
+Güncel production API `solveWithBudget`'tır. Aşağıdaki backtracking parçası yalnız pruning
+fikrini gösterir; çağrı sözleşmesi finite `maxSolutions`, `maxNodes` ve `maxDurationMs`,
+opsiyonel tam/tek-taraflı `fixedCells` ve `AbortSignal` taşır. Sonuç
+`SAT | UNSAT | UNKNOWN`, `exhaustive`, `capped`, bitiş nedeni ve güvenli arama metriklerini
+döndürür. `UNSAT` yalnız exhaustive arama sonunda üretilebilir.
+
 ```typescript
 // lib/engine/solver.ts
 
@@ -632,8 +643,8 @@ import type { Standing, Match } from './types'
 type ScoreMap = Map<string, { home: number; away: number }>
 
 /**
- * Verilen puan tablosu için tüm geçerli skor kombinasyonlarını bulur.
- * Erken çıkış: 2+ çözüm bulunduğunda durar (teklik testi için yeterli)
+ * Bu sade örnek backtracking/pruning fikrini gösterir.
+ * Production implementasyonu her dalda node/time/abort budget'ını denetler.
  */
 export function solve(
   standings: Standing[],
@@ -659,9 +670,9 @@ export function solve(
 
     const match = matches[matchIndex]
 
-    // Gerçekçi skor aralığı: 0-5 arası (futbolda nadir 6+ gol)
-    for (let home = 0; home <= 5; home++) {
-      for (let away = 0; away <= 5; away++) {
+    // Engine skor aralığı: 0-6
+    for (let home = 0; home <= 6; home++) {
+      for (let away = 0; away <= 6; away++) {
         current.set(match.id, { home, away })
 
         // Kısmi atama ile tutarlılık kontrolü
@@ -769,7 +780,10 @@ export function computeStats(standings: Standing[], current: ScoreMap) {
   return result
 }
 
-/** Bulmacının tek çözümü var mı? */
+/**
+ * İçerik analizi için tek çözüm kontrolü; ürün kabul kuralı solve-any'dir.
+ * Production kodu exhaustive kanıt yoksa false dönmek yerine budget hatası üretir.
+ */
 export function isUniqueSolution(standings: Standing[], matches: Match[]): boolean {
   const solutions = solve(standings, matches, 2)
   return solutions.length === 1
@@ -782,7 +796,7 @@ export function isUniqueSolution(standings: Standing[], matches: Match[]): boole
 // lib/engine/generator.ts
 
 import type { Standing, Match, Team, GeneratedPuzzle } from './types'
-import { solve, isUniqueSolution } from './solver'
+import { solveWithBudget, solverBudgetFor } from './solver'
 import { classifyDifficulty } from './difficulty'
 
 const MAX_GOALS_PER_MATCH = 6
@@ -790,7 +804,7 @@ const TYPICAL_GOAL_AVG = 2.5 // maç başı ortalama gol
 
 /**
  * 4 takımlı bir grup için rastgele geçerli bulmaca üretir.
- * Teklik doğrulanana kadar yeniden dener.
+ * En az bir çözüm bulunana kadar yeniden dener.
  */
 export async function generatePuzzle(
   teams: Team[],
@@ -800,12 +814,15 @@ export async function generatePuzzle(
     const matches = generateRandomMatches(teams)
     const standings = computeStandings(teams, matches)
 
-    // Teklik kontrolü
-    const solutions = solve(standings, matches.map(m => ({
+    // Solve-any çözüm kümesini üret
+    const solverResult = solveWithBudget(standings, matches.map(m => ({
       id: m.id, homeTeamId: m.homeTeamId, awayTeamId: m.awayTeamId
-    })), 2)
+    })), {
+      budget: solverBudgetFor('GENERATION')
+    })
 
-    if (solutions.length === 1) {
+    // Tam çözüm kümesi kanıtlanamayan candidate yayınlanabilir kabul edilmez.
+    if (solverResult.status === 'SAT' && solverResult.exhaustive) {
       // İnferans adımlarını say (zorluk için)
       const steps = countInferenceSteps(standings, matches)
 
@@ -813,7 +830,8 @@ export async function generatePuzzle(
         standings,
         matches,
         isValid: true,
-        solutionCount: 1,
+        solutionCount: solverResult.solutions.length,
+        allSolutions: solverResult.solutions,
         inferenceSteps: steps
       }
     }
@@ -901,7 +919,11 @@ function computeStandings(teams: Team[], matches: Required<Match>[]): Standing[]
 }
 ```
 
-### 5.4 Kısıt Doğrulayıcı (Gerçek Zamanlı)
+### 5.4 Yerel Kısıt Doğrulayıcı
+
+Bu saf fonksiyon tamamlanmış scoreline'lar için ucuz gerekli-koşul kontrolüdür. Store içinde
+hesaplanabilse de sonucu skor yazımı sırasında Final Table'a veya hata paneline otomatik
+yansıtılmaz; görünür geri bildirim yalnız Check ya da explicit Analyze Board sonrasında gelir.
 
 ```typescript
 // lib/engine/validator.ts
@@ -996,102 +1018,33 @@ export function validateCompleteSolution(
 }
 ```
 
-### 5.5 İpucu Üreteci
+### 5.5 Global Partial Satisfiability
 
-```typescript
-// lib/engine/hint.ts
+Analyze Board istemcide çözüm üretmez. `POST /api/puzzles/[id]/analyze`, tam veya tek taraflı
+bütün dolu skor hücrelerini `fixedCells` biçiminde finite `ANALYZE` solver profiline verir.
 
-import type { Standing, Match } from './types'
-import { solve } from './solver'
+- `SAT`: Girilmiş hücreler korunarak en az bir completion kanıtlandı.
+- Exhaustive `UNSAT`: Global dead-end kanıtlandı.
+- `UNKNOWN`: Node/süre/iptal sınırı doldu; tahta yanlış sayılmaz.
+- Yerel taşma, global dead-end, incomplete ve unknown-match hata türleri ayrıdır.
+- Campaign gate ve Beginner Guided/Assisted uygunluğu server-side kontrol edilir.
+- Response solution, allSolutions veya önerilen skor taşımaz; işlem progress'i değiştirmez.
 
-export type HintType = 'direction' | 'team_focus' | 'reveal'
+Snapshot skor değişince istemcide geçersiz olur. Otomatik analyze çağrısı yapılmaz; Final
+Table her durumda statik kaynak olarak kalır.
 
-export interface Hint {
-  type: HintType
-  message: string
-  targetMatchId?: string
-  targetTeamId?: string
-  revealedScore?: { home: number; away: number }
-}
+### 5.6 İpucu Üreteci
 
-/**
- * Kullanıcının mevcut durumuna göre en faydalı ipucunu üretir.
- */
-export function generateHint(
-  standings: Standing[],
-  matches: Match[],
-  userInputs: Map<string, { home: number; away: number }>,
-  hintType: HintType,
-  solution: Map<string, { home: number; away: number }>
-): Hint {
-  const emptyMatches = matches.filter(m => !userInputs.has(m.id))
+Mevcut public hint tipi yalnızca `reveal`dır ve scoreline modunda tek bir skor hücresi açar.
+Hedef davranış solve-any ile uyumlu olmalıdır:
 
-  switch (hintType) {
-    case 'direction': {
-      // En kısıtlı takımı bul (en az olası skor kombinasyonu)
-      const targetTeam = findMostConstrainedTeam(standings, matches, userInputs)
-      return {
-        type: 'direction',
-        message: `${targetTeam} takımının maçlarına odaklan — bu takım en belirleyici kısıtlara sahip.`,
-        targetTeamId: targetTeam
-      }
-    }
+1. Kullanıcının girdileriyle uyumlu `allSolutions` alt kümesini çıkar.
+2. Dolu ve daha önce açılmış hücreleri adaylardan kaldır.
+3. Uyumlu çözümlerin aynı değeri verdiği güvenli bir hücreyi aç.
+4. Hint sonrasında en az bir geçerli tamamlama kaldığını doğrula.
+5. Uyumlu çözüm kalmadıysa skor açmak yerine mevcut çelişkiyi bildir.
 
-    case 'team_focus': {
-      // Çözüme en yakın maçı bul
-      const easiestMatch = emptyMatches[0] // Gerçekte en kısıtlıyı seç
-      if (!easiestMatch) return { type: 'team_focus', message: 'Tüm maçlar girilmiş.' }
-
-      const sol = solution.get(easiestMatch.id)!
-      const homeTeam = standings.find(s => s.teamId === easiestMatch.homeTeamId)
-
-      return {
-        type: 'team_focus',
-        message: `Bu maçta ev sahibi takım ${sol.home > sol.away ? 'kazandı' : sol.home < sol.away ? 'kaybetti' : 'berabere kaldı'}.`,
-        targetMatchId: easiestMatch.id
-      }
-    }
-
-    case 'reveal': {
-      // Henüz girilmemiş bir maçın skorunu doğrudan göster
-      const targetMatch = emptyMatches[Math.floor(Math.random() * emptyMatches.length)]
-      if (!targetMatch) return { type: 'reveal', message: 'Gösterilecek boş maç kalmadı.' }
-
-      const sol = solution.get(targetMatch.id)!
-      return {
-        type: 'reveal',
-        message: `Bu maçın skoru: ${sol.home} - ${sol.away}`,
-        targetMatchId: targetMatch.id,
-        revealedScore: sol
-      }
-    }
-  }
-}
-
-function findMostConstrainedTeam(
-  standings: Standing[],
-  matches: Match[],
-  userInputs: Map<string, { home: number; away: number }>
-): string {
-  // Her takım için kalan "serbestlik derecesini" hesapla
-  let minFreedom = Infinity
-  let targetTeamId = standings[0].teamId
-
-  for (const standing of standings) {
-    const remainingMatches = matches.filter(
-      m => !userInputs.has(m.id) &&
-      (m.homeTeamId === standing.teamId || m.awayTeamId === standing.teamId)
-    ).length
-
-    if (remainingMatches < minFreedom && remainingMatches > 0) {
-      minFreedom = remainingMatches
-      targetTeamId = standing.teamId
-    }
-  }
-
-  return targetTeamId
-}
-```
+Tam answer reveal ayrı endpoint'tir; normal completion veya campaign unlock üretmez.
 
 ---
 
@@ -1249,8 +1202,7 @@ export async function POST(
     return NextResponse.json({
       isCorrect,
       violations: isCorrect ? [] : violations,
-      // Doğruysa çözümü göster
-      solution: isCorrect ? solution : undefined
+      // Public submit response private çözüm kümesini döndürmez.
     })
 
   } catch (error) {
@@ -1330,7 +1282,7 @@ import { z } from 'zod'
 export const puzzleIdSchema = z.string().cuid()
 
 export const hintRequestSchema = z.object({
-  hintType: z.enum(['direction', 'team_focus', 'reveal']),
+  hintType: z.literal('reveal'),
   currentInputs: z.record(z.object({
     home: z.number().int().min(0).max(20),
     away: z.number().int().min(0).max(20)
@@ -2416,8 +2368,7 @@ export function useConstraintShake(hasViolation: boolean) {
 // lib/auth/config.ts
 
 import type { NextAuthConfig } from 'next-auth'
-import Google from 'next-auth/providers/google'
-import Resend from 'next-auth/providers/resend'
+import Credentials from 'next-auth/providers/credentials'
 import { PrismaAdapter } from '@auth/prisma-adapter'
 import { prisma } from '@/lib/db/prisma'
 
@@ -2425,14 +2376,16 @@ export const authConfig: NextAuthConfig = {
   adapter: PrismaAdapter(prisma),
 
   providers: [
-    Google({
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-    }),
-    Resend({
-      apiKey: process.env.RESEND_API_KEY!,
-      from: 'ScoreLogic <noreply@scorelogic.app>',
-    }),
+    Credentials({
+      credentials: {
+        email: { label: 'Email', type: 'email' },
+        password: { label: 'Password', type: 'password' }
+      },
+      async authorize(credentials) {
+        // Güncel kod normalize edilmiş email, password hash ve timing-safe doğrulama kullanır.
+        return verifyCredentials(credentials)
+      }
+    })
   ],
 
   session: { strategy: 'jwt' },
@@ -2457,79 +2410,24 @@ export const authConfig: NextAuthConfig = {
 
 ### 11.2 Anonim Kullanıcı Akışı
 
-```typescript
-// lib/auth/anonymous.ts
+Güncel uygulama cookie-backed anonim kimliği `lib/auth/anonymous.ts` içinde çözer;
+hesap bağlama ise `lib/auth/anonymousMerge.ts` içindeki tek transaction'lı canonical
+merge servisiyle yapılır.
 
-import { prisma } from '@/lib/db/prisma'
-import { cookies } from 'next/headers'
-import { randomUUID } from 'crypto'
+- Sign-in callback merge tamamlanmadan session oluşturmaz; hata fail-closed davranır.
+- İki kimliğin attempt, event ve submission geçmişi korunur.
+- Completion çakışmasında en erken completion, progress özetinde en iyi başarılı attempt
+  ve en güncel aktif draft ayrı ayrı seçilir.
+- İki aktif draft varsa eski olan `ABANDONED` event'iyle kapatılır.
+- Stats/streak elle toplanmaz; birleşmiş attempt/completion geçmişinden rebuild edilir.
+- Sıralı identity advisory lock merge ile oyun yazımlarının yarışmasını engeller.
+- `AnonymousUserMerge` receipt'i retry'ı idempotent yapar ve aynı anonim kimliğin farklı
+  hesaba ikinci kez bağlanmasını reddeder.
+- Anonim kullanıcı yalnız transaction başarıyla tamamlandığında silinir; authenticated
+  stats cevabı eski cookie'yi expire eder.
 
-const ANON_COOKIE = 'sl-anon-id'
-const COOKIE_MAX_AGE = 365 * 24 * 60 * 60 // 1 yıl
-
-/**
- * Mevcut anonim kullanıcıyı döner veya yeni oluşturur.
- * Login akışında gerçek hesaba merge edilir.
- */
-export async function getOrCreateAnonymousUser(): Promise<string> {
-  const cookieStore = cookies()
-  const existingId = cookieStore.get(ANON_COOKIE)?.value
-
-  if (existingId) {
-    const user = await prisma.user.findUnique({ where: { id: existingId } })
-    if (user?.isAnonymous) return existingId
-  }
-
-  // Yeni anonim kullanıcı oluştur
-  const user = await prisma.user.create({
-    data: { isAnonymous: true }
-  })
-
-  cookieStore.set(ANON_COOKIE, user.id, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: COOKIE_MAX_AGE,
-    sameSite: 'lax'
-  })
-
-  return user.id
-}
-
-/**
- * Anonim kullanıcının ilerlemesini gerçek hesaba taşır
- */
-export async function mergeAnonymousProgress(
-  anonymousUserId: string,
-  realUserId: string
-): Promise<void> {
-  // Çakışmayan ilerlemeleri taşı
-  await prisma.$transaction([
-    prisma.userPuzzleProgress.updateMany({
-      where: {
-        userId: anonymousUserId,
-        puzzle: {
-          id: { notIn: await getExistingPuzzleIds(realUserId) }
-        }
-      },
-      data: { userId: realUserId }
-    }),
-    prisma.dailyStreak.upsert({
-      where: { userId: realUserId },
-      create: { userId: realUserId },
-      update: {}  // Gerçek hesabın streaki korunur
-    }),
-    prisma.user.delete({ where: { id: anonymousUserId } })
-  ])
-}
-
-async function getExistingPuzzleIds(userId: string): Promise<string[]> {
-  const progress = await prisma.userPuzzleProgress.findMany({
-    where: { userId },
-    select: { puzzleId: true }
-  })
-  return progress.map(p => p.puzzleId)
-}
-```
+Bağlayıcı ürün semantiği için `docs/product-rules.md`, API ayrıntısı için
+`docs/phase-0/api-contracts.md` esas alınır.
 
 ---
 
@@ -2570,12 +2468,11 @@ async function getExistingPuzzleIds(userId: string): Promise<string[]> {
 # Veritabanı
 DATABASE_URL="postgresql://user:pass@localhost:5432/scorelogic"
 
-# Auth
-NEXTAUTH_SECRET="uzun-rastgele-secret-string"
-NEXTAUTH_URL="http://localhost:3000"
-GOOGLE_CLIENT_ID="..."
-GOOGLE_CLIENT_SECRET="..."
-RESEND_API_KEY="re_..."
+# Auth — mevcut uygulama credentials/JWT kullanır
+AUTH_SECRET="uzun-rastgele-secret-string"
+AUTH_URL="http://localhost:3007"
+AUTH_TRUST_HOST=true
+DAILY_TIME_ZONE="Europe/Istanbul"
 
 # Cache
 UPSTASH_REDIS_REST_URL="https://..."
@@ -2913,7 +2810,7 @@ test.describe('Bulmaca çözme akışı', () => {
 | Lighthouse Performance | ≥ 90 | Vercel Analytics |
 | First Contentful Paint | < 1.2s | Core Web Vitals |
 | Time to Interactive | < 2.5s | Core Web Vitals |
-| API P95 Latency | < 200ms | Sentry |
+| API P95 Latency | < 800ms | OpenTelemetry dashboard |
 | Puzzle validation (client) | < 5ms | Performance.now() |
 
 ### 14.2 Önbellek Stratejisi
@@ -3013,7 +2910,7 @@ const { data: puzzle } = useQuery({
     "build": "next build",
     "start": "next start",
     "type-check": "tsc --noEmit",
-    "lint": "next lint",
+    "lint": "eslint .",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
     "test:e2e": "playwright test",

@@ -1,6 +1,10 @@
 # MVP Dokümanı: Futbol Puan Tablosu Dedüksiyon Oyunu
 ### Sürüm 1.0 — Haziran 2026
 
+> Bu belge ürün vizyonunun tarihsel kaydıdır. Güncel ve bağlayıcı oyun kuralları
+> [`docs/product-rules.md`](docs/product-rules.md) dosyasındadır. Teknik davranışla çelişen
+> eski platform, kapsam veya uygulama örnekleri güncel sözleşme sayılmaz.
+
 ---
 
 ## İçindekiler
@@ -32,15 +36,15 @@
 **Hedef Lansman:** MVP'den itibaren 14 hafta
 
 ### Problem Tanımı
-Dünyada 4 milyarı aşkın futbol taraftarı var, ancak futbol bağlamında oynanan dedüksiyon bulmaca oyunları neredeyse hiç yok. Mevcut futbol mobil oyunları ya simülasyon ya da tahmin/trivia formatına dayanıyor. Saf mantık yürütmeyi gerektiren, "tek çözümlü" ve yüksek tatmin düzeyinde bir deneyim sunmak için ciddi bir pazar boşluğu mevcut.
+Dünyada 4 milyarı aşkın futbol taraftarı var, ancak futbol bağlamında oynanan dedüksiyon bulmaca oyunları neredeyse hiç yok. Mevcut futbol mobil oyunları ya simülasyon ya da tahmin/trivia formatına dayanıyor. Saf mantık yürütmeyi gerektiren, matematiksel olarak doğrulanmış ve yüksek tatmin düzeyinde bir deneyim sunmak için ciddi bir pazar boşluğu mevcut.
 
 ### Çözüm
-ScoreLogic, tamamlanmış bir futbol grup tablosunu ve fikstürünü girdi olarak alır; tüm maç skorlarını gizleyerek oyuncudan bunları yalnızca mantık yoluyla çözmesini ister. Her bulmaca, matematiksel olarak doğrulanmış tek çözüme sahiptir. Tahmin yoktur — yalnızca dedüksiyon vardır.
+ScoreLogic, tamamlanmış bir futbol grup tablosunu ve fikstürünü girdi olarak alır; tüm maç skorlarını gizleyerek oyuncudan bunları yalnızca mantık yoluyla çözmesini ister. Bir bulmaca bir veya daha fazla matematiksel olarak doğrulanmış scoreline çözümüne sahip olabilir; geçerli çözümlerden herhangi biri kabul edilir. Tahmin yoktur — yalnızca dedüksiyon vardır.
 
 ### MVP Hedefi
 - Temel bulmaca mekanik döngüsünü çalışır hale getirmek
 - Günlük bulmaca formatıyla organik büyüme kanalı açmak
-- 30 bulmacalık bir kampanya moduyla ilk hafta retansiyonunu ölçmek
+- 5 pack × 30 seviye, toplam 150 bulmacalık kampanya moduyla retansiyonu ölçmek
 - İlk kullanıcı kohortundan metrik toplamak ve ürün-pazar uyumunu test etmek
 
 ---
@@ -104,7 +108,7 @@ ScoreLogic, tamamlanmış bir futbol grup tablosunu ve fikstürünü girdi olara
 | Alan | Özellik |
 |------|---------|
 | Oyun Modu | Günlük Bulmaca (Daily Puzzle) |
-| Oyun Modu | Kampanya Modu (30 bulmaca) |
+| Oyun Modu | Kampanya Modu (5 pack × 30 seviye, 150 bulmaca) |
 | Bulmaca Türü | 4 takımlı grup, tüm skorlar gizli |
 | Onboarding | 3 adımlı interaktif tutorial |
 | Yardım | 3 ipucu hakkı (bulmaca başına) |
@@ -184,7 +188,7 @@ Polonya ve Meksika simetrik (aynı istatistikler)
 
 **Adım 4 — Eliminasyon**
 ```
-Geriye kalan kısıtlar → tek çözüm:
+Geriye kalan kısıtlar → örnek geçerli çözüm:
 
 Arjantin 1-0 Suudi Arabistan   ✓
 Polonya 0-0 Meksika             ✓
@@ -196,7 +200,9 @@ Suudi Arabistan 1-1 Meksika    ✓ ← (Meksika 1B için gerekli)
 
 ### 5.3 Doğrulama Kuralları
 
-Her girilen skor, gerçek zamanlı olarak aşağıdaki kısıtlara göre kontrol edilir:
+Skorlar aşağıdaki kısıtlara göre doğrulanır. Bu doğrulama skor yazımı sırasında Final Table'ı
+değiştirmez; kullanıcıya görünür sonuç yalnız Check, Hint veya uygun Beginner seviyelerinde
+explicit Analyze Board eyleminden sonra verilir:
 
 ```
 KURAL 1 — Puan tutarlılığı
@@ -219,11 +225,17 @@ KURAL 4 — Averaj kontrolü
 
 | Hata | Gösterim |
 |------|---------|
-| Puan toplamı tutarsız | İlgili takım satırı kırmızıya döner |
-| Gol toplamı aşıldı | AG veya YG sütunu sarı uyarı |
-| Averaj tutarsız | AV hücresi titreşim animasyonu |
-| Tüm maçlar dolu, çözüm yanlış | Tam tablo kırmızı + "Çelişki var" mesajı |
-| Tüm maçlar dolu, çözüm doğru | Tam tablo yeşil + zafer animasyonu |
+| Check sonrası yerel kısıt taşması | Final Table dışında constraint/feedback paneli |
+| Analyze Board yerel taşması | Snapshot içinde `LOCAL_OVERFLOW` açıklaması |
+| Analyze Board global çözümsüzlük | Snapshot içinde `GLOBAL_DEAD_END` açıklaması |
+| Solver safety limiti | Belirsiz analiz; skorlar yanlış sayılmaz |
+| Tüm maçlar dolu, çözüm yanlış | Pack politikasına uygun ayrı feedback paneli |
+| Tüm maçlar dolu, çözüm doğru | Final Table değişmeden zafer durumu |
+
+Analyze Board tam veya tek taraflı bütün dolu skor hücrelerini server-side global solver'a
+constraint olarak verir. `SAT` en az bir completion kanıtıdır; yalnız exhaustive `UNSAT`
+dead-end sayılır. Response çözüm veya önerilen skor içermez ve skor değişince snapshot
+geçersiz olur.
 
 ---
 
@@ -244,11 +256,13 @@ ADIM 2: İstatistik Hesabı
   - Puan tablosunu oluştur ve sırala
   - Tiebreaker'ı uygula (aynı puanda averaj → AG)
 
-ADIM 3: Teklik Doğrulaması (Uniqueness Check)
+ADIM 3: Çözüm Kümesi Doğrulaması
   - Geriye dönük çözücü (backtracking solver) çalıştır
-  - Tüm skor kombinasyonları üzerinde tam arama yap
-  - Çözüm sayısı = 1 ise → GEÇER
-  - Çözüm sayısı > 1 ise → REDDET ve başa dön
+  - Finite node, süre ve çözüm limitiyle arama yap
+  - Çözüm sayısı >= 1 ise → GEÇER
+  - Yalnız arama exhaustive ise tüm çözümleri `allSolutions` içinde sakla
+  - Exhaustive sonuçta çözüm sayısı = 0 ise → REDDET ve başa dön
+  - Budget dolarsa `UNKNOWN` → adayı yayınlama, yeni aday üret
 
 ADIM 4: Zorluk Sınıflandırması
   - Çözücünün kaç çıkarım adımı gerektirdiğini say
@@ -265,32 +279,53 @@ ADIM 5: Veritabanına Kayıt
 ### 6.2 Geriye Dönük Çözücü (Pseudocode)
 
 ```python
-def solve(puzzle, current_matches, solved_count):
+def solve(puzzle, current_matches, solved_count, budget, fixed_cells):
+    if budget.aborted() or budget.timeout() or budget.node_limit_reached():
+        return Result(status="UNKNOWN", exhaustive=False)
+
+    budget.visit_node()
+
     if solved_count == 6:
-        return verify_all_constraints(puzzle, current_matches)
+        return terminal_result(puzzle, current_matches)
     
     next_match = get_next_unsolved_match(current_matches)
     solutions = []
     
-    for home_score in range(0, 5):
-        for away_score in range(0, 5):
+    for home_score in fixed_cells.home_values(next_match, default=range(0, 7)):
+        for away_score in fixed_cells.away_values(next_match, default=range(0, 7)):
             candidate = assign_score(next_match, home_score, away_score)
             
             if is_partially_valid(puzzle, current_matches + candidate):
-                result = solve(puzzle, current_matches + candidate, solved_count + 1)
-                solutions.extend(result)
+                result = solve(
+                    puzzle,
+                    current_matches + candidate,
+                    solved_count + 1,
+                    budget,
+                    fixed_cells,
+                )
+                if result.status == "UNKNOWN":
+                    return result
+                solutions.extend(result.solutions)
                 
-                if len(solutions) > 1:
-                    return solutions  # Early exit: birden fazla çözüm var
+                if budget.solution_limit_reached(solutions):
+                    return Result(status="SAT", solutions=solutions, exhaustive=False)
     
-    return solutions
+    return Result(
+        status="SAT" if len(solutions) > 0 else "UNSAT",
+        solutions=solutions,
+        exhaustive=True,
+    )
 
 def count_solutions(puzzle):
-    return len(solve(puzzle, [], 0))
+    return solve(puzzle, [], 0, publication_budget(), fixed_cells={})
 
 def is_valid_puzzle(puzzle):
-    return count_solutions(puzzle) == 1
+    result = count_solutions(puzzle)
+    return result.status == "SAT" and result.exhaustive
 ```
+
+Ürün kabul kuralı unique-solution değil solve-any'dir. Publication için zorunlu olan,
+saklanan `allSolutions` kümesinin budget tükenmeden exhaustive olarak doğrulanmasıdır.
 
 ### 6.3 Üretim Verimliliği
 
@@ -681,7 +716,7 @@ GET    /api/v1/meta/teams               → Takım bilgileri listesi
 ### 10.4 Çevrimdışı (Offline) Stratejisi
 
 ```
-Kampanya bulmacaları: İlk 30 bulmaca cihaza indirilir
+Kampanya bulmacaları: 5 pack × 30 seviye olarak kataloglanır
   → Offline oynanabilir
 
 Günlük bulmaca: Her gün senkronize edilir
@@ -849,7 +884,7 @@ MVP hedef dönüşüm: MAU'nun %0.5-1'i
 | Özellik | Ücretsiz |
 |---------|---------|
 | Günlük bulmaca | ✅ Her zaman ücretsiz |
-| Kampanya (30 bulmaca) | ✅ Tamamı ücretsiz |
+| Kampanya (150 bulmaca) | ✅ Tamamı ücretsiz |
 | Soft & Medium ipucu | ✅ Bulmaca başına 2 adet |
 | Hard ipucu | ⚡ Reklam ile kazanılır |
 | İstatistikler | ✅ Tam erişim |
@@ -1045,7 +1080,7 @@ Günlük Bulmaca Zorluk Dağılımı (MVP):
 
 **R1 — Hatalı Bulmaca**
 ```
-Önlem 1: Her bulmaca için üretim sırasında uniqueness check zorunlu
+Önlem 1: Her bulmaca için üretim sırasında en az bir geçerli çözüm ve solution-set doğrulaması zorunlu
 Önlem 2: Bulmaca stoktan çıkmadan ikinci bir doğrulayıcı çalıştır
 Önlem 3: Kullanıcı "Bu bulmacada hata var" raporu butonu
 Önlem 4: Rapor alındığında 30 dakika içinde bulmaca çekilebilmeli
@@ -1062,10 +1097,11 @@ Günlük Bulmaca Zorluk Dağılımı (MVP):
 
 **R3 — Zorluk Kalibrasyonu**
 ```
-Önlem 1: Beta'da bulmaca başına ortalama çözüm süresini logla
-Önlem 2: İpucu kullanım oranını zorluğa göre takip et
-Önlem 3: Terk oranı yüksek bulmacaları "zor" olarak yeniden etiketle
-Önlem 4: İlk 2 hafta günlük bulmacalar maksimum "kolay-orta" olsun
+Önlem 1: STANDARD attempt'lerden completion, reveal, abandon/stale, hint ve submit oranını ölç
+Önlem 2: Revision başına median/P75 çözüm süresini aggregate snapshot olarak sakla
+Önlem 3: En az 30 farklı kullanıcı ve 0,8 confidence yoksa sonucu INSUFFICIENT_DATA say
+Önlem 4: Güvenli ±6 observed/predicted sapmayı alarma çevir; published içeriği yerinde
+         yeniden etiketleme, gerekiyorsa yeni algoritma sürümü ve immutable revision yayınla
 ```
 
 **R5 — Niş Pazar**

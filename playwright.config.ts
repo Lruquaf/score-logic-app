@@ -5,7 +5,11 @@ const e2eBaseURL = `http://127.0.0.1:${e2ePort}`
 
 export default defineConfig({
   testDir: './tests/e2e',
-  fullyParallel: true,
+  fullyParallel: false,
+  workers: 1,
+  expect: {
+    timeout: 15_000
+  },
   use: {
     baseURL: e2eBaseURL,
     trace: 'on-first-retry'

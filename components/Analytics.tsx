@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
+import { usePathname } from 'next/navigation'
 import { useReportWebVitals } from 'next/web-vitals'
 
 function sendTelemetry(path: string, payload: Record<string, unknown>) {
@@ -23,6 +24,9 @@ function sendTelemetry(path: string, payload: Record<string, unknown>) {
 }
 
 export function Analytics() {
+  const pathname = usePathname()
+  const lastPath = useRef<string | null>(null)
+
   useReportWebVitals((metric) => {
     sendTelemetry('/api/telemetry/web-vitals', {
       id: metric.id,
@@ -67,6 +71,15 @@ export function Analytics() {
       window.removeEventListener('unhandledrejection', handleRejection)
     }
   }, [])
+
+  useEffect(() => {
+    if (!pathname || lastPath.current === pathname) return
+    lastPath.current = pathname
+    sendTelemetry('/api/telemetry/product-event', {
+      event: 'page_view',
+      path: pathname
+    })
+  }, [pathname])
 
   return null
 }

@@ -2,8 +2,16 @@ import type { Prisma, Puzzle as PrismaPuzzle } from '@prisma/client'
 import { z } from 'zod'
 
 import type { MatchPublicDTO, MatchSolutionDTO, PuzzlePrivateDTO, PuzzlePublicDTO, TeamDTO } from '@/lib/contracts/puzzle'
-import { scoreMapsToSolutions, solveAll } from '@/lib/engine/solver'
-import { selectInitialRevealedMatches } from '@/lib/puzzles/prefill'
+import {
+  scoreMapsToSolutions,
+  SolverBudgetExceededError,
+  solveWithBudget,
+  solverBudgetFor
+} from '@/lib/engine/solver'
+import { classifyDifficultyScore } from '@/lib/engine/difficulty'
+import { captureSolverRun } from '@/lib/observability/solver'
+import { assertValidPuzzleDomain } from '@/lib/puzzles/domainValidation'
+import { businessDateFromDatabaseDate } from '@/lib/time/businessDate'
 import { matchPublicSchema, matchSolutionSchema, puzzlePrivateSchema, puzzlePublicSchema, standingSchema, teamSchema } from '@/lib/validations'
 
 const teamsConfigSchema = z.array(teamSchema).length(4)
@@ -15,28 +23,62 @@ const allSolutionsSchema = z.array(solutionSchema).min(1)
 export type PuzzleRecord = Pick<
   PrismaPuzzle,
   | 'id'
+  | 'contentKey'
+  | 'contentRevision'
+  | 'supersedesId'
   | 'difficulty'
   | 'inferenceSteps'
   | 'campaignPack'
   | 'campaignLevel'
   | 'tableDifficultyScore'
+  | 'presentationDifficultyScore'
+  | 'effectiveDifficultyScore'
   | 'solutionCount'
   | 'teamsConfig'
   | 'standings'
   | 'matchIds'
   | 'solution'
   | 'allSolutions'
+  | 'initialRevealedMatches'
   | 'dailyDate'
   | 'campaignOrder'
+  | 'contentVersion'
+  | 'generatorVersion'
+  | 'rulesVersion'
+  | 'contentHash'
+  | 'contentQaVersion'
+  | 'contentQaReport'
+  | 'publishedAt'
+  | 'activatedAt'
+  | 'retiredAt'
   | 'isActive'
   | 'isTested'
   | 'createdAt'
 >
 
+export type PuzzlePublicRecord = Pick<
+  PuzzleRecord,
+  | 'id'
+  | 'difficulty'
+  | 'inferenceSteps'
+  | 'campaignPack'
+  | 'campaignLevel'
+  | 'tableDifficultyScore'
+  | 'presentationDifficultyScore'
+  | 'effectiveDifficultyScore'
+  | 'solutionCount'
+  | 'teamsConfig'
+  | 'standings'
+  | 'matchIds'
+  | 'initialRevealedMatches'
+  | 'dailyDate'
+  | 'campaignOrder'
+>
+
 function toIsoDateString(value: Date | null): string | null {
   if (!value) return null
 
-  return value.toISOString().slice(0, 10)
+  return businessDateFromDatabaseDate(value)
 }
 
 function buildIdSet(values: Array<{ id: string }>) {
@@ -70,13 +112,9 @@ function assertMatchInvariants(
   matches: MatchPublicDTO[],
   solution: MatchSolutionDTO[]
 ) {
-  const teamIds = new Set(teams.map((team) => team.id))
+  assertPublicMatchInvariants(teams, matches)
   const publicIds = buildIdSet(matches)
   const solutionIds = buildIdSet(solution)
-
-  if (publicIds.size !== matches.length) {
-    throw new Error('Public matches contain duplicate ids.')
-  }
 
   if (solutionIds.size !== solution.length) {
     throw new Error('Solution matches contain duplicate ids.')
@@ -87,14 +125,6 @@ function assertMatchInvariants(
   }
 
   for (const match of matches) {
-    if (match.homeTeamId === match.awayTeamId) {
-      throw new Error(`Match ${match.id} references the same team on both sides.`)
-    }
-
-    if (!teamIds.has(match.homeTeamId) || !teamIds.has(match.awayTeamId)) {
-      throw new Error(`Match ${match.id} references unknown team ids.`)
-    }
-
     if (!solutionIds.has(match.id)) {
       throw new Error(`Solution is missing score data for match ${match.id}.`)
     }
@@ -107,14 +137,71 @@ function assertMatchInvariants(
   }
 }
 
+function assertPublicMatchInvariants(teams: TeamDTO[], matches: MatchPublicDTO[]) {
+  const teamIds = new Set(teams.map((team) => team.id))
+  const publicIds = buildIdSet(matches)
+  if (publicIds.size !== matches.length) {
+    throw new Error('Public matches contain duplicate ids.')
+  }
+
+  for (const match of matches) {
+    if (match.homeTeamId === match.awayTeamId) {
+      throw new Error(`Match ${match.id} references the same team on both sides.`)
+    }
+    if (!teamIds.has(match.homeTeamId) || !teamIds.has(match.awayTeamId)) {
+      throw new Error(`Match ${match.id} references unknown team ids.`)
+    }
+  }
+}
+
+function assertInitialReveals(
+  matches: MatchPublicDTO[],
+  initialRevealedMatches: MatchSolutionDTO[]
+) {
+  const matchesById = new Map(matches.map((match) => [match.id, match]))
+  const ids = new Set<string>()
+  for (const reveal of initialRevealedMatches) {
+    const match = matchesById.get(reveal.id)
+    if (
+      !match ||
+      ids.has(reveal.id) ||
+      match.homeTeamId !== reveal.homeTeamId ||
+      match.awayTeamId !== reveal.awayTeamId
+    ) {
+      throw new Error('Initial revealed matches do not match the public fixture topology.')
+    }
+    ids.add(reveal.id)
+  }
+}
+
 function buildPrivatePuzzleDTO(record: PuzzleRecord): PuzzlePrivateDTO {
   const teams = teamsConfigSchema.parse(record.teamsConfig)
   const standings = standingsConfigSchema.parse(record.standings)
   const matches = matchIdsSchema.parse(record.matchIds)
   const solution = solutionSchema.parse(record.solution)
-  const allSolutions = record.allSolutions
-    ? allSolutionsSchema.parse(record.allSolutions)
-    : scoreMapsToSolutions(matches, solveAll(standings, matches))
+  const initialRevealedMatches = z
+    .array(matchSolutionSchema)
+    .max(6)
+    .parse(record.initialRevealedMatches)
+  let allSolutions: MatchSolutionDTO[][]
+  if (record.allSolutions) {
+    allSolutions = allSolutionsSchema.parse(record.allSolutions)
+  } else {
+    const solverResult = solveWithBudget(standings, matches, {
+      budget: solverBudgetFor('LEGACY_RUNTIME')
+    })
+    captureSolverRun(solverResult, {
+      profile: 'LEGACY_RUNTIME',
+      operation: 'hydrate_missing_all_solutions'
+    })
+    if (!solverResult.exhaustive) {
+      throw new SolverBudgetExceededError(
+        `Legacy puzzle solution hydration stopped at ${solverResult.terminationReason}.`,
+        solverResult
+      )
+    }
+    allSolutions = scoreMapsToSolutions(matches, solverResult.solutions)
+  }
 
   assertStandingInvariants(teams, standings)
   assertMatchInvariants(teams, matches, solution)
@@ -122,21 +209,22 @@ function buildPrivatePuzzleDTO(record: PuzzleRecord): PuzzlePrivateDTO {
     assertMatchInvariants(teams, matches, candidateSolution)
   }
 
-  return puzzlePrivateSchema.parse({
+  const puzzle = puzzlePrivateSchema.parse({
     id: record.id,
     mode: record.dailyDate ? 'daily' : 'campaign',
     difficulty: record.difficulty,
+    effectiveDifficulty: classifyDifficultyScore(
+      record.effectiveDifficultyScore
+    ),
     inferenceSteps: record.inferenceSteps,
     tableDifficultyScore: record.tableDifficultyScore,
+    presentationDifficultyScore: record.presentationDifficultyScore,
+    effectiveDifficultyScore: record.effectiveDifficultyScore,
     solutionCount: record.solutionCount,
     teams,
     standings,
     matches,
-    initialRevealedMatches: selectInitialRevealedMatches({
-      id: record.id,
-      campaignPack: record.campaignPack,
-      solution
-    }),
+    initialRevealedMatches,
     solution,
     allSolutions,
     dailyDate: toIsoDateString(record.dailyDate),
@@ -144,6 +232,9 @@ function buildPrivatePuzzleDTO(record: PuzzleRecord): PuzzlePrivateDTO {
     campaignPack: record.campaignPack,
     campaignLevel: record.campaignLevel
   })
+
+  assertValidPuzzleDomain(puzzle, 'runtime')
+  return puzzle
 }
 
 export function mapPuzzleRecordToPrivateDTO(record: PuzzleRecord): PuzzlePrivateDTO {
@@ -155,8 +246,11 @@ export function stripPuzzleSolution(puzzle: PuzzlePrivateDTO): PuzzlePublicDTO {
     id: puzzle.id,
     mode: puzzle.mode,
     difficulty: puzzle.difficulty,
+    effectiveDifficulty: puzzle.effectiveDifficulty,
     inferenceSteps: puzzle.inferenceSteps,
     tableDifficultyScore: puzzle.tableDifficultyScore,
+    presentationDifficultyScore: puzzle.presentationDifficultyScore,
+    effectiveDifficultyScore: puzzle.effectiveDifficultyScore,
     solutionCount: puzzle.solutionCount,
     teams: puzzle.teams,
     standings: puzzle.standings,
@@ -169,8 +263,38 @@ export function stripPuzzleSolution(puzzle: PuzzlePrivateDTO): PuzzlePublicDTO {
   })
 }
 
-export function mapPuzzleRecordToPublicDTO(record: PuzzleRecord): PuzzlePublicDTO {
-  return stripPuzzleSolution(mapPuzzleRecordToPrivateDTO(record))
+export function mapPuzzleRecordToPublicDTO(record: PuzzlePublicRecord): PuzzlePublicDTO {
+  const teams = teamsConfigSchema.parse(record.teamsConfig)
+  const standings = standingsConfigSchema.parse(record.standings)
+  const matches = matchIdsSchema.parse(record.matchIds)
+  const initialRevealedMatches = z
+    .array(matchSolutionSchema)
+    .max(6)
+    .parse(record.initialRevealedMatches)
+
+  assertStandingInvariants(teams, standings)
+  assertPublicMatchInvariants(teams, matches)
+  assertInitialReveals(matches, initialRevealedMatches)
+
+  return puzzlePublicSchema.parse({
+    id: record.id,
+    mode: record.dailyDate ? 'daily' : 'campaign',
+    difficulty: record.difficulty,
+    effectiveDifficulty: classifyDifficultyScore(record.effectiveDifficultyScore),
+    inferenceSteps: record.inferenceSteps,
+    tableDifficultyScore: record.tableDifficultyScore,
+    presentationDifficultyScore: record.presentationDifficultyScore,
+    effectiveDifficultyScore: record.effectiveDifficultyScore,
+    solutionCount: record.solutionCount,
+    teams,
+    standings,
+    matches,
+    initialRevealedMatches,
+    dailyDate: toIsoDateString(record.dailyDate),
+    campaignOrder: record.campaignOrder,
+    campaignPack: record.campaignPack,
+    campaignLevel: record.campaignLevel
+  })
 }
 
 export function serializePuzzleJson(value: unknown): Prisma.InputJsonValue {

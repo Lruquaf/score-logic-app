@@ -10,7 +10,6 @@ interface HintModalProps {
   onRequestHint: (hintType: HintType) => void
   isPending: boolean
   answerRevealed: boolean
-  isOutcomeOnly: boolean
   lastHintMessage: string | null
   hintError: string | null
   hintsUsed: number
@@ -22,7 +21,6 @@ export function HintModal({
   onRequestHint,
   isPending,
   answerRevealed,
-  isOutcomeOnly,
   lastHintMessage,
   hintError,
   hintsUsed
@@ -71,12 +69,11 @@ export function HintModal({
                 className="w-full rounded-[var(--radius-lg)] border border-[var(--success)]/25 bg-[var(--success-soft)] px-4 py-5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.66)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_26px_rgba(31,85,53,0.10)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
               >
                 <div className="text-lg font-bold text-[var(--ink)]">
-                  {isOutcomeOnly ? 'Reveal match' : 'Reveal score cell'}
+                  Reveal score cell
                 </div>
                 <p className="mt-2 text-sm font-semibold text-[var(--muted)]">
-                  {isOutcomeOnly
-                    ? 'Shows one fixture result and locks that match.'
-                    : 'Opens one home or away score cell and locks that cell.'}
+                  Reveals a score only when every solution compatible with your entries
+                  shares that value; otherwise it explains the remaining conflict or branch.
                 </p>
               </button>
             </div>

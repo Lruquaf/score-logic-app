@@ -18,7 +18,7 @@ export function StatsExperience() {
   })
   const progressQuery = useQuery({
     queryKey: ['user-progress'],
-    queryFn: fetchUserProgress,
+    queryFn: () => fetchUserProgress({ limit: 6 }),
     staleTime: 30_000
   })
 
@@ -78,6 +78,19 @@ export function StatsExperience() {
             <div key={label} className="border-l border-[var(--field-line)] pl-4">
               <div className="text-xs font-bold uppercase text-[var(--muted)]">{label}</div>
               <div className="mt-1 font-mono text-2xl font-bold text-[var(--ink)]">{value}</div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-5 grid gap-4 border-t border-[var(--line)] pt-5 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            ['Successful attempts', stats?.successfulAttempts ?? 0],
+            ['Total attempts', stats?.totalAttempts ?? 0],
+            ['First-try solves', stats?.firstTrySolves ?? 0],
+            ['Answer reveals', stats?.answerReveals ?? 0]
+          ].map(([label, value]) => (
+            <div key={label} className="border-l border-[var(--field-line)] pl-4">
+              <div className="text-xs font-bold uppercase text-[var(--muted)]">{label}</div>
+              <div className="mt-1 font-mono text-xl font-bold text-[var(--ink)]">{value}</div>
             </div>
           ))}
         </div>

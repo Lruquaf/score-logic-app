@@ -1,9 +1,10 @@
-import type { Difficulty, PuzzlePrivateDTO } from '@/lib/contracts/puzzle'
+import type { PuzzlePrivateDTO } from '@/lib/contracts/puzzle'
 import type { MatchOutcome } from '@/lib/contracts/progress'
 import type { SubmitFeedback, SubmitFeedbackCell, SubmitFeedbackMode } from '@/lib/contracts/submit'
 import type { ConstraintViolation } from '@/lib/engine/types'
 import type { ScoreMap, ScoreValue } from '@/lib/engine/solver'
 import { getPuzzleCampaignPackConfig } from '@/lib/puzzles/campaignConfig'
+import { dailyFeedbackModeForTableDifficulty } from '@/lib/puzzles/difficultyProfile'
 import { outcomeFromScore } from '@/lib/puzzles/outcomes'
 
 function scoreOutcome(score: Pick<ScoreValue, 'home' | 'away'>): MatchOutcome {
@@ -52,14 +53,6 @@ function feedbackMessage(params: {
   return 'The fixture is wrong.'
 }
 
-function feedbackModeForDailyDifficulty(difficulty: Difficulty): SubmitFeedbackMode {
-  if (difficulty === 'HARD') {
-    return 'ERROR_COUNT'
-  }
-
-  return 'CONSTRAINT_VIOLATIONS'
-}
-
 export function buildSubmitFeedback(params: {
   puzzle: Pick<PuzzlePrivateDTO, 'campaignPack' | 'difficulty' | 'matches' | 'solution' | 'allSolutions'>
   userInputs?: ScoreMap
@@ -68,7 +61,8 @@ export function buildSubmitFeedback(params: {
   violations: ConstraintViolation[]
 }): SubmitFeedback {
   const mode: SubmitFeedbackMode =
-    getPuzzleCampaignPackConfig(params.puzzle)?.feedbackMode ?? feedbackModeForDailyDifficulty(params.puzzle.difficulty)
+    getPuzzleCampaignPackConfig(params.puzzle)?.feedbackMode ??
+    dailyFeedbackModeForTableDifficulty(params.puzzle.difficulty)
 
   if (params.isCorrect) {
     return {

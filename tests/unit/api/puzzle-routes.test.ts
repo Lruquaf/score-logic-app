@@ -17,7 +17,8 @@ vi.mock('@/lib/db/queries/puzzles', () => ({
   getPuzzleWithProgress: vi.fn(),
   getPuzzle: vi.fn(),
   getPuzzlePrivateById: vi.fn(),
-  listCampaignPuzzles: vi.fn()
+  listCampaignPuzzles: vi.fn(),
+  listCampaignPuzzleCatalogEntries: vi.fn()
 }))
 
 vi.mock('@/lib/db/queries/progress', () => ({
@@ -25,12 +26,103 @@ vi.mock('@/lib/db/queries/progress', () => ({
   upsertPuzzleProgress: vi.fn()
 }))
 
+vi.mock('@/lib/db/queries/submissions', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/db/queries/submissions')>(
+    '@/lib/db/queries/submissions'
+  )
+
+  return {
+    ...actual,
+    acquirePuzzleSubmissionLock: vi.fn(),
+    registerPuzzleSubmission: vi.fn().mockResolvedValue({
+      kind: 'created',
+      submissionId: 'submission-unit-test'
+    }),
+    recordFirstPuzzleCompletion: vi.fn().mockResolvedValue(true),
+    finalizePuzzleSubmission: vi.fn()
+  }
+})
+
 vi.mock('@/lib/db/queries/users', () => ({
-  updateUserStatsOnSolve: vi.fn(),
-  updateDailyStreakOnSolve: vi.fn()
+  getUserProgressSummary: vi.fn(),
+  getUserCampaignProgress: vi.fn().mockResolvedValue([])
 }))
 
+vi.mock('@/lib/db/queries/stats', () => ({
+  rebuildUserAggregates: vi.fn().mockResolvedValue({})
+}))
+
+vi.mock('@/lib/db/queries/identity', () => ({
+  acquireUserIdentityLocks: vi.fn().mockResolvedValue(undefined)
+}))
+
+vi.mock('@/lib/observability/server', () => ({
+  captureServerEvent: vi.fn(),
+  captureServerError: vi.fn()
+}))
+
+const ATTEMPT_ID = '00000000-0000-4000-8000-000000000001'
+const attemptRecord = {
+  id: ATTEMPT_ID,
+  userId: 'user-1',
+  puzzleId: sampleDailyPuzzlePrivate.id,
+  kind: 'STANDARD' as const,
+  status: 'ACTIVE' as const,
+  startedAt: new Date('2026-06-17T11:58:00.000Z'),
+  completedAt: null,
+  elapsedTimeSec: 0,
+  hintsUsed: 0,
+  hintTypes: [],
+  answerRevealedAt: null,
+  submissionCount: 0,
+  currentState: sampleProgressEnvelope.currentState as never
+}
+
+vi.mock('@/lib/db/queries/attempts', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/db/queries/attempts')>(
+    '@/lib/db/queries/attempts'
+  )
+  return {
+    ...actual,
+    acquireAttemptLock: vi.fn(),
+    appendAttemptEvent: vi.fn(),
+    authoritativeElapsedTimeSec: vi.fn().mockReturnValue(120),
+    getOwnedAttempt: vi.fn().mockResolvedValue(attemptRecord),
+    mapAttemptProgressState: vi.fn().mockReturnValue(sampleProgressEnvelope.currentState),
+    startOrResumePuzzleAttempt: vi.fn().mockResolvedValue({
+      id: '00000000-0000-4000-8000-000000000001',
+      kind: 'STANDARD',
+      status: 'ACTIVE',
+      startedAt: '2026-06-17T11:58:00.000Z',
+      completedAt: null,
+      elapsedTimeSec: 0,
+      hintsUsed: 0,
+      hintTypes: [],
+      answerRevealedAt: null,
+      submissionCount: 0
+    })
+  }
+})
+
+vi.mock('@/lib/puzzles/campaignAccess', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/puzzles/campaignAccess')>(
+    '@/lib/puzzles/campaignAccess'
+  )
+
+  return {
+    ...actual,
+    getCampaignAccessDecision: vi.fn().mockResolvedValue({ allowed: true })
+  }
+})
+
 vi.mock('@/lib/security/rate-limit', () => ({
+  RATE_LIMIT_RULES: {
+    attempt: {},
+    progress: {},
+    submit: {},
+    hint: {},
+    answer: {}
+  },
   getClientIdentifier: vi.fn().mockReturnValue('127.0.0.1'),
   enforceRateLimit: vi.fn().mockResolvedValue({
     response: null,
@@ -50,11 +142,18 @@ vi.mock('@/lib/db/prisma', () => ({
       callback({
         userPuzzleProgress: {},
         userStats: {},
-        dailyStreak: {}
+        dailyStreak: {},
+        puzzleAttempt: {
+          update: vi.fn().mockResolvedValue(attemptRecord)
+        }
       })
     )
   }
 }))
+
+const SUBMIT_HEADERS = {
+  'Idempotency-Key': 'unit-test-submission-key'
+}
 
 describe('puzzle API routes', () => {
   beforeEach(() => {
@@ -75,8 +174,13 @@ describe('puzzle API routes', () => {
         id: sampleDailyPuzzlePrivate.id,
         mode: sampleDailyPuzzlePrivate.mode,
         difficulty: sampleDailyPuzzlePrivate.difficulty,
+        effectiveDifficulty: sampleDailyPuzzlePrivate.effectiveDifficulty,
         inferenceSteps: sampleDailyPuzzlePrivate.inferenceSteps,
         tableDifficultyScore: sampleDailyPuzzlePrivate.tableDifficultyScore,
+        presentationDifficultyScore:
+          sampleDailyPuzzlePrivate.presentationDifficultyScore,
+        effectiveDifficultyScore:
+          sampleDailyPuzzlePrivate.effectiveDifficultyScore,
         solutionCount: sampleDailyPuzzlePrivate.solutionCount,
         teams: sampleDailyPuzzlePrivate.teams,
         standings: sampleDailyPuzzlePrivate.standings,
@@ -98,6 +202,33 @@ describe('puzzle API routes', () => {
     expect(json.progress.puzzleId).toBe(sampleProgressEnvelope.puzzleId)
   })
 
+  it('returns a retryable availability error when today is absent from the buffer', async () => {
+    const { getOptionalRequestUser } = await import('@/lib/auth/anonymous')
+    const { getDailyPuzzleWithProgress } = await import('@/lib/db/queries/puzzles')
+    const { captureServerEvent } = await import('@/lib/observability/server')
+    const { GET } = await import('@/app/api/puzzles/daily/route')
+
+    vi.mocked(getOptionalRequestUser).mockResolvedValue({
+      userId: null,
+      isAnonymous: false
+    })
+    vi.mocked(getDailyPuzzleWithProgress).mockResolvedValue(null)
+
+    const response = await GET(new NextRequest('http://localhost/api/puzzles/daily'))
+    const json = await response.json()
+
+    expect(response.status).toBe(503)
+    expect(response.headers.get('Retry-After')).toBe('300')
+    expect(json.error).toMatchObject({
+      code: 'SERVICE_UNAVAILABLE',
+      details: { businessDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) }
+    })
+    expect(captureServerEvent).toHaveBeenCalledWith(
+      'daily_buffer_gap',
+      expect.objectContaining({ businessDate: expect.any(String) })
+    )
+  })
+
   it('returns 404 for a missing puzzle by id', async () => {
     const { getOptionalRequestUser } = await import('@/lib/auth/anonymous')
     const { getPuzzleWithProgress } = await import('@/lib/db/queries/puzzles')
@@ -117,37 +248,86 @@ describe('puzzle API routes', () => {
   })
 
   it('returns the campaign puzzle list payload', async () => {
-    const { listCampaignPuzzles } = await import('@/lib/db/queries/puzzles')
+    const { getOptionalRequestUser } = await import('@/lib/auth/anonymous')
+    const { listCampaignPuzzleCatalogEntries } = await import('@/lib/db/queries/puzzles')
     const { GET } = await import('@/app/api/puzzles/campaign/route')
 
-    vi.mocked(listCampaignPuzzles).mockResolvedValue([
+    vi.mocked(getOptionalRequestUser).mockResolvedValue({
+      userId: null,
+      isAnonymous: false
+    })
+    vi.mocked(listCampaignPuzzleCatalogEntries).mockResolvedValue([
       {
         id: sampleCampaignPuzzlePrivate.id,
-        mode: sampleCampaignPuzzlePrivate.mode,
+        contentKey: 'campaign:beginner:1',
         difficulty: sampleCampaignPuzzlePrivate.difficulty,
-        inferenceSteps: sampleCampaignPuzzlePrivate.inferenceSteps,
-        tableDifficultyScore: sampleCampaignPuzzlePrivate.tableDifficultyScore,
-        solutionCount: sampleCampaignPuzzlePrivate.solutionCount,
-        teams: sampleCampaignPuzzlePrivate.teams,
-        standings: sampleCampaignPuzzlePrivate.standings,
-        matches: sampleCampaignPuzzlePrivate.matches,
-        initialRevealedMatches: sampleCampaignPuzzlePrivate.initialRevealedMatches,
-        dailyDate: sampleCampaignPuzzlePrivate.dailyDate,
-        campaignOrder: sampleCampaignPuzzlePrivate.campaignOrder,
-        campaignPack: sampleCampaignPuzzlePrivate.campaignPack,
-        campaignLevel: sampleCampaignPuzzlePrivate.campaignLevel
+        effectiveDifficulty: sampleCampaignPuzzlePrivate.effectiveDifficulty,
+        campaignOrder: 1,
+        campaignPack: 'BEGINNER',
+        campaignLevel: 1
       }
     ])
 
-    const response = await GET()
+    const response = await GET(new NextRequest('http://localhost/api/puzzles/campaign'))
     const json = await response.json()
 
     expect(response.status).toBe(200)
     expect(json.puzzles).toHaveLength(1)
-    expect(json.puzzles[0].mode).toBe('campaign')
+    expect(json.puzzles[0]).toMatchObject({
+      campaignPack: 'BEGINNER',
+      campaignLevel: 1,
+      isUnlocked: true
+    })
+    expect('standings' in json.puzzles[0]).toBe(false)
   })
 
-  it('saves progress for an ensured request user', async () => {
+  it('starts a server-owned puzzle attempt', async () => {
+    const { ensureRequestUser } = await import('@/lib/auth/anonymous')
+    const { getPuzzlePrivateById } = await import('@/lib/db/queries/puzzles')
+    const { getPuzzleProgress } = await import('@/lib/db/queries/progress')
+    const { startOrResumePuzzleAttempt } = await import('@/lib/db/queries/attempts')
+    const { POST } = await import('@/app/api/puzzles/[id]/attempt/route')
+
+    vi.mocked(ensureRequestUser).mockResolvedValue({
+      userId: 'user-1',
+      isAnonymous: true
+    })
+    vi.mocked(getPuzzlePrivateById).mockResolvedValue(sampleDailyPuzzlePrivate)
+    vi.mocked(getPuzzleProgress).mockResolvedValue(null)
+
+    const response = await POST(
+      new NextRequest(
+        `http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/attempt`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            kind: 'STANDARD',
+            forceNew: false
+          })
+        }
+      ),
+      {
+        params: Promise.resolve({ id: sampleDailyPuzzlePrivate.id })
+      }
+    )
+    const json = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(json.attempt).toMatchObject({
+      id: ATTEMPT_ID,
+      kind: 'STANDARD',
+      status: 'ACTIVE'
+    })
+    expect(startOrResumePuzzleAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-1',
+        puzzleId: sampleDailyPuzzlePrivate.id,
+        kind: 'STANDARD'
+      })
+    )
+  })
+
+  it('accepts the first local save when it predates a new attempt baseline', async () => {
     const { ensureRequestUser } = await import('@/lib/auth/anonymous')
     const { getPuzzle } = await import('@/lib/db/queries/puzzles')
     const { getPuzzleProgress, upsertPuzzleProgress } = await import('@/lib/db/queries/progress')
@@ -161,8 +341,13 @@ describe('puzzle API routes', () => {
       id: sampleDailyPuzzlePrivate.id,
       mode: sampleDailyPuzzlePrivate.mode,
       difficulty: sampleDailyPuzzlePrivate.difficulty,
+      effectiveDifficulty: sampleDailyPuzzlePrivate.effectiveDifficulty,
       inferenceSteps: sampleDailyPuzzlePrivate.inferenceSteps,
       tableDifficultyScore: sampleDailyPuzzlePrivate.tableDifficultyScore,
+      presentationDifficultyScore:
+        sampleDailyPuzzlePrivate.presentationDifficultyScore,
+      effectiveDifficultyScore:
+        sampleDailyPuzzlePrivate.effectiveDifficultyScore,
       solutionCount: sampleDailyPuzzlePrivate.solutionCount,
       teams: sampleDailyPuzzlePrivate.teams,
       standings: sampleDailyPuzzlePrivate.standings,
@@ -179,7 +364,11 @@ describe('puzzle API routes', () => {
     const request = new NextRequest(`http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/progress`, {
       method: 'PUT',
       body: JSON.stringify({
-        progress: sampleProgressEnvelope.currentState
+        attemptId: ATTEMPT_ID,
+        progress: {
+          ...sampleProgressEnvelope.currentState!,
+          updatedAt: '2026-06-17T09:02:00.000Z'
+        }
       })
     })
 
@@ -192,17 +381,84 @@ describe('puzzle API routes', () => {
     expect(json.progress.puzzleId).toBe(sampleDailyPuzzlePrivate.id)
   })
 
+  it('rejects malformed and oversized progress bodies as client errors', async () => {
+    const { captureServerError } = await import('@/lib/observability/server')
+    const { PUT } = await import('@/app/api/puzzles/[id]/progress/route')
+    const context = {
+      params: Promise.resolve({ id: sampleDailyPuzzlePrivate.id })
+    }
+
+    const malformedResponse = await PUT(
+      new NextRequest(`http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/progress`, {
+        method: 'PUT',
+        body: '{'
+      }),
+      context
+    )
+    const oversizedResponse = await PUT(
+      new NextRequest(`http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/progress`, {
+        method: 'PUT',
+        body: JSON.stringify({ value: 'x'.repeat(65_536) })
+      }),
+      context
+    )
+
+    expect(malformedResponse.status).toBe(400)
+    expect(oversizedResponse.status).toBe(413)
+    expect(captureServerError).not.toHaveBeenCalled()
+  })
+
+  it('rejects a genuinely stale save after an attempt has server progress', async () => {
+    const { ensureRequestUser } = await import('@/lib/auth/anonymous')
+    const { getPuzzle } = await import('@/lib/db/queries/puzzles')
+    const { mapAttemptProgressState } = await import('@/lib/db/queries/attempts')
+    const { PUT } = await import('@/app/api/puzzles/[id]/progress/route')
+
+    vi.mocked(ensureRequestUser).mockResolvedValue({
+      userId: 'user-1',
+      isAnonymous: true
+    })
+    vi.mocked(getPuzzle).mockResolvedValue(sampleDailyPuzzlePrivate)
+    vi.mocked(mapAttemptProgressState).mockReturnValueOnce({
+      ...sampleProgressEnvelope.currentState!,
+      updatedAt: '2026-06-17T12:01:00.000Z'
+    })
+
+    const request = new NextRequest(`http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/progress`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        attemptId: ATTEMPT_ID,
+        progress: {
+          ...sampleProgressEnvelope.currentState!,
+          updatedAt: '2026-06-17T12:00:00.000Z'
+        }
+      })
+    })
+
+    const response = await PUT(request, {
+      params: Promise.resolve({ id: sampleDailyPuzzlePrivate.id })
+    })
+    const json = await response.json()
+
+    expect(response.status).toBe(409)
+    expect(json.error.details).toEqual({ reason: 'STALE_PROGRESS' })
+  })
+
   it('submits a correct solution without exposing the solution payload', async () => {
     const { ensureRequestUser } = await import('@/lib/auth/anonymous')
     const { getPuzzlePrivateById } = await import('@/lib/db/queries/puzzles')
     const { getPuzzleProgress, upsertPuzzleProgress } = await import('@/lib/db/queries/progress')
+    const { rebuildUserAggregates } = await import('@/lib/db/queries/stats')
     const { POST } = await import('@/app/api/puzzles/[id]/submit/route')
 
     vi.mocked(ensureRequestUser).mockResolvedValue({
       userId: 'user-1',
       isAnonymous: true
     })
-    vi.mocked(getPuzzlePrivateById).mockResolvedValue(sampleDailyPuzzlePrivate)
+    vi.mocked(getPuzzlePrivateById).mockResolvedValue({
+      ...sampleDailyPuzzlePrivate,
+      allSolutions: [sampleDailyPuzzlePrivate.solution]
+    })
     vi.mocked(getPuzzleProgress).mockResolvedValue(sampleProgressEnvelope)
     vi.mocked(upsertPuzzleProgress).mockResolvedValue({
       ...sampleProgressEnvelope,
@@ -220,9 +476,11 @@ describe('puzzle API routes', () => {
 
     const request = new NextRequest(`http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/submit`, {
       method: 'POST',
+      headers: SUBMIT_HEADERS,
       body: JSON.stringify({
+        attemptId: ATTEMPT_ID,
         inputs,
-        timeTakenSec: 120
+        timeTakenSec: 1
       })
     })
 
@@ -237,10 +495,164 @@ describe('puzzle API routes', () => {
       mode: 'CONSTRAINT_VIOLATIONS',
       errorCount: 0
     })
+    expect(upsertPuzzleProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        timeTakenSec: 120,
+        currentState: expect.objectContaining({
+          elapsedTimeSec: 120
+        })
+      }),
+      expect.anything()
+    )
+    expect(rebuildUserAggregates).toHaveBeenCalledWith(
+      'user-1',
+      expect.anything()
+    )
     expect('solution' in json).toBe(false)
   })
 
-  it('accepts scorelines by comparing the computed table instead of allSolutions', async () => {
+  it('requires an idempotency key before processing a submit', async () => {
+    const { ensureRequestUser } = await import('@/lib/auth/anonymous')
+    const { POST } = await import('@/app/api/puzzles/[id]/submit/route')
+
+    const request = new NextRequest(
+      `http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/submit`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          attemptId: ATTEMPT_ID,
+          inputs: {},
+          timeTakenSec: 10
+        })
+      }
+    )
+
+    const response = await POST(request, {
+      params: Promise.resolve({ id: sampleDailyPuzzlePrivate.id })
+    })
+    const json = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(json.error.message).toContain('Idempotency-Key')
+    expect(ensureRequestUser).not.toHaveBeenCalled()
+  })
+
+  it('returns the stored progress snapshot for an idempotent submit retry', async () => {
+    const { ensureRequestUser } = await import('@/lib/auth/anonymous')
+    const { getPuzzlePrivateById } = await import('@/lib/db/queries/puzzles')
+    const { getPuzzleProgress, upsertPuzzleProgress } = await import('@/lib/db/queries/progress')
+    const { registerPuzzleSubmission } = await import('@/lib/db/queries/submissions')
+    const { rebuildUserAggregates } = await import('@/lib/db/queries/stats')
+    const { POST } = await import('@/app/api/puzzles/[id]/submit/route')
+
+    vi.mocked(ensureRequestUser).mockResolvedValue({
+      userId: 'user-1',
+      isAnonymous: true
+    })
+    vi.mocked(getPuzzlePrivateById).mockResolvedValue(sampleDailyPuzzlePrivate)
+    vi.mocked(getPuzzleProgress).mockResolvedValue({
+      ...sampleProgressEnvelope,
+      status: 'COMPLETED',
+      attempts: 1,
+      timeTakenSec: 120,
+      completedAt: '2026-06-17T12:00:00.000Z'
+    })
+    vi.mocked(registerPuzzleSubmission).mockResolvedValueOnce({
+      kind: 'duplicate',
+      submissionId: 'submission-existing',
+      isFirstCompletion: true,
+      progressSnapshot: {
+        ...sampleProgressEnvelope,
+        status: 'COMPLETED',
+        attempts: 1,
+        timeTakenSec: 120,
+        completedAt: '2026-06-17T12:00:00.000Z'
+      } as never
+    })
+
+    const inputs = Object.fromEntries(
+      sampleDailyPuzzlePrivate.solution.map((match) => [
+        match.id,
+        { home: match.homeScore, away: match.awayScore }
+      ])
+    )
+    const request = new NextRequest(
+      `http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/submit`,
+      {
+        method: 'POST',
+        headers: SUBMIT_HEADERS,
+        body: JSON.stringify({ attemptId: ATTEMPT_ID, inputs, timeTakenSec: 120 })
+      }
+    )
+
+    const response = await POST(request, {
+      params: Promise.resolve({ id: sampleDailyPuzzlePrivate.id })
+    })
+    const json = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(json.idempotencyReplayed).toBe(true)
+    expect(json.isFirstCompletion).toBe(true)
+    expect(json.progress.status).toBe('COMPLETED')
+    expect(upsertPuzzleProgress).not.toHaveBeenCalled()
+    expect(rebuildUserAggregates).not.toHaveBeenCalled()
+  })
+
+  it('rebuilds attempt aggregates when the unique completion already exists', async () => {
+    const { ensureRequestUser } = await import('@/lib/auth/anonymous')
+    const { getPuzzlePrivateById } = await import('@/lib/db/queries/puzzles')
+    const { getPuzzleProgress, upsertPuzzleProgress } = await import('@/lib/db/queries/progress')
+    const { recordFirstPuzzleCompletion } = await import('@/lib/db/queries/submissions')
+    const { rebuildUserAggregates } = await import('@/lib/db/queries/stats')
+    const { POST } = await import('@/app/api/puzzles/[id]/submit/route')
+
+    vi.mocked(ensureRequestUser).mockResolvedValue({
+      userId: 'user-1',
+      isAnonymous: true
+    })
+    vi.mocked(getPuzzlePrivateById).mockResolvedValue(sampleDailyPuzzlePrivate)
+    vi.mocked(getPuzzleProgress).mockResolvedValue(sampleProgressEnvelope)
+    vi.mocked(upsertPuzzleProgress).mockResolvedValue({
+      ...sampleProgressEnvelope,
+      status: 'COMPLETED',
+      attempts: 1,
+      timeTakenSec: 120,
+      completedAt: '2026-06-17T12:00:00.000Z'
+    })
+    vi.mocked(recordFirstPuzzleCompletion).mockResolvedValueOnce(false)
+
+    const inputs = Object.fromEntries(
+      sampleDailyPuzzlePrivate.solution.map((match) => [
+        match.id,
+        { home: match.homeScore, away: match.awayScore }
+      ])
+    )
+    const request = new NextRequest(
+      `http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/submit`,
+      {
+        method: 'POST',
+        headers: {
+          'Idempotency-Key': 'unit-test-second-completion-key'
+        },
+        body: JSON.stringify({ attemptId: ATTEMPT_ID, inputs, timeTakenSec: 120 })
+      }
+    )
+
+    const response = await POST(request, {
+      params: Promise.resolve({ id: sampleDailyPuzzlePrivate.id })
+    })
+    const json = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(json.isCorrect).toBe(true)
+    expect(json.isFirstCompletion).toBe(false)
+    expect(rebuildUserAggregates).toHaveBeenCalledWith(
+      'user-1',
+      expect.anything()
+    )
+  })
+
+  it('rejects a table-consistent scoreline that is absent from allSolutions', async () => {
     const { ensureRequestUser } = await import('@/lib/auth/anonymous')
     const { getPuzzlePrivateById } = await import('@/lib/db/queries/puzzles')
     const { getPuzzleProgress, upsertPuzzleProgress } = await import('@/lib/db/queries/progress')
@@ -279,7 +691,9 @@ describe('puzzle API routes', () => {
 
     const request = new NextRequest(`http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/submit`, {
       method: 'POST',
+      headers: SUBMIT_HEADERS,
       body: JSON.stringify({
+        attemptId: ATTEMPT_ID,
         inputs,
         timeTakenSec: 120
       })
@@ -291,10 +705,10 @@ describe('puzzle API routes', () => {
     const json = await response.json()
 
     expect(response.status).toBe(200)
-    expect(json.isCorrect).toBe(true)
+    expect(json.isCorrect).toBe(false)
     expect(upsertPuzzleProgress).toHaveBeenCalledWith(
       expect.objectContaining({
-        status: 'COMPLETED'
+        status: 'IN_PROGRESS'
       }),
       expect.anything()
     )
@@ -335,7 +749,9 @@ describe('puzzle API routes', () => {
 
     const request = new NextRequest(`http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/submit`, {
       method: 'POST',
+      headers: SUBMIT_HEADERS,
       body: JSON.stringify({
+        attemptId: ATTEMPT_ID,
         inputs,
         timeTakenSec: 120
       })
@@ -357,7 +773,7 @@ describe('puzzle API routes', () => {
     expect('solution' in json).toBe(false)
   })
 
-  it('submits beginner campaign puzzles with outcomes only', async () => {
+  it('submits beginner campaign puzzles with scorelines', async () => {
     const { ensureRequestUser } = await import('@/lib/auth/anonymous')
     const { getPuzzlePrivateById } = await import('@/lib/db/queries/puzzles')
     const { getPuzzleProgress, upsertPuzzleProgress } = await import('@/lib/db/queries/progress')
@@ -373,7 +789,8 @@ describe('puzzle API routes', () => {
       dailyDate: null,
       campaignPack: 'BEGINNER',
       campaignLevel: 1,
-      campaignOrder: 1
+      campaignOrder: 1,
+      allSolutions: [sampleDailyPuzzlePrivate.solution]
     })
     vi.mocked(getPuzzleProgress).mockResolvedValue(null)
     vi.mocked(upsertPuzzleProgress).mockResolvedValue({
@@ -383,21 +800,19 @@ describe('puzzle API routes', () => {
       completedAt: '2026-06-17T12:00:00.000Z'
     })
 
-    const outcomes = Object.fromEntries(
+    const inputs = Object.fromEntries(
       sampleDailyPuzzlePrivate.solution.map((match) => [
         match.id,
-        match.homeScore > match.awayScore
-          ? 'HOME_WIN'
-          : match.homeScore < match.awayScore
-            ? 'AWAY_WIN'
-            : 'DRAW'
+        { home: match.homeScore, away: match.awayScore }
       ])
     )
 
     const request = new NextRequest(`http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/submit`, {
       method: 'POST',
+      headers: SUBMIT_HEADERS,
       body: JSON.stringify({
-        outcomes,
+        attemptId: ATTEMPT_ID,
+        inputs,
         timeTakenSec: 120
       })
     })
@@ -409,20 +824,19 @@ describe('puzzle API routes', () => {
 
     expect(response.status).toBe(200)
     expect(json.isCorrect).toBe(true)
-    expect(json.feedback.mode).toBe('EXACT_WRONG_OUTCOMES')
+    expect(json.feedback.mode).toBe('EXACT_WRONG_CELLS')
     expect(upsertPuzzleProgress).toHaveBeenCalledWith(
       expect.objectContaining({
         status: 'COMPLETED',
         currentState: expect.objectContaining({
-          inputs: {},
-          outcomes
+          inputs
         })
       }),
       expect.anything()
     )
   })
 
-  it('checks beginner outcomes against the table instead of allSolutions', async () => {
+  it('rejects legacy outcome-only beginner submissions', async () => {
     const { ensureRequestUser } = await import('@/lib/auth/anonymous')
     const { getPuzzlePrivateById } = await import('@/lib/db/queries/puzzles')
     const { getPuzzleProgress, upsertPuzzleProgress } = await import('@/lib/db/queries/progress')
@@ -469,7 +883,9 @@ describe('puzzle API routes', () => {
 
     const request = new NextRequest(`http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/submit`, {
       method: 'POST',
+      headers: SUBMIT_HEADERS,
       body: JSON.stringify({
+        attemptId: ATTEMPT_ID,
         outcomes,
         timeTakenSec: 120
       })
@@ -481,10 +897,11 @@ describe('puzzle API routes', () => {
     const json = await response.json()
 
     expect(response.status).toBe(200)
-    expect(json.isCorrect).toBe(true)
+    expect(json.isCorrect).toBe(false)
+    expect(json.feedback.mode).toBe('EXACT_WRONG_CELLS')
   })
 
-  it('submits beginner campaign puzzles even when score drafts are empty', async () => {
+  it('requires complete scorelines even when legacy outcomes are complete', async () => {
     const { ensureRequestUser } = await import('@/lib/auth/anonymous')
     const { getPuzzlePrivateById } = await import('@/lib/db/queries/puzzles')
     const { getPuzzleProgress, upsertPuzzleProgress } = await import('@/lib/db/queries/progress')
@@ -500,7 +917,8 @@ describe('puzzle API routes', () => {
       dailyDate: null,
       campaignPack: 'BEGINNER',
       campaignLevel: 1,
-      campaignOrder: 1
+      campaignOrder: 1,
+      allSolutions: [sampleDailyPuzzlePrivate.solution]
     })
     vi.mocked(getPuzzleProgress).mockResolvedValue(null)
     vi.mocked(upsertPuzzleProgress).mockResolvedValue({
@@ -526,7 +944,9 @@ describe('puzzle API routes', () => {
 
     const request = new NextRequest(`http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/submit`, {
       method: 'POST',
+      headers: SUBMIT_HEADERS,
       body: JSON.stringify({
+        attemptId: ATTEMPT_ID,
         inputs: emptyInputs,
         outcomes,
         timeTakenSec: 120
@@ -539,8 +959,8 @@ describe('puzzle API routes', () => {
     const json = await response.json()
 
     expect(response.status).toBe(200)
-    expect(json.isCorrect).toBe(true)
-    expect(json.feedback.mode).toBe('EXACT_WRONG_OUTCOMES')
+    expect(json.isCorrect).toBe(false)
+    expect(json.feedback.mode).toBe('EXACT_WRONG_CELLS')
   })
 
   it('accepts any complete score set that satisfies the final table', async () => {
@@ -578,7 +998,9 @@ describe('puzzle API routes', () => {
 
     const request = new NextRequest(`http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/submit`, {
       method: 'POST',
+      headers: SUBMIT_HEADERS,
       body: JSON.stringify({
+        attemptId: ATTEMPT_ID,
         inputs,
         timeTakenSec: 120
       })
@@ -593,11 +1015,12 @@ describe('puzzle API routes', () => {
     expect(json.isCorrect).toBe(true)
   })
 
-  it('checks a completed puzzle replay without overwriting progress or stats', async () => {
+  it('persists a completed replay and rebuilds attempt aggregates', async () => {
     const { ensureRequestUser } = await import('@/lib/auth/anonymous')
     const { getPuzzlePrivateById } = await import('@/lib/db/queries/puzzles')
     const { getPuzzleProgress, upsertPuzzleProgress } = await import('@/lib/db/queries/progress')
-    const { updateDailyStreakOnSolve, updateUserStatsOnSolve } = await import('@/lib/db/queries/users')
+    const { recordFirstPuzzleCompletion } = await import('@/lib/db/queries/submissions')
+    const { rebuildUserAggregates } = await import('@/lib/db/queries/stats')
     const { POST } = await import('@/app/api/puzzles/[id]/submit/route')
 
     vi.mocked(ensureRequestUser).mockResolvedValue({
@@ -612,6 +1035,7 @@ describe('puzzle API routes', () => {
       timeTakenSec: 120,
       completedAt: '2026-06-17T12:00:00.000Z'
     })
+    vi.mocked(recordFirstPuzzleCompletion).mockResolvedValueOnce(false)
 
     const inputs = Object.fromEntries(
       sampleDailyPuzzlePrivate.solution.map((match) => [
@@ -622,7 +1046,9 @@ describe('puzzle API routes', () => {
 
     const request = new NextRequest(`http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/submit`, {
       method: 'POST',
+      headers: SUBMIT_HEADERS,
       body: JSON.stringify({
+        attemptId: ATTEMPT_ID,
         inputs,
         timeTakenSec: 90
       })
@@ -636,15 +1062,24 @@ describe('puzzle API routes', () => {
     expect(response.status).toBe(200)
     expect(json.isCorrect).toBe(true)
     expect(json.progress.status).toBe('COMPLETED')
-    expect(upsertPuzzleProgress).not.toHaveBeenCalled()
-    expect(updateUserStatsOnSolve).not.toHaveBeenCalled()
-    expect(updateDailyStreakOnSolve).not.toHaveBeenCalled()
+    expect(upsertPuzzleProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'COMPLETED',
+        currentAttemptId: ATTEMPT_ID
+      }),
+      expect.anything()
+    )
+    expect(rebuildUserAggregates).toHaveBeenCalledWith(
+      'user-1',
+      expect.anything()
+    )
   })
 
   it('rejects solution submit after the answer is revealed', async () => {
     const { ensureRequestUser } = await import('@/lib/auth/anonymous')
     const { getPuzzlePrivateById } = await import('@/lib/db/queries/puzzles')
     const { getPuzzleProgress, upsertPuzzleProgress } = await import('@/lib/db/queries/progress')
+    const { getOwnedAttempt } = await import('@/lib/db/queries/attempts')
     const { POST } = await import('@/app/api/puzzles/[id]/submit/route')
 
     vi.mocked(ensureRequestUser).mockResolvedValue({
@@ -657,6 +1092,10 @@ describe('puzzle API routes', () => {
       answerRevealed: true,
       answerRevealedAt: '2026-06-17T12:00:00.000Z'
     })
+    vi.mocked(getOwnedAttempt).mockResolvedValueOnce({
+      ...attemptRecord,
+      answerRevealedAt: new Date('2026-06-17T12:00:00.000Z')
+    })
 
     const inputs = Object.fromEntries(
       sampleDailyPuzzlePrivate.solution.map((match) => [
@@ -667,7 +1106,9 @@ describe('puzzle API routes', () => {
 
     const request = new NextRequest(`http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/submit`, {
       method: 'POST',
+      headers: SUBMIT_HEADERS,
       body: JSON.stringify({
+        attemptId: ATTEMPT_ID,
         inputs,
         timeTakenSec: 90
       })
@@ -698,8 +1139,10 @@ describe('puzzle API routes', () => {
     const request = new NextRequest(`http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/hint`, {
       method: 'POST',
       body: JSON.stringify({
+        attemptId: ATTEMPT_ID,
         hintType: 'reveal',
-        currentInputs: {}
+        currentInputs: {},
+        hintsUsed: 99
       })
     })
 
@@ -713,10 +1156,10 @@ describe('puzzle API routes', () => {
     expect(json.hint.revealedCell).toBeDefined()
     expect(json.progressPatch.revealedCells).toHaveLength(1)
     expect(json.progressPatch.revealedInputs).toBeDefined()
-    expect(json.progressPatch.hintsUsed).toBeGreaterThan(0)
+    expect(json.progressPatch.hintsUsed).toBe(1)
   })
 
-  it('returns a match result reveal hint patch for beginner puzzles', async () => {
+  it('returns a score-cell reveal hint patch for beginner puzzles', async () => {
     const { ensureRequestUser } = await import('@/lib/auth/anonymous')
     const { getPuzzlePrivateById } = await import('@/lib/db/queries/puzzles')
     const { getPuzzleProgress, upsertPuzzleProgress } = await import('@/lib/db/queries/progress')
@@ -740,9 +1183,9 @@ describe('puzzle API routes', () => {
     const request = new NextRequest(`http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/hint`, {
       method: 'POST',
       body: JSON.stringify({
+        attemptId: ATTEMPT_ID,
         hintType: 'reveal',
-        currentInputs: {},
-        currentOutcomes: {}
+        currentInputs: {}
       })
     })
 
@@ -754,9 +1197,10 @@ describe('puzzle API routes', () => {
     expect(response.status).toBe(200)
     expect(json.hint.type).toBe('reveal')
     expect(json.hint.targetMatchId).toBeDefined()
-    expect(json.hint.revealedOutcome).toBeDefined()
-    expect(json.progressPatch.revealedMatchIds).toContain(json.hint.targetMatchId)
-    expect(json.progressPatch.revealedOutcomes[json.hint.targetMatchId]).toBe(json.hint.revealedOutcome)
+    expect(json.hint.revealedCell).toBeDefined()
+    expect(json.hint.revealedScore).toBeDefined()
+    expect(json.progressPatch.revealedCells).toHaveLength(1)
+    expect(json.progressPatch.revealedInputs).toBeDefined()
   })
 
   it('reveals the full answer and marks progress with answer reveal penalty', async () => {
@@ -773,14 +1217,17 @@ describe('puzzle API routes', () => {
     vi.mocked(getPuzzleProgress).mockResolvedValue(sampleProgressEnvelope)
     vi.mocked(upsertPuzzleProgress).mockImplementation(async (input) => ({
       ...sampleProgressEnvelope,
+      status: input.status ?? sampleProgressEnvelope.status,
       answerRevealed: input.answerRevealed ?? false,
       answerRevealedAt: input.answerRevealedAt?.toISOString() ?? null,
+      timeTakenSec: input.timeTakenSec ?? null,
+      completedAt: input.completedAt?.toISOString() ?? null,
       currentState: input.currentState ?? null
     }))
 
     const request = new NextRequest(`http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/answer`, {
       method: 'POST',
-      body: JSON.stringify({})
+      body: JSON.stringify({ attemptId: ATTEMPT_ID })
     })
 
     const response = await POST(request, {
@@ -802,11 +1249,12 @@ describe('puzzle API routes', () => {
           answerRevealed: true,
           completedMatchIds: sampleDailyPuzzlePrivate.matches.map((match) => match.id)
         })
-      })
+      }),
+      expect.anything()
     )
   })
 
-  it('reveals the full answer for a replay without overwriting completed progress', async () => {
+  it('reveals the full answer for a replay while preserving official completion', async () => {
     const { ensureRequestUser } = await import('@/lib/auth/anonymous')
     const { getPuzzlePrivateById } = await import('@/lib/db/queries/puzzles')
     const { getPuzzleProgress, upsertPuzzleProgress } = await import('@/lib/db/queries/progress')
@@ -828,6 +1276,7 @@ describe('puzzle API routes', () => {
     const request = new NextRequest(`http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/answer`, {
       method: 'POST',
       body: JSON.stringify({
+        attemptId: ATTEMPT_ID,
         elapsedTimeSec: 41,
         currentInputs: {},
         isReplay: true
@@ -841,10 +1290,16 @@ describe('puzzle API routes', () => {
 
     expect(response.status).toBe(200)
     expect(json.progress.status).toBe('COMPLETED')
-    expect(json.progress.timeTakenSec).toBeNull()
-    expect(json.progress.completedAt).toBeNull()
+    expect(json.progress.timeTakenSec).toBe(120)
+    expect(json.progress.completedAt).toBe('2026-06-17T12:00:00.000Z')
     expect(json.progress.currentState.answerRevealed).toBe(true)
-    expect(json.progress.currentState.elapsedTimeSec).toBe(41)
-    expect(upsertPuzzleProgress).not.toHaveBeenCalled()
+    expect(json.progress.currentState.elapsedTimeSec).toBe(120)
+    expect(upsertPuzzleProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'COMPLETED',
+        currentAttemptId: ATTEMPT_ID
+      }),
+      expect.anything()
+    )
   })
 })
