@@ -123,6 +123,12 @@ Repository içinde bulunan [railway.toml](/Users/yavuzselim/Desktop/Cursor/Score
 - start command: `npm run start:standalone`
 - readiness/promotion healthcheck path: `/api/health`
 
+`db:deploy`, Railway PostgreSQL'in henüz startup/recovery aşamasında olduğu geçici
+durumlarda Prisma migration'ını bounded exponential backoff ile en fazla sekiz kez
+tekrarlar. Yalnız bağlantı hazırlığına ait `P1001`/`P1002`, startup/recovery ve bağlantı
+kesilmesi hataları tekrar denenir; gerçek migration/schema hataları ilk denemede deploy'u
+durdurur.
+
 ### 3.1 Railway üzerinde proje oluştur
 
 1. Railway dashboard'da yeni bir project oluştur.
@@ -432,8 +438,9 @@ Deploy tamamlandıktan sonra:
 
 - Railway config as code yalnızca deploy anındaki ayarları override eder; dashboard ayarlarını kalıcı olarak değiştirmez. Bu yüzden `railway.toml` repository içinde canonical deploy manifest olarak tutulmalıdır.
 - Next.js standalone output etkin olduğu için Railway start command doğrudan minimal standalone server'ı başlatır.
-- Prisma migration'ları deploy sırasında `db:deploy` ile uygulanır; deploy puzzle üretmez
-  veya mevcut puzzle içeriğini güncellemez.
+- Prisma migration'ları deploy sırasında `db:deploy` ile uygulanır; geçici database
+  startup yarışları yaklaşık 62 saniyelik sınırlı retry penceresinde karşılanır. Deploy
+  puzzle üretmez veya mevcut puzzle içeriğini güncellemez.
 - `20260730170000_wave_4_attempts` migration'ı `PuzzleAttempt`, `AttemptEvent` ve
   first/best/current progress referanslarını ekler. Uygulama kodu yayınlanmadan önce
   pre-deploy migration'ın başarıyla tamamlanması zorunludur.

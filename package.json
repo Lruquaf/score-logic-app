@@ -31,7 +31,7 @@
     "test:integration:local": "node scripts/run-local-integration.mjs",
     "test:e2e": "playwright test",
     "db:generate": "prisma generate",
-    "db:deploy": "prisma migrate deploy",
+    "db:deploy": "tsx scripts/deploy-migrations.ts",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:setup": "node scripts/db-setup.mjs",
