@@ -142,6 +142,21 @@ durdurur.
 
 Railway dökümantasyonuna göre PostgreSQL servisi `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` ve `DATABASE_URL` gibi değişkenleri sağlar; çoğu kütüphane doğrudan `DATABASE_URL` kullanır. Kaynak: Railway PostgreSQL docs.
 
+#### Bilinen Wave 14 production migration'ını otomatik kurtarma
+
+`db:deploy`, Prisma `P3009` sonucunda yalnız
+`20260803140000_wave_14_editorial_workflow` migration'ını başarısız görürse bu
+tek kaydı otomatik olarak `migrate resolve --rolled-back` ile yeniden uygulanabilir
+duruma getirir ve migration deploy'unu aynı pre-deploy içinde tekrarlar. Wave 14 SQL'i
+kısmi ilk denemeden kalabilecek nesneleri idempotent olarak ele alır ve düzeltmeyi
+transaction içinde tamamlar. Bu nedenle düzeltilmiş commit'in ilk GitHub/Railway
+deployment'ı dışarıdan SSH veya manuel veritabanı müdahalesi istemez.
+
+Otomatik recovery kesin bir allowlist kullanır. Farklı isimde bir migration hatası,
+Wave 14 için `P3009` dışında yeni bir hata veya başarısız resolve işlemi fail-closed
+olarak deploy'u durdurur; migration ledger'ına genel ya da tahmine dayalı müdahale
+edilmez. Veri silen `migrate reset` hiçbir production recovery akışında kullanılmaz.
+
 ### 3.3 Uygulama environment variables
 
 Web service için en az şu değişkenleri ekle:

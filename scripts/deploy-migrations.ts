@@ -1,6 +1,10 @@
 import { spawn } from 'node:child_process'
 
 import {
+  runMigrationDeploymentWithRecovery,
+  type AutoRecoverableFailedMigration
+} from '../lib/operations/migrationRecovery'
+import {
   runMigrationWithRetry,
   type MigrationAttemptResult
 } from '../lib/operations/migrationRetry'
@@ -11,9 +15,9 @@ function appendOutput(current: string, chunk: Buffer) {
   return `${current}${chunk.toString()}`.slice(-MAX_CAPTURED_OUTPUT_BYTES)
 }
 
-function runPrismaMigration() {
+function runPrismaCommand(args: string[]) {
   return new Promise<MigrationAttemptResult>((resolve) => {
-    const child = spawn('prisma', ['migrate', 'deploy'], {
+    const child = spawn('prisma', args, {
       env: process.env,
       stdio: ['inherit', 'pipe', 'pipe']
     })
@@ -43,19 +47,42 @@ function runPrismaMigration() {
   })
 }
 
-async function main() {
-  const result = await runMigrationWithRetry(runPrismaMigration, {
+function runWithDatabaseReadinessRetry(args: string[]) {
+  return runMigrationWithRetry(() => runPrismaCommand(args), {
     onRetry: ({ attempt, delayMs, maxAttempts }) => {
       console.warn(
         `[db:deploy] Database is not ready after attempt ${attempt}/${maxAttempts}; retrying in ${delayMs / 1_000}s.`
       )
     }
   })
+}
 
-  if (result.exitCode === 0 && result.attempts > 1) {
-    console.log(
-      `[db:deploy] Prisma migrations completed on attempt ${result.attempts}.`
-    )
+function deployMigrations() {
+  return runWithDatabaseReadinessRetry(['migrate', 'deploy'])
+}
+
+function resolveFailedMigration(migration: AutoRecoverableFailedMigration) {
+  return runWithDatabaseReadinessRetry([
+    'migrate',
+    'resolve',
+    '--rolled-back',
+    migration
+  ])
+}
+
+async function main() {
+  const result = await runMigrationDeploymentWithRecovery({
+    runDeploy: deployMigrations,
+    runResolve: resolveFailedMigration,
+    onRecovery: (migration) => {
+      console.warn(
+        `[db:deploy] Found the known failed ${migration} migration. Marking only this migration rolled back before retrying its idempotent repair.`
+      )
+    }
+  })
+
+  if (result.exitCode === 0) {
+    console.log('[db:deploy] Prisma migrations are up to date.')
   }
   process.exitCode = result.exitCode
 }
