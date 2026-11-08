@@ -49,24 +49,22 @@ describe('server environment validation', () => {
     expect(() => validateServerEnvironment({}, 'production')).toThrow(
       /AUTH_URL is required in production/
     )
-    expect(() => validateServerEnvironment({}, 'production')).toThrow(
-      /UPSTASH_REDIS_REST_URL is required in production/
-    )
-    expect(() => validateServerEnvironment({}, 'production')).toThrow(
-      /RATE_LIMIT_TRUSTED_PROXY_HOPS is required in production/
-    )
-    expect(() => validateServerEnvironment({}, 'production')).toThrow(
-      /OBSERVABILITY_HASH_SALT is required in production/
-    )
-    expect(() => validateServerEnvironment({}, 'production')).toThrow(
-      /SENTRY_DSN is required in production/
-    )
-    expect(() => validateServerEnvironment({}, 'production')).toThrow(
-      /OTEL_EXPORTER_OTLP_ENDPOINT is required in production/
-    )
-    expect(() => validateServerEnvironment({}, 'production')).toThrow(
-      /SYNTHETIC_MONITOR_TOKEN is required in production/
-    )
+
+  })
+
+  it('accepts only the core production settings with optional services disabled', () => {
+    const env = validateServerEnvironment({
+      DATABASE_URL: validProductionEnvironment.DATABASE_URL,
+      AUTH_SECRET: validProductionEnvironment.AUTH_SECRET,
+      AUTH_URL: validProductionEnvironment.AUTH_URL,
+      AUTH_TRUST_HOST: 'true'
+    }, 'production')
+    expect(env.upstashRedisRestUrl).toBeNull()
+    expect(env.sentryDsn).toBeNull()
+    expect(env.otelExporterOtlpEndpoint).toBeNull()
+    expect(env.posthogApiKey).toBeNull()
+    expect(env.syntheticMonitorToken).toBeNull()
+    expect(env.rateLimitTrustedProxyHops).toBe(0)
   })
 
   it('rejects unsafe production observability settings', () => {
@@ -179,7 +177,7 @@ describe('server environment validation', () => {
     })
   })
 
-  it('requires a complete HTTPS Redis config and a trusted production proxy', () => {
+  it('requires paired Redis credentials and HTTPS when Redis is enabled', () => {
     expect(() =>
       validateServerEnvironment(
         { ...validProductionEnvironment, UPSTASH_REDIS_REST_TOKEN: '' },
@@ -192,11 +190,6 @@ describe('server environment validation', () => {
         'production'
       )
     ).toThrow(/must use https/)
-    expect(() =>
-      validateServerEnvironment(
-        { ...validProductionEnvironment, RATE_LIMIT_TRUSTED_PROXY_HOPS: '0' },
-        'production'
-      )
-    ).toThrow(/must be at least 1/)
+
   })
 })

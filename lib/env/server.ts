@@ -230,35 +230,22 @@ export function validateServerEnvironment(
     issues.push(
       'UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN must be configured together.'
     )
-  } else if (isProduction && !upstashRedisRestUrl) {
-    issues.push('UPSTASH_REDIS_REST_URL is required in production.')
-    issues.push('UPSTASH_REDIS_REST_TOKEN is required in production.')
   }
 
-  if (isProduction && configuredTrustedProxyHops === null) {
-    issues.push('RATE_LIMIT_TRUSTED_PROXY_HOPS is required in production.')
-  } else if (rateLimitTrustedProxyHops === null) {
+  if (rateLimitTrustedProxyHops === null) {
     issues.push('RATE_LIMIT_TRUSTED_PROXY_HOPS must be an integer between 0 and 5.')
-  } else if (isProduction && rateLimitTrustedProxyHops === 0) {
-    issues.push('RATE_LIMIT_TRUSTED_PROXY_HOPS must be at least 1 in production.')
   }
 
   if (observabilityHashSalt && observabilityHashSalt.length < 32) {
     issues.push('OBSERVABILITY_HASH_SALT must contain at least 32 characters.')
-  } else if (isProduction && !observabilityHashSalt) {
-    issues.push('OBSERVABILITY_HASH_SALT is required in production.')
   }
 
   if (sentryDsn && !isHttpUrl(sentryDsn)) {
     issues.push('SENTRY_DSN must be a valid http:// or https:// URL.')
-  } else if (isProduction && !sentryDsn) {
-    issues.push('SENTRY_DSN is required in production.')
   }
 
   if (publicSentryDsn && !isHttpUrl(publicSentryDsn)) {
     issues.push('NEXT_PUBLIC_SENTRY_DSN must be a valid http:// or https:// URL.')
-  } else if (isProduction && !publicSentryDsn) {
-    issues.push('NEXT_PUBLIC_SENTRY_DSN is required in production.')
   } else if (sentryDsn && publicSentryDsn && sentryDsn !== publicSentryDsn) {
     issues.push('SENTRY_DSN and NEXT_PUBLIC_SENTRY_DSN must match.')
   }
@@ -271,32 +258,24 @@ export function validateServerEnvironment(
     !otelExporterOtlpEndpoint.startsWith('https://')
   ) {
     issues.push('OTEL_EXPORTER_OTLP_ENDPOINT must use https:// in production.')
-  } else if (isProduction && !otelExporterOtlpEndpoint) {
-    issues.push('OTEL_EXPORTER_OTLP_ENDPOINT is required in production.')
   }
 
   if (otelTraceSampleRatio === null) {
     issues.push('OTEL_TRACES_SAMPLER_ARG must be a number between 0 and 1.')
-  } else if (isProduction && configuredTraceSampleRatio === null) {
-    issues.push('OTEL_TRACES_SAMPLER_ARG is required in production.')
   }
 
-  if (isProduction && !posthogApiKey) {
-    issues.push('POSTHOG_API_KEY is required in production.')
+  if (posthogApiKey && !posthogHost) {
+    issues.push('POSTHOG_HOST is required when POSTHOG_API_KEY is configured.')
   }
 
   if (posthogHost && !isHttpUrl(posthogHost)) {
     issues.push('POSTHOG_HOST must be a valid http:// or https:// URL.')
   } else if (isProduction && posthogHost && !posthogHost.startsWith('https://')) {
     issues.push('POSTHOG_HOST must use https:// in production.')
-  } else if (isProduction && !posthogHost) {
-    issues.push('POSTHOG_HOST is required in production.')
   }
 
   if (syntheticMonitorToken && syntheticMonitorToken.length < 32) {
     issues.push('SYNTHETIC_MONITOR_TOKEN must contain at least 32 characters.')
-  } else if (isProduction && !syntheticMonitorToken) {
-    issues.push('SYNTHETIC_MONITOR_TOKEN is required in production.')
   }
 
   if (issues.length > 0) {

@@ -7,7 +7,7 @@ export function isRedisConfigured() {
 }
 
 export function isRedisRequired() {
-  return process.env.NODE_ENV === 'production'
+  return process.env.NODE_ENV === 'production' && isRedisConfigured()
 }
 
 export function getRedis() {

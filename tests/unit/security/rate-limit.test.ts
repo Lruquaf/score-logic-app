@@ -70,7 +70,7 @@ describe('rate limit helper', () => {
     expect(denied.response?.headers.get('RateLimit')).toContain('remaining=0')
   })
 
-  it('fails closed when production Redis protection is absent', async () => {
+  it('uses memory protection in production without Redis', async () => {
     vi.stubEnv('NODE_ENV', 'production')
     vi.stubEnv('UPSTASH_REDIS_REST_URL', '')
     vi.stubEnv('UPSTASH_REDIS_REST_TOKEN', '')
@@ -82,8 +82,11 @@ describe('rate limit helper', () => {
       windowMs: 60_000
     }
 
+    const first = await enforceRateLimit(request, { rule })
+    expect(first.response).toBeNull()
+    expect(first.result.backend).toBe('memory')
+    await enforceRateLimit(request, { rule })
     const denied = await enforceRateLimit(request, { rule })
-    expect(denied.response?.status).toBe(503)
-    expect(denied.response?.headers.get('Retry-After')).toBe('5')
+    expect(denied.response?.status).toBe(429)
   })
 })

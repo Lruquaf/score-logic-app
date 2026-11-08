@@ -21,7 +21,10 @@ function preparePayload(payload: Record<string, unknown>) {
     ...(typeof rest.path === 'string'
       ? { path: normalizeTelemetryPath(rest.path) }
       : {}),
-    ...(typeof userId === 'string' ? { actorHash: actorHash(userId) } : {})
+    ...(typeof userId === 'string' &&
+      (process.env.NODE_ENV !== 'production' || process.env.OBSERVABILITY_HASH_SALT?.trim())
+      ? { actorHash: actorHash(userId) }
+      : {})
   }
 
   return sanitizeTelemetryValue(prepared) as Record<string, unknown>

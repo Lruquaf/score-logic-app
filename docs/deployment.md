@@ -16,20 +16,44 @@ Production'da zorunlu:
 - `AUTH_SECRET`: en az 32 karakterlik, güçlü ve benzersiz bir secret.
 - `AUTH_URL`: uygulamanın `https://` public URL'i.
 - `AUTH_TRUST_HOST=true`: production host/proxy güveni açıkça etkinleştirilmelidir.
-- `UPSTASH_REDIS_REST_URL`: production Upstash Redis REST URL'i; `https://` olmalıdır.
-- `UPSTASH_REDIS_REST_TOKEN`: aynı Redis instance'ının REST token'ı.
-- `RATE_LIMIT_TRUSTED_PROXY_HOPS`: uygulama önündeki güvenilen proxy sayısı; Railway için `1`.
-- `OBSERVABILITY_HASH_SALT`: kullanıcı korelasyonu için en az 32 karakterlik, ortam-bazlı salt.
-- `SENTRY_DSN` ve `NEXT_PUBLIC_SENTRY_DSN`: aynı Sentry projesinin DSN'i.
-- `OTEL_EXPORTER_OTLP_ENDPOINT`: production'da HTTPS OTLP collector endpoint'i.
-- `OTEL_TRACES_SAMPLER_ARG`: `0–1` aralığında açık trace örnekleme oranı.
-- `POSTHOG_API_KEY` ve `POSTHOG_HOST`: server-proxy ürün analitiği hedefi.
-- `SYNTHETIC_MONITOR_TOKEN`: en az 32 karakterlik internal synthetic bearer token.
-- Backup cron için `BACKUP_ENCRYPTION_KEY`: 32 byte'ın hex veya base64 karşılığı.
-- Backup cron için S3-compatible off-site hedef: `AWS_ACCESS_KEY_ID`,
-  `AWS_SECRET_ACCESS_KEY`, `AWS_S3_BUCKET_NAME`, `AWS_DEFAULT_REGION`; R2 veya B2 gibi
-  custom endpoint'lerde ayrıca `AWS_ENDPOINT_URL`. Railway Bucket teknik olarak uyumludur
-  ancak aynı Railway projesindeki bucket bağımsız off-site kopya sayılmaz.
+
+Minimum web deploy için bu dört değişken yeterlidir. Node.js 22 / npm 10,
+PostgreSQL ve migration'ların uygulanması gerekir. `railway.toml` build, migration,
+standalone start ve `/api/health` kontrolünü zaten tanımlar.
+
+```dotenv
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DATABASE
+AUTH_SECRET=<en-az-32-karakter-rastgele-secret>
+AUTH_URL=https://uygulamaniz.example.com
+AUTH_TRUST_HOST=true
+```
+
+Secret üretmek için: `openssl rand -base64 32`. Railway üzerinde ayrıca
+`RATE_LIMIT_TRUSTED_PROXY_HOPS=1` kullanın; varsayılan `0` forwarded IP'ye güvenmez,
+cookie'siz istekleri ortak bir limit kovasında toplar.
+
+Opsiyonel servisler:
+
+- `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`: birlikte verilir.
+  Yoksa süreli bellek içi rate limiter çalışır. Limitler instance bazlıdır ve restart'ta
+  sıfırlanır; çok instance için Redis kullanın. Yapılandırılmış Redis production'da
+  kesilirse korunan istekler `503` döndürmeye devam eder.
+- `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`: sunucu ve tarayıcı hata takibi.
+- `OTEL_EXPORTER_OTLP_ENDPOINT`: yoksa OTel exporter başlatılmaz.
+  `OTEL_TRACES_SAMPLER_ARG` varsayılanı `0.1`.
+- `POSTHOG_API_KEY` + `POSTHOG_HOST`: ürün analitiği; key verilirse host gerekir.
+- `OBSERVABILITY_HASH_SALT`: en az 32 karakter; yoksa production log/analitiğinde
+  kullanıcı korelasyonu gönderilmez.
+- `SYNTHETIC_MONITOR_TOKEN` ve `SYNTHETIC_BASE_URL`: yalnız synthetic worker için.
+- Backup/S3 değişkenleri: yalnız ayrı backup worker çalıştırılacaksa gerekir.
+- Daily buffer, editorial activation, calibration, synthetic ve backup cron servisleri
+  ilk web deploy için gerekmez. Günlük içeriğin devamlılığı için daily buffer ve
+  editorial yayın süreci daha sonra kurulmalıdır.
+
+Boş veritabanında migration yalnız şemayı hazırlar. Oynanabilir içerik için
+`npm run db:seed`, `npm run db:publish` ve aşağıda açıklanan editorial onay/aktivasyon
+adımları gerekir. Web deploy otomatik puzzle üretmez veya inceleme onayını atlamaz.
+Opsiyonel değişkenler tanımlanırsa geçerlilik kontrolleri uygulanmaya devam eder.
 
 Eklemeyin:
 
@@ -46,13 +70,8 @@ Not:
 - `build`, `start` ve `start:standalone` öncesinde merkezi environment doğrulaması
   çalışır. Eksik/geçersiz production değişkeni veya örnek geliştirme secret'ı
   deployment'ı fail-fast durdurur.
-- Redis entegrasyonu Upstash REST tabanlıdır. Production'da iki Redis değişkeni birlikte
-  zorunludur; eksik config startup/build doğrulamasını durdurur. Lokal ve test ortamında
-  Redis opsiyoneldir ve süreli/temizlenen memory limiter kullanılır.
-- Rate-limit Redis çağrısı production'da bozulursa korunan write/expensive endpoint'ler
-  instance-local limite düşmez; `503 SERVICE_UNAVAILABLE` ve `Retry-After: 5` döner.
-- `RATE_LIMIT_TRUSTED_PROXY_HOPS=0`, forwarded IP başlıklarına güvenmez. Railway proxy'si
-  gerçek istemciyi `x-forwarded-for` zincirine eklediği için production değeri `1` olmalıdır.
+- Redis yoksa `/api/health`, PostgreSQL erişilebilir olduğunda `200` ve
+  `redis: disabled` döndürür. Redis yapılandırılmışsa erişilebilir olması gerekir.
 
 ## 2. Lokal Geliştirme Akışı
 
@@ -165,11 +184,14 @@ Web service için en az şu değişkenleri ekle:
 - `AUTH_SECRET=<strong-random-secret>`
 - `AUTH_URL=https://<your-domain>`
 - `AUTH_TRUST_HOST=true`
+- `RATE_LIMIT_TRUSTED_PROXY_HOPS=1` (Railway proxy ayarı)
+
+Aşağıdakileri yalnız ilgili servisi kullanacaksan ekle:
+
 - `DAILY_TIME_ZONE=Europe/Istanbul`
 - `DAILY_BUFFER_DAYS_AHEAD=14`
 - `UPSTASH_REDIS_REST_URL=<https-upstash-rest-url>`
 - `UPSTASH_REDIS_REST_TOKEN=<upstash-rest-token>`
-- `RATE_LIMIT_TRUSTED_PROXY_HOPS=1`
 - `OBSERVABILITY_HASH_SALT=<strong-random-environment-salt>`
 - `SENTRY_DSN=<sentry-dsn>` ve `NEXT_PUBLIC_SENTRY_DSN=<same-sentry-dsn>`
 - `OTEL_EXPORTER_OTLP_ENDPOINT=<https-otlp-endpoint>`
@@ -190,8 +212,8 @@ Web service için en az şu değişkenleri ekle:
 Railway healthcheck mantığına göre yeni deployment ancak endpoint HTTP `200` döndürdüğünde aktif olur. Ayrıca Railway uygulamanın `PORT` değişkenini dinlemesini bekler. Kaynak: Railway Healthchecks docs.
 
 `/api/healthz` yalnız process liveness'ını kontrol eder ve dış bağımlılık sorgulamaz.
-Canonical Railway promotion gate'i `/api/health` endpoint'idir: PostgreSQL ve zorunlu
-Redis birlikte `up` değilse `503` döner ve deployment promote edilmez.
+Canonical Railway promotion gate'i `/api/health` endpoint'idir: PostgreSQL veya yapılandırılmış
+Redis erişilemiyorsa `503` döner ve deployment promote edilmez.
 
 ### 3.5 Rate-limit ve CSP güvenlik sözleşmesi
 
@@ -413,18 +435,18 @@ npm run db:editorial -- --content-key campaign:beginner:1 --rollback 1 \
 Deploy tamamlandıktan sonra:
 
 1. `/api/healthz` endpoint'ini aç ve process liveness için HTTP `200` döndüğünü doğrula.
-2. `/api/health` endpoint'ini aç; database ve Redis durumlarının `up` olduğunu doğrula.
+2. `/api/health` endpoint'ini aç; database durumunun `up`, Redis durumunun `up` veya `disabled` olduğunu doğrula.
 3. `/daily` ve `/stats` sayfalarını kontrol et.
 4. anonim kullanıcı ilerlemesi kaydı alınıyor mu doğrula.
 5. giriş akışını test et.
 6. dashboard ve API loglarını Railway Metrics/Logs üzerinden kontrol et.
 
-## 4. Production Checklist
+## 4. Tam operasyon kurulumu için ek kontroller
 
 - `AUTH_SECRET` güçlü ve benzersiz.
 - `DATABASE_URL` production veritabanını gösteriyor.
 - `AUTH_URL` gerçek public domain ile set edilmiş.
-- Upstash Redis URL/token birlikte ve production service'te zorunlu olarak set edilmiş.
+- Redis kullanılacaksa URL/token birlikte set edilmiş.
 - `RATE_LIMIT_TRUSTED_PROXY_HOPS=1` Railway proxy topolojisiyle eşleşiyor.
 - `DAILY_TIME_ZONE` beklenen IANA timezone değerini taşıyor.
 - `DAILY_BUFFER_DAYS_AHEAD=14` ve cron service `/railway.daily-buffer.toml` kullanıyor.

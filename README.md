@@ -69,11 +69,12 @@ published difficulty otomatik değiştirilmez.
 attempt/completion kayıtlarıyla karşılaştıran dry-run'dır. Değişiklik yapmak için
 `--repair`; tek kullanıcı için `--user <id>` açıkça verilmelidir.
 
-Production başlangıcı PostgreSQL ve auth ayarlarına ek olarak Upstash Redis REST
-URL/token ile trusted proxy hop sayısını zorunlu doğrular. Ortak rate limiter Redis
-kesintisinde fail-closed çalışır; Railway promotion gate'i dependency-aware `/api/health`
-endpoint'idir. Production CSP, istek başına nonce kullanır ve script kaynaklarında
-`unsafe-inline`/`unsafe-eval` açmaz. Ayrıntılar `docs/deployment.md` içindedir.
+Minimum production web deploy için yalnız `DATABASE_URL`, güçlü `AUTH_SECRET`, HTTPS
+`AUTH_URL` ve `AUTH_TRUST_HOST=true` gerekir. Redis yoksa instance bazlı memory rate
+limiter kullanılır; Sentry, OTel, PostHog, synthetic ve backup servisleri opsiyoneldir.
+Railway için `RATE_LIMIT_TRUSTED_PROXY_HOPS=1` ayarlanmalıdır. Migration'lar deploy'da
+uygulanır; oynanabilir puzzle içeriği ayrıca yayınlanıp onaylanmalıdır.
+Ayrıntılar ve minimum env örneği `docs/deployment.md` içindedir.
 
 Production gözlemlenebilirliği request-id ile korele OTel request/Prisma trace'leri,
 PII-kapalı Sentry error capture ve yalnız allowlist olayları taşıyan server-proxy ürün
