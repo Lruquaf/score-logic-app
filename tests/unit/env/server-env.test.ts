@@ -11,6 +11,7 @@ const validProductionEnvironment = {
   AUTH_TRUST_HOST: 'true',
   DAILY_TIME_ZONE: 'Europe/Istanbul',
   DAILY_BUFFER_DAYS_AHEAD: '14',
+  REDIS_ENABLED: 'true',
   UPSTASH_REDIS_REST_URL: 'https://example.upstash.io',
   UPSTASH_REDIS_REST_TOKEN: 'production-upstash-token',
   RATE_LIMIT_TRUSTED_PROXY_HOPS: '1',
@@ -65,6 +66,26 @@ describe('server environment validation', () => {
     expect(env.posthogApiKey).toBeNull()
     expect(env.syntheticMonitorToken).toBeNull()
     expect(env.rateLimitTrustedProxyHops).toBe(0)
+  })
+
+  it('ignores stale Redis credentials unless enabled explicitly', () => {
+    const env = validateServerEnvironment({
+      ...validProductionEnvironment,
+      REDIS_ENABLED: 'false',
+      UPSTASH_REDIS_REST_URL: 'old-placeholder'
+    }, 'production')
+    expect(env.upstashRedisRestUrl).toBeNull()
+    expect(env.upstashRedisRestToken).toBeNull()
+  })
+
+  it('rejects invalid activation and enabled Redis without credentials', () => {
+    expect(() => validateServerEnvironment({
+      ...validProductionEnvironment, REDIS_ENABLED: 'yes'
+    }, 'production')).toThrow(/REDIS_ENABLED/)
+    expect(() => validateServerEnvironment({
+      ...validProductionEnvironment,
+      UPSTASH_REDIS_REST_URL: '', UPSTASH_REDIS_REST_TOKEN: ''
+    }, 'production')).toThrow(/REDIS_ENABLED=true requires/)
   })
 
   it('rejects unsafe production observability settings', () => {

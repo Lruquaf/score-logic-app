@@ -3,7 +3,9 @@ import { Redis } from '@upstash/redis'
 let redisInstance: Redis | null = null
 
 export function isRedisConfigured() {
-  return Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN)
+  return process.env.REDIS_ENABLED?.trim() === 'true' && Boolean(
+    process.env.UPSTASH_REDIS_REST_URL?.trim() && process.env.UPSTASH_REDIS_REST_TOKEN?.trim()
+  )
 }
 
 export function isRedisRequired() {

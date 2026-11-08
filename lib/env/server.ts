@@ -153,8 +153,9 @@ export function validateServerEnvironment(
     7,
     30
   )
-  const upstashRedisRestUrl = readEnv(source, 'UPSTASH_REDIS_REST_URL')
-  const upstashRedisRestToken = readEnv(source, 'UPSTASH_REDIS_REST_TOKEN')
+  const redisEnabled = parseBoolean(readEnv(source, 'REDIS_ENABLED'), false)
+  const upstashRedisRestUrl = redisEnabled ? readEnv(source, 'UPSTASH_REDIS_REST_URL') : null
+  const upstashRedisRestToken = redisEnabled ? readEnv(source, 'UPSTASH_REDIS_REST_TOKEN') : null
   const configuredTrustedProxyHops = readEnv(source, 'RATE_LIMIT_TRUSTED_PROXY_HOPS')
   const rateLimitTrustedProxyHops = parseIntegerInRange(
     configuredTrustedProxyHops,
@@ -172,6 +173,12 @@ export function validateServerEnvironment(
   const posthogHost = readEnv(source, 'POSTHOG_HOST')
   const syntheticMonitorToken = readEnv(source, 'SYNTHETIC_MONITOR_TOKEN')
   const issues: string[] = []
+
+  if (redisEnabled === null) {
+    issues.push('REDIS_ENABLED must be either true or false.')
+  } else if (redisEnabled && !upstashRedisRestUrl && !upstashRedisRestToken) {
+    issues.push('REDIS_ENABLED=true requires UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN.')
+  }
 
   if (databaseUrl && !isPostgresUrl(databaseUrl)) {
     issues.push('DATABASE_URL must be a valid postgresql:// or postgres:// URL.')

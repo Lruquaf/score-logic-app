@@ -34,7 +34,9 @@ cookie'siz istekleri ortak bir limit kovasında toplar.
 
 Opsiyonel servisler:
 
-- `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`: birlikte verilir.
+- `REDIS_ENABLED=true` + `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`:
+  Redis yalnız açıkça etkinleştirilirse kullanılır. Varsayılan `REDIS_ENABLED=false`;
+  eski `.env` değerleri tek başına Redis bağlantısı başlatmaz. URL/token birlikte verilir.
   Yoksa süreli bellek içi rate limiter çalışır. Limitler instance bazlıdır ve restart'ta
   sıfırlanır; çok instance için Redis kullanın. Yapılandırılmış Redis production'da
   kesilirse korunan istekler `503` döndürmeye devam eder.
@@ -190,6 +192,7 @@ Aşağıdakileri yalnız ilgili servisi kullanacaksan ekle:
 
 - `DAILY_TIME_ZONE=Europe/Istanbul`
 - `DAILY_BUFFER_DAYS_AHEAD=14`
+- `REDIS_ENABLED=true` (yalnız Redis kullanılacaksa)
 - `UPSTASH_REDIS_REST_URL=<https-upstash-rest-url>`
 - `UPSTASH_REDIS_REST_TOKEN=<upstash-rest-token>`
 - `OBSERVABILITY_HASH_SALT=<strong-random-environment-salt>`
