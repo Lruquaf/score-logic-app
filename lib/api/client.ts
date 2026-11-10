@@ -240,6 +240,8 @@ export function requestPuzzleHint(
   body: {
     hintType: HintType
     attemptId: string
+    requestId?: string
+    expectedHintCount?: number
     currentInputs: Record<string, ScoreInput>
     currentOutcomes?: Record<string, MatchOutcome | null>
     notes?: Record<string, MatchNote>

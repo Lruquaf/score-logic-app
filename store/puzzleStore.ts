@@ -298,9 +298,27 @@ function pickPreferredDraft(params: {
   }
 
   if (params.localDraft && remoteDraft) {
-    return new Date(params.localDraft.updatedAt).getTime() > new Date(remoteDraft.updatedAt).getTime()
+    const preferred = new Date(params.localDraft.updatedAt).getTime() > new Date(remoteDraft.updatedAt).getTime()
       ? params.localDraft
       : remoteDraft
+    // Unsaved notes/scores may be newer, but a lost hint reply must not let
+    // that local timestamp hide assistance already committed by the server.
+    if (remoteDraft.hintsUsed > preferred.hintsUsed) {
+      const inputs = cloneInputs(preferred.inputs)
+      for (const cell of remoteDraft.revealedCells) {
+        const value = remoteDraft.inputs[cell.matchId]?.[cell.side]
+        if (value !== null && value !== undefined) {
+          inputs[cell.matchId] = { ...(inputs[cell.matchId] ?? { home: null, away: null }), [cell.side]: value }
+        }
+      }
+      for (const matchId of remoteDraft.revealedMatchIds) {
+        if (remoteDraft.inputs[matchId]) inputs[matchId] = { ...remoteDraft.inputs[matchId] }
+      }
+      return { ...preferred, inputs, hintsUsed: remoteDraft.hintsUsed,
+        hintTypes: [...remoteDraft.hintTypes], revealedCells: remoteDraft.revealedCells,
+        revealedMatchIds: remoteDraft.revealedMatchIds }
+    }
+    return preferred
   }
 
   return params.localDraft ?? remoteDraft ?? createEmptyDraft(params.puzzleId, params.timestamp)

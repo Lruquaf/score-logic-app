@@ -120,6 +120,8 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
   const [solvedAttempt, setSolvedAttempt] = useState<{ puzzleId: string; seconds: number } | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [hintError, setHintError] = useState<string | null>(null)
+  const hintInFlight = useRef(false)
+  const hintRequestIdentity = useRef<{ ownerKey: string | null; attemptId: string; count: number; requestId: string } | null>(null)
   const [displayElapsedTimeSec, setDisplayElapsedTimeSec] = useState(0)
   const attemptedStartRef = useRef<string | null>(null)
   const initializedPuzzleDataRef = useRef<typeof puzzleQuery.data>(undefined)
@@ -344,6 +346,8 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       puzzleId: string
       attemptId: string
       hintType: 'reveal'
+      requestId: string
+      expectedHintCount: number
       currentInputs: PuzzleProgressState['inputs']
       currentOutcomes: PuzzleProgressState['outcomes']
       notes: PuzzleProgressState['notes']
@@ -358,6 +362,8 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     }) => requestPuzzleHint(payload.puzzleId, {
       attemptId: payload.attemptId,
       hintType: payload.hintType,
+      requestId: payload.requestId,
+      expectedHintCount: payload.expectedHintCount,
       currentInputs: payload.currentInputs,
       currentOutcomes: payload.currentOutcomes,
       notes: payload.notes,
@@ -372,6 +378,8 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     }),
     onSuccess: (response, variables) => {
       if (!acceptsResponse(variables.puzzleId, variables.attemptId, variables.ownerKey)) return
+      hintRequestIdentity.current = null
+      if (response.progressPatch.hintsUsed < usePuzzleStore.getState().hintsUsed) return
       invalidateSummaries()
       setCurrentAttempt(response.attempt)
       applyHintPatch(response.progressPatch, response.hint.message)
@@ -380,6 +388,10 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     onError: (error, variables) => {
       if (!acceptsResponse(variables.puzzleId, variables.attemptId, variables.ownerKey)) return
       setHintError(getErrorMessage(error))
+      if (error instanceof ApiError && error.status === 409) {
+        hintRequestIdentity.current = null
+        void queryClient.invalidateQueries({ queryKey: puzzleQueryKey })
+      }
     }
   })
 
@@ -561,11 +573,12 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     isAnswerRevealPending: answerRevealMutation.isPending,
     isSubmitPending: submitMutation.isPending,
     assistanceDisabled,
-    requestHint: (hintType: 'reveal') => {
-      if (!puzzle) return
+    requestHint: async (hintType: 'reveal') => {
+      // React's pending render is asynchronous; guard this event synchronously.
+      if (hintInFlight.current || !puzzle) return null
       if (!currentAttemptId) {
         setHintError('The attempt is still starting. Please try again.')
-        return
+        return null
       }
       if (assistanceDisabled) {
         setHintError(
@@ -573,30 +586,47 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
             ? 'The answer has already been revealed for this puzzle.'
             : 'Reset the board to use hints in a new attempt.'
         )
-        return
+        return null
       }
       if (answerRevealed) {
         setHintError('The answer has already been revealed for this puzzle.')
-        return
+        return null
       }
 
-      hintMutation.mutate({
-        ownerKey,
-        puzzleId: puzzle.id,
-        attemptId: currentAttemptId,
-        hintType,
-        currentInputs: inputs,
-        currentOutcomes: outcomes,
-        notes,
-        completedMatchIds,
-        revealedMatchIds,
-        revealedCells,
-        hintsUsed,
-        hintTypes,
-        answerRevealed,
-        answerRevealedAt: usePuzzleStore.getState().answerRevealedAt,
-        isReplay: isReplayMode
-      })
+      const saved = hintRequestIdentity.current
+      // A background read can discover the committed hint after a lost reply.
+      // Keep its original identity until acknowledgement, even if the count moved.
+      const identity = saved?.ownerKey === ownerKey && saved.attemptId === currentAttemptId
+        ? saved : { ownerKey, attemptId: currentAttemptId, count: hintsUsed, requestId: crypto.randomUUID() }
+      hintRequestIdentity.current = identity
+      hintInFlight.current = true
+      setHintError(null)
+      try {
+        const response = await hintMutation.mutateAsync({
+          ownerKey,
+          puzzleId: puzzle.id,
+          attemptId: currentAttemptId,
+          hintType,
+          requestId: identity.requestId,
+          expectedHintCount: identity.count,
+          currentInputs: inputs,
+          currentOutcomes: outcomes,
+          notes,
+          completedMatchIds,
+          revealedMatchIds,
+          revealedCells,
+          hintsUsed,
+          hintTypes,
+          answerRevealed,
+          answerRevealedAt: usePuzzleStore.getState().answerRevealedAt,
+          isReplay: isReplayMode
+        })
+        return acceptsResponse(puzzle.id, currentAttemptId, ownerKey) ? response : null
+      } catch {
+        return null
+      } finally {
+        hintInFlight.current = false
+      }
     },
     revealAnswer: () => {
       if (!puzzle) return

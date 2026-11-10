@@ -121,8 +121,28 @@ export async function PUT(
 
       const now = new Date()
       const elapsedTimeSec = authoritativeElapsedTimeSec(attempt, now)
+      // Assistance belongs to the server. A late autosave (or a client clock
+      // ahead of the server) must not erase or alter an already granted hint.
+      const inputs = { ...body.progress.inputs }
+      for (const match of puzzle.initialRevealedMatches) {
+        inputs[match.id] = { home: match.homeScore, away: match.awayScore }
+      }
+      const revealedCells = attemptState?.revealedCells ?? []
+      const revealedMatchIds = attemptState?.revealedMatchIds ?? []
+      for (const cell of revealedCells) {
+        const value = attemptState?.inputs[cell.matchId]?.[cell.side]
+        if (value === undefined || value === null) throw new Error('A saved hint score is missing.')
+        inputs[cell.matchId] = { ...(inputs[cell.matchId] ?? { home: null, away: null }), [cell.side]: value }
+      }
+      for (const matchId of revealedMatchIds) {
+        const score = attemptState?.inputs[matchId]
+        if (score) inputs[matchId] = { ...score }
+      }
       const currentState = {
         ...body.progress,
+        inputs,
+        revealedCells,
+        revealedMatchIds,
         hintsUsed: attempt.hintsUsed,
         hintTypes: attempt.hintTypes.filter((type): type is 'reveal' => type === 'reveal'),
         answerRevealed: attempt.answerRevealedAt !== null,

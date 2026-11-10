@@ -9,7 +9,7 @@ test.beforeEach(async ({ page }, info) => {
 async function openHint(page: import('@playwright/test').Page) {
   await page.getByRole('button', { name: 'Hint', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Hint', exact: true })
-  await dialog.getByRole('button', { name: 'Get a hint' }).click()
+  await dialog.getByRole('button', { name: 'Use 1 hint' }).click()
   await expect(dialog.getByText('Latest:', { exact: true })).toBeVisible()
   return dialog
 }

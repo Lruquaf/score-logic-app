@@ -50,6 +50,37 @@ beforeEach(async () => {
 afterEach(async () => { await act(async () => root.unmount()); client.clear() })
 
 describe('puzzle lifecycle regressions', () => {
+  it('sends only one hint request when invoked repeatedly before React renders pending state', async () => {
+    vi.mocked(api.requestPuzzleHint).mockImplementation(() => new Promise(() => {}))
+    await act(async () => {
+      latest.requestHint('reveal')
+      latest.requestHint('reveal')
+      latest.requestHint('reveal')
+    })
+    expect(api.requestPuzzleHint).toHaveBeenCalledTimes(1)
+  })
+
+  it('reuses the same hint identity after a lost response and changes it after acknowledgement', async () => {
+    const response = {
+      attempt: { ...attempt, hintsUsed: 1 },
+      hint: { type: 'reveal' as const, message: 'One score revealed.', revealedCell: { matchId: 'm1', side: 'home' as const }, revealedScore: 1 },
+      progressPatch: { hintsUsed: 1, hintTypes: ['reveal' as const], revealedCells: [{ matchId: 'm1', side: 'home' as const }], revealedInputs: { m1: { home: 1 } } }
+    }
+    vi.mocked(api.requestPuzzleHint).mockRejectedValueOnce(new TypeError('Lost response')).mockResolvedValue(response)
+    await act(async () => { await latest.requestHint('reveal') })
+    expect(latest.hintError).toContain('Lost response')
+    // A background read may discover the committed hint before the user retries.
+    await act(async () => usePuzzleStore.getState().applyHintPatch(response.progressPatch, response.hint.message))
+    await act(async () => { await latest.requestHint('reveal') })
+    expect(latest.hintsUsed).toBe(1)
+    const calls = vi.mocked(api.requestPuzzleHint).mock.calls
+    expect(calls[0][1].requestId).toBe(calls[1][1].requestId)
+    expect(calls[1][1].expectedHintCount).toBe(0)
+    await act(async () => { await latest.requestHint('reveal') })
+    expect(calls[2][1].requestId).not.toBe(calls[1][1].requestId)
+    expect(calls[2][1].expectedHintCount).toBe(1)
+  })
+
   it('invalidates the cached campaign immediately after reveal without a page reload', async () => {
     client.setQueryData(['campaign-puzzles'], { progress: [] })
     vi.mocked(api.revealPuzzleAnswer).mockResolvedValue({

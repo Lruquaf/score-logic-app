@@ -99,12 +99,12 @@ test('beginner completes through score cells and unlocks the next level', async 
   await expect(editableScores).toHaveCount(2)
 
   await page.getByRole('button', { name: 'Hint', exact: true }).click()
-  await page.getByRole('button', { name: 'Get a hint' }).click()
+  await page.getByRole('button', { name: 'Use 1 hint' }).click()
   await expect(revealedScores).toHaveCount(11)
   await page.getByRole('button', { name: 'Close', exact: true }).click()
 
   await page.getByRole('button', { name: 'Hint', exact: true }).click()
-  await page.getByRole('button', { name: 'Get a hint' }).click()
+  await page.getByRole('button', { name: 'Use 1 hint' }).click()
   await expect(revealedScores).toHaveCount(12)
   await page.getByRole('button', { name: 'Close', exact: true }).click()
 
@@ -154,7 +154,7 @@ test('hint result remains visible inside the open hint dialog', async ({ page })
   await page.goto('/puzzles/ckscorepuzzlecamp000000001')
   await expect(page.getByRole('button', { name: 'Hint', exact: true })).toBeEnabled()
   await page.getByRole('button', { name: 'Hint', exact: true }).click()
-  await page.getByRole('button', { name: 'Get a hint' }).click()
+  await page.getByRole('button', { name: 'Use 1 hint' }).click()
   await expect(page.getByRole('heading', { name: 'Hint', exact: true })).toBeVisible()
   await expect(page.getByText('Latest:', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Close', exact: true })).toBeVisible()

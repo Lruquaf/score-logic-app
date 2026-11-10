@@ -63,6 +63,8 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
   const resetCurrentPuzzle = usePuzzleStore((state) => state.resetCurrentPuzzle)
   const stats = useUserStore((state) => state.stats)
   const [isHintOpen, setIsHintOpen] = useState(false)
+  const [hintSession, setHintSession] = useState(0)
+  const [hintResult, setHintResult] = useState<string | null>(null)
   const [isVictoryOpen, setIsVictoryOpen] = useState(false)
   const campaignQuery = useQuery({
     queryKey: ['campaign-puzzles'],
@@ -212,6 +214,8 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
         assistanceDisabled={assistanceDisabled}
         onOpenHints={() => {
           if (!assistanceDisabled) {
+            setHintSession((session) => session + 1)
+            setHintResult(null)
             setIsHintOpen(true)
           }
         }}
@@ -354,6 +358,7 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
       )}
 
       <HintModal
+        key={`${puzzle.id}:${hintSession}`}
         isOpen={isHintOpen}
         onClose={() => {
           setIsHintOpen(false)
@@ -361,12 +366,15 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
             setPhase('ACTIVE')
           }
         }}
-        onRequestHint={(hintType) => {
-          requestHint(hintType)
+        onRequestHint={async (hintType) => {
+          const response = await requestHint(hintType)
+          if (!response) return false
+          setHintResult(response.hint.message)
+          return true
         }}
         isPending={isHintPending}
         answerRevealed={answerRevealed || assistanceDisabled}
-        lastHintMessage={lastHintMessage}
+        completedMessage={hintResult}
         hintError={hintError}
         hintsUsed={hintsUsed}
       />

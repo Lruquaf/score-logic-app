@@ -145,7 +145,7 @@ export function FixtureGrid({ puzzle, feedback, busy = false, className = '' }: 
                     side="home"
                     isCompleted={completedMatchIds.includes(match.id)}
                     isRevealed={isHomeRevealed}
-                    revealTone={answerRevealed ? 'answer' : 'hint'}
+                    revealTone={isInitialRevealed ? 'given' : answerRevealed ? 'answer' : 'hint'}
                     hasError={matchViolations.length > 0 || hasHomeCellFeedback}
                     ariaLabel={`${home?.nameEn ?? home?.code ?? match.homeTeamId} home score against ${away?.nameEn ?? away?.code ?? match.awayTeamId}`}
                   />
@@ -156,7 +156,7 @@ export function FixtureGrid({ puzzle, feedback, busy = false, className = '' }: 
                     side="away"
                     isCompleted={completedMatchIds.includes(match.id)}
                     isRevealed={isAwayRevealed}
-                    revealTone={answerRevealed ? 'answer' : 'hint'}
+                    revealTone={isInitialRevealed ? 'given' : answerRevealed ? 'answer' : 'hint'}
                     hasError={matchViolations.length > 0 || hasAwayCellFeedback}
                     ariaLabel={`${away?.nameEn ?? away?.code ?? match.awayTeamId} away score against ${home?.nameEn ?? home?.code ?? match.homeTeamId}`}
                   />

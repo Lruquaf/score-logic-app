@@ -329,8 +329,12 @@ Istenen hint turune gore ipucu dondurur ve progress'i gunceller.
 ```ts
 interface HintRequest {
   attemptId: string
+  /** Aynı kullanıcı eyleminin ağ tekrarlarında aynı UUID; yeni UI gönderir. */
+  requestId?: string
+  /** İstemcinin gördüğü assistance sayısı; canonical sayaç sunucudadır. */
+  expectedHintCount?: number
   hintType: "reveal"
-  currentInputs: Record<string, { home: number; away: number }>
+  currentInputs: Record<string, { home: number | null; away: number | null }>
 }
 ```
 
@@ -369,6 +373,9 @@ interface HintResponse {
 - ortak boş hücre yoksa uyumlu bir çözüm yolundan hücre açılır ve seçim açıklanır
 - çelişkide en az değişiklik isteyen çözüm yoluna göre bir dolu kullanıcı hücresi düzeltilir
 - zaten doğru ve dolu tahtada skor değişmez, Check yönlendirmesi yapılır; hint sayısı/olayı artmaz
+- aynı attempt + requestId tekrarında saklanan yanıt döner; HINT_USED, açılan hücre ve sayaç tekrarlanmaz
+- ayrı requestId fakat eskimiş expectedHintCount, `409 CONFLICT` ve `reason: HINT_STATE_CHANGED` üretir
+- alanlar eski istemciler için opsiyoneldir; güncel UI her eylemde ikisini de gönderir
 
 ## POST `/api/puzzles/[id]/answer`
 

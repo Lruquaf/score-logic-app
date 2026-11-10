@@ -4,6 +4,7 @@ import { ZodError } from 'zod'
 
 import { errorResponse, jsonResponse, withResponseCookie } from '@/lib/api/http'
 import { ensureRequestUser } from '@/lib/auth/anonymous'
+import type { HintResponse } from '@/lib/api/client'
 import type { MatchOutcome, RevealedScoreCell, ScoreInput } from '@/lib/contracts/progress'
 import { prisma } from '@/lib/db/prisma'
 import {
@@ -33,6 +34,8 @@ import { buildProgressState } from '@/lib/utils/progress-state'
 import { hintRequestSchema, puzzleIdSchema } from '@/lib/validations'
 
 export const runtime = 'nodejs'
+
+class HintStateChangedError extends Error {}
 
 function normalizeRevealedCells(cells: RevealedScoreCell[]) {
   const seen = new Set<string>()
@@ -88,6 +91,21 @@ export async function POST(
       )
       if (attempt.answerRevealedAt) {
         throw new AttemptUnavailableError('ATTEMPT_TERMINAL')
+      }
+
+      // The aggregate lock makes this check atomic across concurrent requests.
+      // A lost response can be retried without revealing or charging another cell.
+      if (body.requestId) {
+        const event = await tx.attemptEvent.findFirst({
+          where: { attemptId: attempt.id, type: AttemptEventType.HINT_USED,
+            payload: { path: ['requestId'], equals: body.requestId } },
+          select: { payload: true }
+        })
+        const saved = event?.payload as unknown as { response?: HintResponse } | null
+        if (saved?.response) return saved.response
+      }
+      if (body.expectedHintCount !== undefined && body.expectedHintCount !== attempt.hintsUsed) {
+        throw new HintStateChangedError('Another hint was already applied. Review the updated board before requesting another.')
       }
 
       const previous = mapAttemptProgressState(attempt)
@@ -179,26 +197,6 @@ export async function POST(
           submissionCount: true
         }
       })
-      if (changed) await appendAttemptEvent(
-        {
-          attemptId: attempt.id,
-          type: AttemptEventType.HINT_USED,
-          occurredAt: now,
-          payload: {
-            hintType: body.hintType,
-            targetMatchId: hint.targetMatchId ?? null,
-            revealedCell: hint.revealedCell
-              ? {
-                  matchId: hint.revealedCell.matchId,
-                  side: hint.revealedCell.side
-                }
-              : null,
-            elapsedTimeSec
-          } as Prisma.InputJsonValue
-        },
-        tx
-      )
-
       const progress = await getPuzzleProgress(userId, puzzleId, tx)
       await upsertPuzzleProgress(
         {
@@ -218,7 +216,7 @@ export async function POST(
         tx
       )
 
-      return {
+      const response: HintResponse = {
         hint,
         attempt: mapPuzzleAttemptSummary(updatedAttempt, now),
         progressPatch: {
@@ -236,6 +234,19 @@ export async function POST(
             : {})
         }
       }
+      if (changed) await appendAttemptEvent({
+        attemptId: attempt.id,
+        type: AttemptEventType.HINT_USED,
+        occurredAt: now,
+        payload: {
+          hintType: body.hintType,
+          targetMatchId: hint.targetMatchId ?? null,
+          revealedCell: hint.revealedCell ?? null,
+          elapsedTimeSec,
+          ...(body.requestId ? { requestId: body.requestId, response } : {})
+        } as unknown as Prisma.InputJsonValue
+      }, tx)
+      return response
     })
 
     captureServerEvent('puzzle_hint', {
@@ -250,6 +261,9 @@ export async function POST(
       rateLimit.result
     )
   } catch (error) {
+    if (error instanceof HintStateChangedError) {
+      return errorResponse(409, 'CONFLICT', error.message, { reason: 'HINT_STATE_CHANGED' })
+    }
     if (error instanceof AttemptUnavailableError) {
       return errorResponse(409, 'CONFLICT', error.message, {
         reason: error.code

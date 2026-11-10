@@ -182,6 +182,8 @@ export const idempotencyKeySchema = z
 
 export const hintRequestSchema = z.object({
   attemptId: z.string().uuid(),
+  requestId: z.string().uuid().optional(),
+  expectedHintCount: z.number().int().min(0).optional(),
   hintType: hintTypeSchema,
   currentInputs: z.record(scoreInputSchema).default({}),
   currentOutcomes: z.record(matchOutcomeSchema.nullable()).default({}),

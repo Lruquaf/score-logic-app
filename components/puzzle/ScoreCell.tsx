@@ -11,7 +11,7 @@ interface ScoreCellProps {
   side: 'home' | 'away'
   isCompleted: boolean
   isRevealed: boolean
-  revealTone?: 'hint' | 'answer'
+  revealTone?: 'hint' | 'answer' | 'given'
   hasError: boolean
   ariaLabel: string
 }
@@ -37,7 +37,9 @@ export function ScoreCell({
   const tone = hasError
     ? 'border-[var(--danger)] bg-[var(--danger-soft)] text-[var(--danger)] shadow-[inset_0_0_0_1px_rgba(183,67,63,0.10)]'
     : isRevealed
-      ? revealTone === 'answer'
+      ? revealTone === 'given'
+        ? 'border-[var(--line)] bg-[var(--field-soft)] text-[var(--ink-soft)]'
+        : revealTone === 'answer'
         ? 'border-[var(--answer)] bg-[var(--answer-soft)] text-[var(--ink)] shadow-[inset_0_0_0_1px_rgba(169,100,19,0.14)]'
         : 'border-[var(--blue)] bg-[var(--blue-soft)] text-[var(--ink)] shadow-[inset_0_0_0_1px_rgba(49,95,141,0.10)]'
       : isCompleted
@@ -68,6 +70,8 @@ export function ScoreCell({
       inputMode="numeric"
       value={value ?? ''}
       readOnly={isRevealed}
+      data-score-source={isRevealed ? revealTone : 'entry'}
+      aria-description={isRevealed ? revealTone === 'given' ? 'Given score' : revealTone === 'hint' ? 'Revealed by a hint' : 'Revealed answer' : undefined}
       className={`h-11 w-14 rounded-[var(--radius-sm)] border text-center font-mono text-xl font-bold outline-none transition [appearance:textfield] placeholder:text-[var(--faint)] focus:ring-0 max-sm:h-11 max-sm:w-11 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none ${tone} ${
         isSelected ? 'shadow-[0_0_0_3px_var(--light-glow),0_0_18px_rgba(57,209,123,0.16)]' : ''
       }`}

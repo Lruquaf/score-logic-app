@@ -13,6 +13,29 @@ const solvedFeedback = {
 }
 
 describe('puzzle store', () => {
+  it('merges a server-committed hint into a newer local draft without losing unsaved work', () => {
+    const store = createPuzzleStore()
+    const base = sampleProgressEnvelope.currentState!
+    store.setState({ drafts: { [sampleDailyPuzzlePublic.id]: {
+      ...base, inputs: { ...base.inputs, m1: { home: 19, away: null }, m3: { home: 7, away: null } },
+      notes: { ...base.notes, m3: { home: '', away: '', match: 'Keep my deduction' } },
+      hintsUsed: 0, hintTypes: [], revealedCells: [], updatedAt: '2099-01-01T00:00:00.000Z'
+    } } })
+    store.getState().initializePuzzle(sampleDailyPuzzlePublic, {
+      ...sampleProgressEnvelope, hintsUsed: 1, hintTypes: ['reveal'], currentState: {
+        ...base, inputs: { ...base.inputs, m1: { home: 1, away: null } }, hintsUsed: 1,
+        hintTypes: ['reveal'], revealedCells: [{ matchId: 'm1', side: 'home' }]
+      }
+    })
+    expect(store.getState().hintsUsed).toBe(1)
+    expect(store.getState().inputs.m1.home).toBe(1)
+    expect(store.getState().inputs.m3.home).toBe(7)
+    expect(store.getState().notes.m3.match).toBe('Keep my deduction')
+    expect(store.getState().revealedCells).toEqual([{ matchId: 'm1', side: 'home' }])
+    store.getState().setScoreCell({ matchId: 'm1', side: 'home' }, 9)
+    expect(store.getState().inputs.m1.home).toBe(1)
+  })
+
   it('applies prefilled puzzle scores without counting them as hints', () => {
     const store = createPuzzleStore()
     const prefilledMatch = {

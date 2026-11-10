@@ -496,3 +496,95 @@ notlarından bağımsız olarak aşağıdaki davranışlar uygulanmıştır.
 - Release içerik kontrolü mevcut 150 campaign ve 15 daily kaydını hazır buldu;
   `createdCount=0`, `activatedCount=0`. İçerik veya kullanıcı geçmişi sıfırlanmadı.
 - Yalnız test ortamı güncellendi. Snapshot deploy kullanıldı; commit/push yapılmadı.
+
+## 19. Hint akışı: anlaşılır onay ve tek eylem/tek hint — 10 Kasım 2026
+
+### Yeniden oluşturulan sorun ve önceki testlerin açığı
+
+Kullanıcı modalde hint alma eyleminin anlaşılmadığını ve bir hint isterken birden fazla
+hint açıldığını bildirdi. Önceki tarayıcı testleri butona tek, aralıklı tıklamalar yapıyor;
+aynı event-loop içindeki tekrarları veya sunucuda tamamlanan isteğin yanıtının kaybolmasını
+sınamıyordu. Yeni hook regresyonu eski kodda **1 yerine 3 HTTP çağrısı** üreterek başarısız
+oldu. `isPending` render'ı geciktiği için art arda çağrılar geçiyordu; API aggregate kilidi
+bunları sıraya koyuyor ama her birini yeni hint olarak sayıyordu. Motor tek çağrıda bir
+hücre döndürüyordu; sorun eylemin birden fazla kez işlenmesiydi.
+
+Ayrıca mobilde Given badge gizliyken başlangıç skorları da hint skorlarıyla aynı mavi tonda
+görünüyordu. Bu, başlangıçtaki çok sayıda skorun yeni hint gibi algılanmasına yol açabiliyordu.
+
+### Uygulanan düzeltmeler
+
+- Açıklama kutusu tıklanabilir eylem olmaktan çıkarıldı. Ayrı, belirgin **Use 1 hint**
+  butonu, tek skor etkisi ve pencereyi açmanın hint tüketmediği açıklaması eklendi.
+- Akış onay → bekleme → sonuç olarak ayrıldı. Beklemede buton kilitli; sonuçta yalnız
+  **Back to puzzle** sunulur. İkinci hint için puzzle'a dönüp Hint yeniden açılır.
+  Yeni açılış eski mesajı yeni alınmış hint sonucu gibi göstermez.
+- Modal ve hook'ta eşzamanlı ref kilidi var; React pending render'ından önceki tekrarlar
+  da engellenir. Hata sonrası kilit açılır ve açık bir retry eylemi gösterilir.
+- Her eylem UUID `requestId` ve görülen `expectedHintCount` taşır. Aynı eylemin ağ tekrarında
+  kimlik korunur. Sunucu attempt kilidi altında HINT_USED olayına kaydettiği yanıtı yeniden
+  döndürür; yeni hücre/sayaç/olay oluşturmaz. Farklı eylem eski sayacı taşıyorsa 409 ile
+  tahta yenilenir. Bu alanlar eski istemciler için opsiyoneldir; yeni UI her ikisini gönderir.
+- Geciken autosave, istemci saati ileride olsa bile hint değerlerini veya reveal metadata'sını
+  silemez/değiştiremez; bunlar sunucudan korunur. İstemci kendi kendine yeni hint hücresi
+  işaretleyemez. Eski cached response yerelde daha yeni bir hint sayacını geri düşürmez.
+- Given skorlar nötr/yeşil, hint skorları mavi olarak ayrıldı; erişilebilir skor kaynağı
+  açıklaması eklendi. Hint mesajında takım, rakip ve home/away tarafı açıkça belirtilir.
+- Yeni tablo/migration, paket veya zorunlu env değişkeni yok. Mevcut attempt event JSON'u
+  tekrar-işleme yanıtını taşır; önceki progress ve kullanıcı geçmişi sıfırlanmaz.
+
+### Canlıda yakalanan ek yarış
+
+İlk yerel 48 browser testi geçti; ancak `425b46d0-f7b6-44b7-9462-ab1307fc8356`
+test deployment'ında ikinci hint'in sonucu kayboldu. Arka plan progress yenilemesi
+`isLoading` geçişiyle modal alt bileşenini yeniden oluşturuyor, modaldeki yerel sonuç
+state'i onaya dönüyordu. Hücre/sayaç kaydedilmiş olmasına rağmen yeni hint butonu tekrar
+görünüyordu. Sonuç snapshot'ı oyun ekranının state'ine taşındı; bu geçici alt bileşen
+remount'unda artık kaybolmaz. Daily'nin 60 saniyelik arka plan yenilemesini kontrollü
+ilerleten yeni test eski deployment'ta deterministik olarak başarısız oldu; bu senaryo
+üç tarayıcı projesine eklendi. İlk deployment nihai başarı kaydı değildir.
+
+Ağ hatası ile bu yenilemenin birleştiği senaryo da eklendi: arka plan read'i ilk hint'i
+keşfedip sayacı artırınca retry kimliği değişmemelidir. Eski count-eşitliği kontrolü bu
+durumda yeni UUID üretiyordu; unit testte yeniden oluşturulup kaldırıldı. Kimlik artık
+aynı owner/attempt için açıkça yanıt alınana kadar korunur. Lost-response browser testi
+retry'dan önce gerçek daily refetch yaptırarak bu birleşimi de doğrular. Bu test ayrıca
+yeni yerel draft'ın sunucudaki daha yüksek hint sayısını/hücresini gizlediğini yakaladı.
+Draft seçimi artık yeni yerel notları ve düzenlenebilir girdileri korurken sunucuda
+alınmış ek hint'leri birleştirir; timestamp hint'i silemez. Ayrı store testi bu birleştirme
+ve kilit korunmasını doğrular.
+
+### Test kapsamı
+
+- **304 unit test geçti**. Yeni testler render öncesi üçlü çağrının tek isteğe düşmesini,
+  ağ hatasında aynı requestId'nin kullanılmasını ve onaylanmış sonraki hint'in yeni kimlik
+  ve güncel sayacı taşımasını doğrular.
+- **5 gerçek PostgreSQL integration testi geçti:** sekiz eşzamanlı aynı istekte tek hücre,
+  tek hint ve tek HINT_USED; sonraki hint'ten sonra eski isteği tekrar gönderme; ayrı
+  kimliklerle aynı board sayacını yarıştırma; geciken/eksik autosave'de hint'in korunması;
+  çoklu yanlış dolu hücrede yalnız bir düzeltme; doğru tam tahtada tekrarda sıfır tüketim.
+  Fixture ve kullanıcılar yalnız ayrı yerel test DB'sinde oluşturulup temizlenir.
+- Yeni Playwright senaryoları üç tarayıcı projesinde modal aç/kapatın sıfır istek üretmesini,
+  sekiz hızlı etkinleştirmenin yalnız bir hücre/sayaç değiştirmesini, bekleme kilidini,
+  sonuçtan sonra ikinci isteğin bulunmamasını, kasıtlı ikinci açılışı, yenileme sonrası
+  kalıcılığı, Given/hint ayrımını ve gerçek yanıt-kaybı sonrası güvenli retry'ı denetler.
+- iPhone/WebKit ve Android Chromium dahil 320 px dar ekranda onay/sonuç pencereleri ve
+  eylem görünürlüğü kontrol edilir. Tarayıcı emülasyonu kullanılır; fiziksel cihaz testi yapılmadı.
+- TypeScript, lint ve Redis/telemetri kapalı minimum production build geçti.
+- Nihai production standalone HTTPS koşusunda **51 Playwright testi geçti** (3 bilinçli
+  skip). Lost-response testi retry öncesi gerçek refetch'i de içerir; hem bu birleşik
+  senaryo hem açık modalde background refresh üç tarayıcıda doğrulandı. Daily/campaign,
+  yanlış skor düzeltmesi, paylaşım, auth ve erişim regresyonları da bu koşuya dahildir.
+
+### Nihai test deployment'ı
+
+- Deployment: `c836f3ff-8ec4-46d4-97d3-deb420aa9e4c` — **SUCCESS**.
+- Adres: https://score-logic-app-test.up.railway.app/
+- Canlı readiness: HTTP 200; database/content `up`, Redis `disabled`.
+- Nihai public HTTPS domaininde **51 Playwright testi geçti** (3 bilinçli skip).
+  Hızlı tekrar, kayıp yanıt + refetch + retry ve açık modalde arka plan yenilemesi dahil
+  bütün yeni hint senaryoları masaüstü Chromium, Android Chromium ve iPhone/WebKit'te
+  doğrulandı. Mevcut daily/campaign, auth, paylaşım, unlock ve mobil regresyonları geçti.
+- Yalnız Railway **test** ortamına snapshot deploy yapıldı; production ortamı değişmedi.
+  Yeni migration/env/dependency yok; kullanıcı ilerlemesi ve mevcut içerik sıfırlanmadı.
+- Kod commit/push edilmedi. Ürün kuralları ve API sözleşmesi de güncellendi.

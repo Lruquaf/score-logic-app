@@ -41,6 +41,21 @@ kümesindeki çözümlerden herhangi biriyle tam eşleşiyorsa doğrudur.
   `hintsUsed` artırılmaz ve `HINT_USED` olayı oluşturulmaz.
 - Gerçek hücre açma/düzeltme sunucuda assistance olarak sayılır; solve-any geçerliliği,
   attempt sahipliği ve campaign erişim kuralları değişmez.
+- Modal açılması/kapatılması istek göndermez. Açıklama alanından ayrı `Use 1 hint`
+  butonu bulunur; bekleme sırasında yeniden etkinleştirme engellenir. Sonuç ekranında
+  yeni hint eylemi bulunmaz; ikinci hint için puzzle'a dönülüp Hint yeniden açılır.
+- İstemci aynı event-loop içindeki tekrarlı çağrıları anlık kilitle engeller. Her eylem
+  bir `requestId` taşır; ağ hatası tekrarında aynı kimlik korunur. Sunucu attempt kilidi
+  altında HINT_USED olayındaki yanıtı tekrar döndürür, yeni skor veya sayaç oluşturmaz.
+- `expectedHintCount` eski/başka sekmeden gelen ayrı eylemlerin aynı tahta durumunda
+  art arda hint tüketmesini engeller; uyuşmazlık `409 HINT_STATE_CHANGED` üretir.
+- Otomatik progress kaydı hint hücrelerini silemez, değiştiremez veya yeni açılmış
+  hücre uyduramaz. Verilen skorlar ve hint değerleri sunucu state'inden geri konur.
+- Arka plan yenilemesi açık modalin sonuç snapshot'ını korur. Daha yeni yerel taslak
+  seçilse bile sunucuda alınmış ek hint'ler birleştirilir; yerel notlar ve diğer girdiler
+  korunur. Kayıp yanıtın retry kimliği bu senkronizasyon yüzünden değişmez.
+- Başlangıçta verilen hücreler nötr/yeşil; hint ile açılanlar mavi görünür. Sonuç mesajı
+  değişen skorun takımını, rakibini ve home/away tarafını belirtir.
 
 ### Sonuç paylaşımı ve mobil erişim
 

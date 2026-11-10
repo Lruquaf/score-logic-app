@@ -118,7 +118,10 @@ export function generateHint({
   const describe = (cell: RevealedScoreCell) => {
     const match = matches.find((item) => item.id === cell.matchId)
     const teamId = cell.side === 'home' ? match?.homeTeamId : match?.awayTeamId
-    return teamId && teamNames?.[teamId] ? teamNames[teamId] : cell.side === 'home' ? 'Home' : 'Away'
+    const opponentId = cell.side === 'home' ? match?.awayTeamId : match?.homeTeamId
+    return teamId && teamNames?.[teamId]
+      ? `${teamNames[teamId]} ${cell.side} score against ${opponentId && teamNames[opponentId] || 'their opponent'}`
+      : `${cell.side === 'home' ? 'Home' : 'Away'} score`
   }
 
   if (!compatible.length) {
@@ -138,7 +141,7 @@ export function generateHint({
     const score = scoreForCell(nearest.solution, cell)
     return {
       type: hintType,
-      message: `Corrected ${describe(cell)} score from ${userInputs[cell.matchId]?.[cell.side]} to ${score} on a closest valid solution path.${minimum > 1 ? ' Other entered scores still need adjustment.' : ' A valid completion is now possible.'}`,
+      message: `Corrected ${describe(cell)} from ${userInputs[cell.matchId]?.[cell.side]} to ${score} on a closest valid solution path.${minimum > 1 ? ' Other entered scores still need adjustment.' : ' A valid completion is now possible.'}`,
       targetMatchId: cell.matchId, revealedCell: cell, revealedScore: score
     }
   }
@@ -155,8 +158,8 @@ export function generateHint({
   return {
     type: hintType,
     message: safe.length
-      ? `${describe(target.cell)} score cell is ${target.revealedScore}.`
-      : `${describe(target.cell)} score cell is ${target.revealedScore} on one valid solution path. Other solutions were possible.`,
+      ? `${describe(target.cell)} is ${target.revealedScore}.`
+      : `${describe(target.cell)} is ${target.revealedScore} on one valid solution path. Other solutions were possible.`,
     targetMatchId: target.cell.matchId,
     revealedCell: target.cell,
     revealedScore: target.revealedScore
