@@ -1,13 +1,13 @@
-import type { Route } from 'next'
 import Link from 'next/link'
 
+import { SiteNavigation } from '@/components/layout/SiteNavigation'
 import { HeaderStatus } from '@/components/layout/HeaderStatus'
 
 export function Header() {
   return (
     <header className="sticky top-0 z-40 border-b border-[var(--line)] bg-[var(--paper-soft)]/88 backdrop-blur-xl">
-      <div className="page-container-wide flex min-h-16 items-center justify-between gap-4">
-        <Link href="/" className="flex items-center gap-3">
+      <div className="page-container-wide flex min-h-16 items-center justify-between gap-2 sm:gap-4">
+        <Link href="/" className="flex items-center gap-2 sm:gap-3">
           <span className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--field)] font-mono text-xs font-bold text-white">
             SL
           </span>
@@ -15,34 +15,10 @@ export function Header() {
             ScoreLogic
           </span>
         </Link>
-        <nav className="hidden items-center gap-5 text-sm font-semibold text-[var(--muted)] sm:flex">
-          <Link
-            href="/"
-            className="transition-colors hover:text-[var(--field-deep)]"
-          >
-            Home
-          </Link>
-          <Link
-            href={'/campaign' as Route}
-            className="transition-colors hover:text-[var(--field-deep)]"
-          >
-            Campaign
-          </Link>
-          <Link
-            href="/daily"
-            className="transition-colors hover:text-[var(--field-deep)]"
-          >
-            Daily
-          </Link>
-          <Link
-            href={'/stats' as Route}
-            className="transition-colors hover:text-[var(--field-deep)]"
-          >
-            Stats
-          </Link>
-        </nav>
+        <SiteNavigation />
         <HeaderStatus />
       </div>
+      <SiteNavigation mobile />
     </header>
   )
 }

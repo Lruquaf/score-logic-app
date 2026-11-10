@@ -100,12 +100,23 @@ export async function POST(
         ...body.currentOutcomes
       }
       const revealedCells = normalizeRevealedCells(previous?.revealedCells ?? [])
+      const givenCells = puzzle.initialRevealedMatches.flatMap((match) => {
+        nextInputs[match.id] = { home: match.homeScore, away: match.awayScore }
+        return [{ matchId: match.id, side: 'home' as const }, { matchId: match.id, side: 'away' as const }]
+      })
+      // Client snapshots may be stale or edited: server-owned reveals win.
+      for (const cell of revealedCells) {
+        const value = previous?.inputs[cell.matchId]?.[cell.side]
+        if (value === undefined || value === null) throw new Error('A revealed score is missing from the saved attempt.')
+        nextInputs[cell.matchId] = { ...(nextInputs[cell.matchId] ?? { home: null, away: null }), [cell.side]: value }
+      }
       const hint = generateHint({
         matches: puzzle.matches,
         userInputs: nextInputs,
         hintType: body.hintType,
         solutions: puzzle.allSolutions,
-        revealedCells
+        teamNames: Object.fromEntries(puzzle.teams.map((team) => [team.id, team.nameEn])),
+        revealedCells: [...givenCells, ...revealedCells]
       })
 
       if (hint.revealedCell && hint.revealedScore !== undefined) {
@@ -122,10 +133,11 @@ export async function POST(
 
       const now = new Date()
       const elapsedTimeSec = authoritativeElapsedTimeSec(attempt, now)
-      const hintsUsed = attempt.hintsUsed + 1
+      const changed = Boolean(hint.revealedCell && hint.revealedScore !== undefined)
+      const hintsUsed = attempt.hintsUsed + Number(changed)
       const hintTypes = [
         ...attempt.hintTypes.filter((type): type is 'reveal' => type === 'reveal'),
-        body.hintType
+        ...(changed ? [body.hintType] : [])
       ]
       const currentState = buildProgressState({
         puzzleId,
@@ -167,7 +179,7 @@ export async function POST(
           submissionCount: true
         }
       })
-      await appendAttemptEvent(
+      if (changed) await appendAttemptEvent(
         {
           attemptId: attempt.id,
           type: AttemptEventType.HINT_USED,

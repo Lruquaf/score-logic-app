@@ -364,3 +364,135 @@ Bu çalışma WebKit/iOS veya canlı Railway smoke testi içermez.
 - Strict nonce CSP korunur; HTML'in request-time render edilmesi bu politikanın gereğidir.
 - Railway/PostgreSQL sleeping işi açık kalır. Production içeriğinin o gün için aktif olması
   halen yayın operasyonunun sorumluluğudur; bu çalışmada canlı içerik değiştirilmedi.
+
+
+## 17. Canlı testte boş puzzle tablosu — 10 Kasım 2026
+
+### Kanıt ve önceki doğrulamanın açığı
+
+Kullanıcının paylaştığı `https://score-logic-app-test.up.railway.app/` adresinde doğrudan
+API okumaları ve TinyFish guest tarayıcı kontrolü yapıldı:
+
+- `/api/health`: database `up`, redis `disabled`, HTTP 200.
+- `/api/puzzles/campaign`: `puzzles: []`, `progress: []`.
+- `/api/puzzles/daily`: HTTP 503.
+- Daily yeniden denemeyle de açılmıyor; campaign paket başlıkları var ama oynanabilir seviye yok.
+
+Bu olay guest kimlik hatası veya Redis gereksinimi değil; boş içerik tablosu ve release
+hazırlığının eksikliği. Önceki HTTPS testleri önceden yayımlanmış fixture veritabanında
+çalıştığı için boş DB'den deploy açığını yakalamadı. Önceki “testler geçti” kaydı bu
+kapsamdadır; canlı ortamın oynanabilir hale geldiğine kanıt sayılmamalıdır.
+
+### Düzeltme
+
+- `db:release`: migration + içerik hazırlığı/doğrulaması. Railway pre-deploy bu komuta geçti.
+- `PUZZLE_CONTENT_MODE=test`: yalnız açıkça seçilen izole test modu; 150 campaign ve bugün
+  dahil 15 daily oluşturulur, gerçek domain/content QA uygulanır, yalnız bu hazırlayıcının
+  kendi fixture'ları audit kaydıyla onaylanıp aktive edilir.
+- Varsayılan `reviewed` modunda otomatik onay yok; eksik oynanabilir içerikte release durur.
+- `/api/health` bağlantı yanında güncel oynanabilir içeriği denetler. Boş DB artık sağlıklı
+  sayılmaz. Boş campaign katalog API'si de yanıltıcı başarı yerine 503 verir.
+- Yeniden çalıştırma mevcut içeriği/ilerlemeyi silmez. Global approval, reset veya request
+  sırasında generation yok. Başka editörün pending/rejected içeriğine dokunulmaz.
+- `railway.test-content.toml`: isteğe bağlı ayrı günlük test içerik yenileme cron'u.
+  Cron yoksa pencere bittikten sonra release/ensure-content yeniden çalıştırılmalıdır.
+- `.railwayignore`: gerçek local env/DB ve eski build klasörlerinin snapshot'a taşınması önlenir.
+
+### Doğrulama ve uygulama durumu
+
+- 295 unit test geçti; boş DB readiness, tarih devri, test opt-in ve boş campaign yanıtı dahil.
+- Yeni, boş yerel DB'de 2 integration testi geçti: 165 içerik; ikinci çalışmada sıfır
+  değişiklik; sonraki gün yalnız bir yeni tarih; başka aktörün pending kaydı korunuyor.
+- Gerçek `db:release` komutu yerel test DB'sinde production modunda çalıştırıldı;
+  bugünün içerik penceresi `READY` oldu.
+- Bu release'in ürettiği içerikle production standalone HTTPS'te 12 Playwright testi geçti;
+  guest daily/campaign, çözüm, unlock, hint, reveal ve hesap geçişleri dahil.
+- Minimum env production build, type-check ve lint geçti.
+
+### Canlı test ortamına uygulama tamamlandı
+
+Kullanıcı Railway oturumunu yeniledikten sonra doğru project/environment/service ve
+veritabanı host'u doğrulandı. Yalnız `chic-optimism` projesinin **test** ortamındaki
+`score-logic-app` servisi değiştirildi; production ortamı ve production DB ayarlarına
+dokunulmadı. Web servisinin `AUTH_URL` değeri yanlışlıkla production domainini gösteriyordu;
+test domainine düzeltildi ve `PUZZLE_CONTENT_MODE=test` tanımlandı.
+
+Yeni kaynak snapshot'ı deploy edildi:
+
+- Deployment: `5795cb90-f873-4569-b719-cfd43e581914` — **SUCCESS**.
+- Adres: https://score-logic-app-test.up.railway.app/
+- Canlı `/api/health`: HTTP 200; database/content `up`, Redis `disabled`.
+- Canlı campaign API: **150 seviye**; Beginner/Easy/Medium/Hard/Expert ilk seviyeleri açık.
+- Canlı daily API: HTTP 200; **2026-11-10**, **6 maç**.
+- Canlı domain üzerinde **12 Playwright testi geçti**: guest daily ve campaign, doğrudan
+  skor girişi, hint, reveal durumu, çözüm ve sonraki seviye erişimi, kayıt/merge,
+  çıkış→guest→giriş sonrası history/draft korunması ve CSP.
+
+Yeni kaynak CLI snapshot ile test ortamına yüklendi; GitHub'a commit/push yapılmadı.
+Günlük test-content cron manifesti repoda hazır; ayrı cron servisi bu çalışmada kurulmadı.
+Mevcut 15 günlük pencere sonrasında otomatik devam için bu cron bağlanmalı veya
+`db:ensure-content`/yeni release çalıştırılmalıdır.
+
+Canlı container'da salt-okuma sayımı ayrıca doğrulandı: **165 puzzle = 150 campaign +
+15 daily**; daily aralığı **10–24 Kasım 2026**. Ayrı TinyFish guest browser doğrulamasında
+Daily'nin final tablosu ve altı maçı açıldı; Beginner 1 iki hint sonrasında doğru çözüldü,
+Beginner 2'nin açıldığı görüldü. [Canlı guest doğrulama kaydı](https://agent.tinyfish.ai/runs/28a008cb-facb-4ca5-b689-4cf47ed062ee).
+Eski deployment'tan boş katalog cache'i tutan açık tarayıcı sekmesinin bir kez normal
+refresh edilmesi yeterlidir; localStorage veya kullanıcı ilerlemesinin silinmesi gerekmez.
+
+## 18. Hint getirisi, mobil sekmeler ve paylaşım daveti — 10 Kasım 2026
+
+Kullanıcı bu üç iyileştirmeyi ayrıca uygulama kapsamına aldı. Önceki kapsam dışı
+notlarından bağımsız olarak aşağıdaki davranışlar uygulanmıştır.
+
+### Sorunlar ve çözümler
+
+- **Hint çıkmazı:** Eski motor, uyumlu çözüm veya ortak boş hücre bulamadığında yalnız
+  açıklama döndürüyordu. Artık uyumlu çözüm varsa ortak boş hücre önceliklidir; ortak
+  hücre yoksa geçerli bir çözüm yolundan boş skor açılır. Hiç uyumlu çözüm yoksa verilen
+  ve önceki hint skorları korunarak en az değişiklik isteyen yoldaki bir yanlış dolu
+  hücre düzeltilir. Çoklu hatada her hint minimum uyuşmazlığı bir azaltır; tek hint ile
+  bütün hataların giderildiği iddia edilmez. Tamamen doğru dolu tahtada Check önerilir,
+  hint sayacı ve HINT_USED olayı artmaz. Sunucu kendi kayıtlı given/hint değerlerini
+  istemci snapshot'ının üzerine geri koyar.
+- **Mobil gezinme:** Eski nav `hidden sm:flex` yüzünden telefonda tamamen kayboluyordu.
+  Home/Campaign/Daily/Stats mobil header'ın ikinci satırında sürekli görünür ve aktif
+  sekme işaretlidir. Campaign seviyeleri telefonda beş sütun; seviye ve skor hedefleri
+  en az 44 px. Skor satırları ve notlar dar ekrana göre düzenlendi; final tablo sütunları
+  320 px için sıkıştırıldı. Hint/sonuç pencereleri dinamik viewport içinde kaydırılabilir.
+- **Zayıf paylaşım:** Mesaj artık paket/seviye veya daily tarihi, tamamlanan attempt'in
+  sunucu süresi, hint sayısı, spoiler içermeyen grid, meydan okuma metni ve **aynı puzzle**
+  bağlantısını içerir. Replay süresi eski en iyi süreyle karıştırılmaz. Native paylaşım
+  desteklenir; hata halinde clipboard ve son olarak seçilebilir metin sunulur. Davet
+  alıcısının campaign seviye erişim kuralları korunur; referral/hesap daveti değildir.
+
+### Doğrulama
+
+- **301 unit test geçti**: yanlış dolu hücre düzeltme, çoklu hata, önceki hint/given
+  korunması, ortak hücre yokken çözüm yolu açılması, doğru tam tahtada sayaç/olay
+  oluşturmama, paylaşım kimliği/süre/URL ve mevcut regresyonlar dahil.
+- TypeScript, lint ve opsiyonel Redis/telemetri servisleri kapalı minimum production
+  build geçti. Yeni migration, paket veya zorunlu env yok.
+- Playwright matrisi masaüstü Chromium, Pixel/Chromium ve iPhone/WebKit olarak genişletildi.
+  Mobil kontroller ana sayfa, campaign, daily, stats, doğrudan puzzle, login ve register'ı
+  **320 / 390 / 768 px** genişliklerde açar; yatay taşma, görünür sekmeler, dokunma
+  hedefleri ve altı fixture'ın gerçekten çizildiğini denetler. Yanlış skor → hint
+  düzeltmesi → çözüm → tam puzzle daveti ve clipboard hatası fallback'i ayrıca sınanır.
+- Tarayıcı testleri cihaz emülasyonudur; fiziksel iPhone paylaşım paneli otomasyonu değildir.
+
+- Production standalone üzerinde yerel HTTPS ile **42 Playwright testi geçti**; yalnız
+  mobil senaryoların masaüstü projesindeki 3 kopyası bilinçli skip edildi. WebKit ve
+  Chromium daily/campaign/stats ekran görüntüleri ayrıca incelendi.
+
+### Test ortamına yayın
+
+- Railway test deployment: `70e9a29f-6cd3-4801-9cc9-e4c634f150d7` — **SUCCESS**.
+- Adres: https://score-logic-app-test.up.railway.app/
+- Canlı healthcheck: HTTP 200; database/content `up`, Redis `disabled`.
+- Yeni deployment'ın public HTTPS adresinde aynı matrisle **42 Playwright testi geçti**
+  (3 masaüstü mobil-senaryo kopyası skip). iPhone/WebKit dahil mobil genişlikler, skor
+  girişi, hint düzeltmesi, çözüm/unlock, davet mesajının süre/hint/URL içeriği, clipboard
+  hatası, hesap geçişleri ve CSP canlı ortamda doğrulandı.
+- Release içerik kontrolü mevcut 150 campaign ve 15 daily kaydını hazır buldu;
+  `createdCount=0`, `activatedCount=0`. İçerik veya kullanıcı geçmişi sıfırlanmadı.
+- Yalnız test ortamı güncellendi. Snapshot deploy kullanıldı; commit/push yapılmadı.

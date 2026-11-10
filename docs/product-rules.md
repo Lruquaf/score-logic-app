@@ -1,7 +1,7 @@
 # ScoreLogic Kanonik Ürün Kuralları
 
 > Durum: Aktif ürün sözleşmesi  
-> Son güncelleme: 9 Kasım 2026
+> Son güncelleme: 10 Kasım 2026
 > Kapsam: çözüm doğrulama, campaign erişimi, attempt/replay/reveal ve istatistik semantiği
 
 Bu doküman ScoreLogic'in ürün davranışı için kanonik kaynaktır. Eski MVP ve teknik tasarım
@@ -26,13 +26,33 @@ kümesindeki çözümlerden herhangi biriyle tam eşleşiyorsa doğrudur.
 
 ### Hint kuralları
 
-- Hint motoru kullanıcının mevcut girdileriyle uyumlu `allSolutions` alt kümesini hesaplar.
-- Dolu ve kullanıcı tarafından girilmiş bir hücrenin üzerine yazılmaz.
-- Hint sonrasında en az bir geçerli tamamlama kalmalıdır.
-- Uyumlu çözümlerin ortak değer verdiği bir hücre varsa bu değer güvenle açılabilir.
-- Ortak hücre yoksa hint belirli bir skoru zorlamak yerine bilgi kazancı sağlayan yönlendirme
-  vermelidir.
-- Mevcut girdilerle hiçbir çözüm kalmıyorsa önce çelişki bildirilir.
+- Hint motoru mevcut girdilerle uyumlu `allSolutions` alt kümesini hesaplar.
+- Başlangıçta verilen skorlar ve daha önce açılmış hint hücreleri korunur; sunucu istemci
+  snapshot'ı yerine kendi kayıtlı değerlerini kullanır.
+- Uyumlu çözümlerde ortak bir boş skor varsa öncelikle bu hücrelerden biri açılır.
+- Ortak boş hücre yoksa mevcut girdilerle uyumlu bir çözüm yolu seçilerek bir boş hücre
+  açılır; başka çözümlerin de mümkün olduğu mesajda açıkça söylenir. En az bir tamamlama korunur.
+- Girdiler hiçbir çözüme uymuyorsa sabit skorlarla uyumlu çözümler arasında en az dolu hücre
+  değişikliği isteyen yol seçilir; bu yola göre hatalı bir kullanıcı hücresi düzeltilip
+  kilitlenir. Birden çok hata varsa hepsi bir anda düzeltilmez; kalan minimum hata sayısı
+  azalır ve diğer girdilerin de incelenmesi gerektiği açıklanır.
+- Normal tamamlamayla uyumlu dolu skorlar boş hücre açma sırasında değiştirilmez.
+- Bütün skorlar zaten geçerliyse Check yönlendirmesi yapılır; hücre değişmeyen bu istekte
+  `hintsUsed` artırılmaz ve `HINT_USED` olayı oluşturulmaz.
+- Gerçek hücre açma/düzeltme sunucuda assistance olarak sayılır; solve-any geçerliliği,
+  attempt sahipliği ve campaign erişim kuralları değişmez.
+
+### Sonuç paylaşımı ve mobil erişim
+
+- Sonuç daveti campaign paket/seviyesini veya daily tarihini, tamamlanan attempt'in
+  sunucudan gelen süresini ve hint sayısını içerir. Replay paylaşımı eski en iyi süreyi
+  yeni attempt'in süresi olarak göstermez.
+- Davet aynı origin üzerinde `/puzzles/<id>` bağlantısı taşır; gizli skorlar, çözüm kümesi
+  veya kullanıcı/session bilgisi içermez. Campaign erişim kilitleri alıcıya da uygulanır.
+- Uygun tarayıcıda native paylaşım açılır. Kullanıcı iptal ederse işlem sonlanır;
+  diğer hatalarda clipboard, o da kullanılamazsa seçilebilir davet metni gösterilir.
+- Dar ekranlarda Home/Campaign/Daily/Stats sekmeleri ayrı, sürekli görünür header satırında
+  yer alır. Campaign seviyeleri beş sütun, skor girişleri en az 44 px dokunma hedefi kullanır.
 
 ## 2. Beginner Oyun Modeli
 
@@ -110,7 +130,9 @@ kapısı çalışır:
 - Her prefill-uyumlu çözüm, bütün kısmi adımlarıyla partial validator ve final solve-any
   hakeminden otomatik playthrough ile geçmelidir.
 - Her playthrough durumunda hint motoru denenir; açılan hücre geçerli çözüm kümesini boş
-  bırakamaz. Ortak güvenli hücre bulunmaması hata değildir; yönlendirici hint sözleşmesidir.
+  bırakamaz. Ortak güvenli hücre yoksa uyumlu bir çözüm yolundan hücre açılır. Yanlış
+  girdilerde ise en yakın geçerli yola göre tek dolu hücre düzeltilir; birden fazla hata
+  varsa tamamı aynı hint ile düzeltilmez.
 - Final tablo şekli tekrar edemez. Takım seti, fixture sunumu, scoreline/outcome dağılımı,
   çözüm sayısı ve zorluk birlikte `0–1` benzerlik skoru üretir; `0,96+` içerik reddedilir.
 
@@ -375,3 +397,13 @@ canonical geçmiş tek kimlik altında birleştirilir.
 Eski dokümanlar tarihsel bağlam ve ürün vizyonu için korunabilir; güncel davranış iddiasında
 bulunmamalıdır. Yeni bir ürün kararı alındığında bu doküman ve ilgili domain/API sözleşmeleri
 aynı değişiklik içinde güncellenir.
+
+## 7. İzole test ortamının ilk içerik hazırlığı
+
+`PUZZLE_CONTENT_MODE=test`, yalnız izole test ortamı için açıkça seçilen fixture
+hazırlama modudur. Gerçek domain/content QA kapılarını ve editorial audit'i kullanır;
+otomatik onay yalnız bu hazırlayıcının oluşturduğu `system:test-content-bootstrap`
+fixture'larına uygulanır. Başka aktöre ait pending/rejected içerik, mevcut kullanıcı
+verisi veya immutable revision değiştirilmez. Normal `reviewed` modunun insan
+incelemesi ve aktivasyon kuralları değişmez. İçerik request sırasında üretilmez;
+release ve ayrı günlük test-content cron'unda hazırlanır.

@@ -272,7 +272,7 @@ export function CampaignProgress() {
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-10 gap-0.5 sm:grid-cols-[repeat(10,2rem)] sm:gap-1">
+                        <div className="grid grid-cols-5 gap-1.5 sm:grid-cols-[repeat(10,2rem)] sm:gap-1">
                           {bandPuzzles.map((puzzle) => {
                             const progress = progressMap.get(puzzle.id)
                             const state = levelState({
@@ -294,7 +294,7 @@ export function CampaignProgress() {
                                 <span
                                   key={puzzle.id}
                                   aria-label={label}
-                                  className={`flex aspect-square min-h-7 cursor-not-allowed items-center justify-center rounded-[var(--radius-sm)] border text-[10px] font-bold shadow-[inset_0_1px_0_rgba(255,255,255,0.58)] sm:h-8 sm:w-8 ${tone}`}
+                                  className={`flex aspect-square min-h-11 cursor-not-allowed items-center justify-center rounded-[var(--radius-sm)] border text-[10px] font-bold shadow-[inset_0_1px_0_rgba(255,255,255,0.58)] sm:min-h-8 sm:h-8 sm:w-8 ${tone}`}
                                 >
                                   {content}
                                 </span>
@@ -307,7 +307,7 @@ export function CampaignProgress() {
                                 href={`/puzzles/${puzzle.id}`}
                                 aria-label={label}
                                 title={label}
-                                className={`flex aspect-square min-h-7 items-center justify-center rounded-[var(--radius-sm)] border text-[10px] font-bold shadow-[inset_0_1px_0_rgba(255,255,255,0.58)] transition hover:-translate-y-0.5 sm:h-8 sm:w-8 ${tone} ${hoverTone}`}
+                                className={`flex aspect-square min-h-11 items-center justify-center rounded-[var(--radius-sm)] border text-[10px] font-bold shadow-[inset_0_1px_0_rgba(255,255,255,0.58)] transition hover:-translate-y-0.5 sm:min-h-8 sm:h-8 sm:w-8 ${tone} ${hoverTone}`}
                               >
                                 {content}
                               </Link>

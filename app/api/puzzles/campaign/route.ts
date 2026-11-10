@@ -26,6 +26,12 @@ export async function GET(request: NextRequest) {
       }))
     )
 
+    if (puzzles.length === 0) {
+      const response = errorResponse(503, 'SERVICE_UNAVAILABLE', 'Campaign puzzles are temporarily unavailable.')
+      response.headers.set('Retry-After', '300')
+      return response
+    }
+
     return jsonResponse({ puzzles, progress })
   } catch (error) {
     captureServerError(error, 'GET /api/puzzles/campaign')

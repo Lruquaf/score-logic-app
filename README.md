@@ -72,8 +72,11 @@ attempt/completion kayıtlarıyla karşılaştıran dry-run'dır. Değişiklik y
 Minimum production web deploy için yalnız `DATABASE_URL`, güçlü `AUTH_SECRET`, HTTPS
 `AUTH_URL` ve `AUTH_TRUST_HOST=true` gerekir. Redis yoksa instance bazlı memory rate
 limiter kullanılır; Sentry, OTel, PostHog, synthetic ve backup servisleri opsiyoneldir.
-Railway için `RATE_LIMIT_TRUSTED_PROXY_HOPS=1` ayarlanmalıdır. Migration'lar deploy'da
-uygulanır; oynanabilir puzzle içeriği ayrıca yayınlanıp onaylanmalıdır.
+Railway için `RATE_LIMIT_TRUSTED_PROXY_HOPS=1` ayarlanmalıdır. Release migration ve
+oynanabilir içerik kontrolünü birlikte yapar. Boş test veritabanı
+için `PUZZLE_CONTENT_MODE=test`, campaign ve günlük test içeriklerini QA/onay/activation
+adımlarıyla otomatik hazırlar. Varsayılan `reviewed` modunda içerik ayrıca yayınlanıp
+onaylanmalıdır.
 Ayrıntılar ve minimum env örneği `docs/deployment.md` içindedir.
 
 Production gözlemlenebilirliği request-id ile korele OTel request/Prisma trace'leri,
@@ -106,3 +109,7 @@ Arayüz standardı ve yeniden tasarım kararları için `docs/design-system.md` 
 yer alır. Playwright varsayılan olarak yerel dev server açar; hazır bir production
 sunucusu için `E2E_BASE_URL=<adres> npm run test:e2e` kullanılabilir. Yalnız yerel,
 kendinden imzalı HTTPS testinde `E2E_IGNORE_HTTPS_ERRORS=true` verilebilir.
+
+Boş test DB deploy'u: Railway web servisinde `PUZZLE_CONTENT_MODE=test` ve pre-deploy
+`npm run db:release` kullanılır. [İlk yayın ve günlük yenileme](docs/deployment.md#boş-veritabanıyla-test-ortamını-ilk-kez-açma-10-kasım-düzeltmesi).
+`/api/health` artık PostgreSQL yanında oynanabilir içerik varlığını da kontrol eder.

@@ -247,6 +247,17 @@ describe('puzzle API routes', () => {
     expect(response.status).toBe(404)
   })
 
+  it('returns unavailable for an empty campaign catalog', async () => {
+    const { getOptionalRequestUser } = await import('@/lib/auth/anonymous')
+    const { listCampaignPuzzleCatalogEntries } = await import('@/lib/db/queries/puzzles')
+    vi.mocked(getOptionalRequestUser).mockResolvedValue({ userId: null, isAnonymous: false })
+    vi.mocked(listCampaignPuzzleCatalogEntries).mockResolvedValue([])
+    const { GET } = await import('@/app/api/puzzles/campaign/route')
+    const response = await GET(new NextRequest('https://example.test/api/puzzles/campaign'))
+    expect(response.status).toBe(503)
+    expect(response.headers.get('Retry-After')).toBe('300')
+  })
+
   it('returns the campaign puzzle list payload', async () => {
     const { getOptionalRequestUser } = await import('@/lib/auth/anonymous')
     const { listCampaignPuzzleCatalogEntries } = await import('@/lib/db/queries/puzzles')
@@ -1120,6 +1131,58 @@ describe('puzzle API routes', () => {
 
     expect(response.status).toBe(409)
     expect(upsertPuzzleProgress).not.toHaveBeenCalled()
+  })
+
+  it('does not charge a hint when all entered scores already solve the board', async () => {
+    const { ensureRequestUser } = await import('@/lib/auth/anonymous')
+    const { getPuzzlePrivateById } = await import('@/lib/db/queries/puzzles')
+    const { appendAttemptEvent } = await import('@/lib/db/queries/attempts')
+    vi.mocked(ensureRequestUser).mockResolvedValue({ userId: 'user-1', isAnonymous: true })
+    vi.mocked(getPuzzlePrivateById).mockResolvedValue(sampleDailyPuzzlePrivate)
+    const { POST } = await import('@/app/api/puzzles/[id]/hint/route')
+    const response = await POST(new NextRequest(`http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/hint`, {
+      method: 'POST', body: JSON.stringify({ attemptId: ATTEMPT_ID, hintType: 'reveal', currentInputs: Object.fromEntries(sampleDailyPuzzlePrivate.solution.map((m) => [m.id, { home: m.homeScore, away: m.awayScore }])) })
+    }), { params: Promise.resolve({ id: sampleDailyPuzzlePrivate.id }) })
+    const body = await response.json()
+    expect(response.status).toBe(200)
+    expect(body.progressPatch.hintsUsed).toBe(0)
+    expect(body.hint.message).toContain('Press Check')
+    expect(appendAttemptEvent).not.toHaveBeenCalled()
+  })
+
+  it('restores immutable given scores before considering a correction', async () => {
+    const { ensureRequestUser } = await import('@/lib/auth/anonymous')
+    const { getPuzzlePrivateById } = await import('@/lib/db/queries/puzzles')
+    vi.mocked(ensureRequestUser).mockResolvedValue({ userId: 'user-1', isAnonymous: true })
+    vi.mocked(getPuzzlePrivateById).mockResolvedValue({ ...sampleDailyPuzzlePrivate, initialRevealedMatches: [sampleDailyPuzzlePrivate.solution[0]] })
+    const currentInputs = Object.fromEntries(sampleDailyPuzzlePrivate.solution.map((m) => [m.id, { home: m.homeScore, away: m.awayScore }]))
+    currentInputs.m1.home = 19
+    const { POST } = await import('@/app/api/puzzles/[id]/hint/route')
+    const response = await POST(new NextRequest(`http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/hint`, {
+      method: 'POST', body: JSON.stringify({ attemptId: ATTEMPT_ID, hintType: 'reveal', currentInputs })
+    }), { params: Promise.resolve({ id: sampleDailyPuzzlePrivate.id }) })
+    const body = await response.json()
+    expect(response.status).toBe(200)
+    expect(body.hint.revealedCell).toBeUndefined()
+    expect(body.hint.message).toContain('Press Check')
+    expect(body.progressPatch.hintsUsed).toBe(0)
+  })
+
+  it('returns a correction patch for a wrong filled score', async () => {
+    const { ensureRequestUser } = await import('@/lib/auth/anonymous')
+    const { getPuzzlePrivateById } = await import('@/lib/db/queries/puzzles')
+    vi.mocked(ensureRequestUser).mockResolvedValue({ userId: 'user-1', isAnonymous: true })
+    vi.mocked(getPuzzlePrivateById).mockResolvedValue(sampleDailyPuzzlePrivate)
+    const { POST } = await import('@/app/api/puzzles/[id]/hint/route')
+    const response = await POST(new NextRequest(`http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/hint`, {
+      method: 'POST', body: JSON.stringify({ attemptId: ATTEMPT_ID, hintType: 'reveal', currentInputs: { m1: { home: 19, away: null } } })
+    }), { params: Promise.resolve({ id: sampleDailyPuzzlePrivate.id }) })
+    const body = await response.json()
+    expect(response.status).toBe(200)
+    expect(body.hint.revealedCell).toEqual({ matchId: 'm1', side: 'home' })
+    expect(body.hint.message).toContain('Corrected')
+    expect(body.progressPatch.revealedInputs.m1.home).toBe(sampleDailyPuzzlePrivate.solution[0].homeScore)
+    expect(body.progressPatch.hintsUsed).toBe(1)
   })
 
   it('returns a reveal hint patch', async () => {

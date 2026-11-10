@@ -8,6 +8,56 @@ Bu doküman ScoreLogic uygulamasını:
 
 için gereken adımları kapsar.
 
+## Boş veritabanıyla test ortamını ilk kez açma (10 Kasım düzeltmesi)
+
+`db:deploy` yalnız migration uygular; puzzle üretmez. Boş `puzzles` tablosu, başarılı
+PostgreSQL bağlantısına rağmen oynanabilir bir site sağlamaz. Canonical pre-deploy
+komutu artık `NODE_ENV=production npm run db:release`: migration'dan sonra içerik
+hazırlığı/doğrulaması çalışır. `db:seed` yalnız takım referanslarını yazar; sorunu tek
+başına çözmez.
+
+Paylaşılan **test** ortamının web servisinde:
+
+```dotenv
+PUZZLE_CONTENT_MODE=test
+```
+
+Bu ayarla yeni kodu deploy et. Release, 150 campaign seviyesi ve bugün dahil 15 günlük
+(`DAILY_BUFFER_DAYS_AHEAD=14`) daily pencereyi üretir; domain/content QA'dan geçirir,
+yalnız kendi test fixture'larını onaylayıp aktive eder. İşlemler normal editorial audit
+olaylarıyla `system:test-content-bootstrap` aktörüne kaydedilir. Tekrar çalıştırma
+mevcut içerikleri/kullanıcı geçmişini silmez, revision'ları yerinde değiştirmez.
+Yarım kalan kendi fixture'larını tamamlar; başka aktörün pending/rejected içeriklerini
+otomatik onaylamaz.
+
+Railway mevcut service settings içinde pre-deploy override varsa yeni manifestle
+`db:release` kullanıldığını doğrula. Yeni script mevcut deployment'ta yoksa yalnız
+redeploy/restart yetmez: yeni kaynak kodu build edilmelidir.
+
+Normal editorial production için varsayılan `PUZZLE_CONTENT_MODE=reviewed` kalır.
+Bu mod otomatik üretim/onay yapmaz; mevcut yayınlanmış campaign ve bugünün daily'sini
+denetler. Eksik içerikte release anlaşılır hata ile durur; normal publisher/review/
+activation iş akışı kullanılır. Test modunu insan onayı gereken production içerikleri
+üzerinde etkinleştirme.
+
+Kontrol:
+
+- `/api/health`: `database: up`, `content: up`, Redis kapalıysa `redis: disabled`.
+- `/api/puzzles/campaign`: 150 seviye; her pack'in birinci seviyesi guest için açık.
+- `/api/puzzles/daily`: güncel business date ve 6 maç; 200 yanıt.
+- Tarayıcıda guest olarak Daily ve Beginner 1 oynanabilir.
+
+Günlük yenileme için test ortamında aynı repo'dan ayrı cron servisine
+`/railway.test-content.toml` manifestini, aynı `DATABASE_URL` ve
+`PUZZLE_CONTENT_MODE=test` değerini bağla. Bu servis İstanbul 00:15'te pencereyi
+ilerletir. Cron kurulmayan test ortamının son hazırlanmış 15 günlük penceresi bittiğinde
+yeni release veya `npm run db:ensure-content` gerekir. Normal editorial daily/activation
+cron'ları mevcut ayrı review sürecini kullanmaya devam eder.
+
+Yerel snapshot upload'ında `.railwayignore`, gerçek `.env*`, `.next*`, yerel DB ve test
+çıktılarını dışlar. Railway değişkenleri runtime'da sağlanır; local env dosyası image'a
+konmaz.
+
 ## 1. Gerekli Environment Variables
 
 Production'da zorunlu:
@@ -140,7 +190,7 @@ Bu akış `.next/standalone/server.js` üzerinden çalışır.
 Repository içinde bulunan [railway.toml](/Users/yavuzselim/Desktop/Cursor/ScoreLogic/railway.toml) dosyası şu davranışları tanımlar:
 
 - build command: `npm run build`
-- pre-deploy command: `npm run db:deploy`
+- pre-deploy command: `npm run db:release`
 - start command: `npm run start:standalone`
 - readiness/promotion healthcheck path: `/api/health`
 
@@ -216,7 +266,7 @@ Railway healthcheck mantığına göre yeni deployment ancak endpoint HTTP `200`
 
 `/api/healthz` yalnız process liveness'ını kontrol eder ve dış bağımlılık sorgulamaz.
 Canonical Railway promotion gate'i `/api/health` endpoint'idir: PostgreSQL veya yapılandırılmış
-Redis erişilemiyorsa `503` döner ve deployment promote edilmez.
+Redis erişilemiyorsa ya da 150 campaign + bugünün daily içeriği hazır değilse `503` döner ve deployment promote edilmez.
 
 ### 3.5 Rate-limit ve CSP güvenlik sözleşmesi
 
@@ -481,9 +531,9 @@ Deploy tamamlandıktan sonra:
 
 - Railway config as code yalnızca deploy anındaki ayarları override eder; dashboard ayarlarını kalıcı olarak değiştirmez. Bu yüzden `railway.toml` repository içinde canonical deploy manifest olarak tutulmalıdır.
 - Next.js standalone output etkin olduğu için Railway start command doğrudan minimal standalone server'ı başlatır.
-- Prisma migration'ları deploy sırasında `db:deploy` ile uygulanır; geçici database
+- Prisma migration'ları release içinde `db:deploy` ile uygulanır; geçici database
   startup yarışları yaklaşık 62 saniyelik sınırlı retry penceresinde karşılanır. Deploy
-  puzzle üretmez veya mevcut puzzle içeriğini güncellemez.
+  reviewed modunda puzzle üretmez; test modunda eksik test fixture'ları hazırlanır.
 - `20260730170000_wave_4_attempts` migration'ı `PuzzleAttempt`, `AttemptEvent` ve
   first/best/current progress referanslarını ekler. Uygulama kodu yayınlanmadan önce
   pre-deploy migration'ın başarıyla tamamlanması zorunludur.

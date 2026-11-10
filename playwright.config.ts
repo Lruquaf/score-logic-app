@@ -16,10 +16,9 @@ export default defineConfig({
     trace: 'on-first-retry'
   },
   projects: [
-    {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] }
-    }
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    { name: 'mobile-chromium', use: { ...devices['Pixel 7'] } },
+    { name: 'mobile-webkit', use: { ...devices['iPhone 13'] } }
   ],
   webServer: process.env.E2E_BASE_URL ? undefined : {
     command: `npx next dev --hostname 127.0.0.1 --port ${e2ePort}`,

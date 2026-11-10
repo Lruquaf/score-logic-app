@@ -58,7 +58,7 @@ export function StandingsTable({
         >
           <colgroup>
             <col className="w-[10%]" />
-            <col className="w-[27%]" />
+            <col className="w-[26%]" />
             <col className="w-[8%]" />
             <col className="w-[8%]" />
             <col className="w-[8%]" />
@@ -89,8 +89,8 @@ export function StandingsTable({
                   key={standing.teamId}
                   className={index % 2 === 0 ? 'bg-white/86' : 'bg-[rgba(231,241,233,0.42)]'}
                 >
-                  <td className="rounded-l-[var(--radius-sm)] border-y border-l border-[var(--line)] py-2.5 pl-1 pr-2 text-center sm:py-4 sm:pl-3 sm:pr-3">
-                    <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--field-line)] bg-[var(--field-soft)] font-mono text-[10px] font-bold text-[var(--field-deep)] shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] sm:h-8 sm:min-w-8 sm:text-xs">
+                  <td className="rounded-l-[var(--radius-sm)] border-y border-l border-[var(--line)] py-2.5 pl-1 pr-1 text-center sm:py-4 sm:pl-3 sm:pr-3">
+                    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--field-line)] bg-[var(--field-soft)] font-mono text-[10px] font-bold text-[var(--field-deep)] shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] sm:h-8 sm:min-w-8 sm:text-xs">
                       {standing.position}
                     </span>
                   </td>

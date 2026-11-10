@@ -13,6 +13,7 @@ interface FixtureGridProps {
   puzzle: PuzzlePublicDTO
   feedback: SubmitFeedback | null
   className?: string
+  busy?: boolean
 }
 
 type MatchStatus = 'Check' | 'Given' | 'Hinted' | 'Answer' | 'Entered' | 'Open'
@@ -37,7 +38,7 @@ function statusBadgeClass(status: MatchStatus) {
   }
 }
 
-export function FixtureGrid({ puzzle, feedback, className = '' }: FixtureGridProps) {
+export function FixtureGrid({ puzzle, feedback, busy = false, className = '' }: FixtureGridProps) {
   const completedMatchIds = usePuzzleStore((state) => state.completedMatchIds)
   const answerRevealed = usePuzzleStore((state) => state.answerRevealed)
   const initialRevealedMatchIds = usePuzzleStore((state) => state.initialRevealedMatchIds)
@@ -129,8 +130,8 @@ export function FixtureGrid({ puzzle, feedback, className = '' }: FixtureGridPro
                       : 'border-[var(--line)] bg-white/84 hover:border-[var(--field-line)] hover:bg-white'
               }`}
             >
-              <div className="grid grid-cols-[minmax(0,1fr)_52px] items-center gap-1.5 sm:grid-cols-[minmax(0,1fr)_150px] sm:gap-2 lg:grid-cols-[minmax(0,1fr)_180px]">
-                <div className="grid grid-cols-[minmax(56px,1fr)_56px_14px_56px_minmax(56px,1fr)_70px] items-center gap-2 max-sm:grid-cols-[minmax(48px,1fr)_52px_12px_52px_minmax(48px,1fr)]">
+              <div className="grid grid-cols-1 items-center gap-2 sm:grid-cols-[minmax(0,1fr)_150px] sm:gap-2 lg:grid-cols-[minmax(0,1fr)_180px]">
+                <div className="grid grid-cols-[minmax(56px,1fr)_56px_14px_56px_minmax(56px,1fr)_70px] items-center gap-2 max-sm:grid-cols-[minmax(0,1fr)_44px_10px_44px_minmax(0,1fr)] max-sm:gap-1.5">
                   <div className="min-w-0 text-right">
                     <div className="truncate font-mono text-sm font-bold text-[var(--ink)]">
                       {home?.code ?? match.homeTeamId}
@@ -139,6 +140,7 @@ export function FixtureGrid({ puzzle, feedback, className = '' }: FixtureGridPro
                   </div>
 
                   <ScoreCell
+                    disabled={busy}
                     matchId={match.id}
                     side="home"
                     isCompleted={completedMatchIds.includes(match.id)}
@@ -149,6 +151,7 @@ export function FixtureGrid({ puzzle, feedback, className = '' }: FixtureGridPro
                   />
                   <span className="text-center font-mono text-sm font-bold text-[var(--field-deep)]">-</span>
                   <ScoreCell
+                    disabled={busy}
                     matchId={match.id}
                     side="away"
                     isCompleted={completedMatchIds.includes(match.id)}
@@ -171,10 +174,11 @@ export function FixtureGrid({ puzzle, feedback, className = '' }: FixtureGridPro
                 </div>
 
                 <textarea
+                  disabled={busy}
                   value={matchNotes.match}
                   maxLength={180}
                   rows={1}
-                  className="h-9 resize-none overflow-hidden rounded-[var(--radius-sm)] border border-[var(--line)] bg-white/72 px-1.5 py-2 text-[11px] leading-4 text-[var(--ink)] outline-none transition placeholder:text-[var(--faint)] focus:border-[var(--field)] focus:shadow-[0_0_0_3px_var(--light-glow)] sm:px-2.5 sm:text-xs"
+                  className="h-11 min-w-0 resize-none sm:h-9 overflow-hidden rounded-[var(--radius-sm)] border border-[var(--line)] bg-white/72 px-1.5 py-2 text-base leading-6 sm:text-xs sm:leading-4 text-[var(--ink)] outline-none transition placeholder:text-[var(--faint)] focus:border-[var(--field)] focus:shadow-[0_0_0_3px_var(--light-glow)] sm:px-2.5 sm:text-xs"
                   placeholder="Notes"
                   aria-label={`${home?.nameEn ?? home?.code ?? match.homeTeamId} vs ${away?.nameEn ?? away?.code ?? match.awayTeamId} match notes`}
                   onChange={(event) => setNote(match.id, 'match', event.currentTarget.value)}

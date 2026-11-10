@@ -9,9 +9,15 @@ vi.mock('@/lib/cache/redis', () => ({
   isRedisRequired: vi.fn().mockReturnValue(false)
 }))
 
+vi.mock('@/lib/puzzles/contentReadiness', () => ({
+  inspectPlayableContent: vi.fn().mockResolvedValue({ status: 'READY' })
+}))
+
 describe('health routes', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks()
+    const { inspectPlayableContent } = await import('@/lib/puzzles/contentReadiness')
+    vi.mocked(inspectPlayableContent).mockResolvedValue({ status: 'READY' } as never)
   })
 
   afterEach(() => {
@@ -46,7 +52,7 @@ describe('health routes', () => {
     const response = await GET()
 
     expect(response.status).toBe(503)
-    expect((await response.json()).checks).toEqual({ database: 'up', redis: 'down' })
+    expect((await response.json()).checks).toEqual({ database: 'up', content: 'up', redis: 'down' })
     expect(JSON.parse(log.mock.calls[0][0]).dependency).toBe('redis')
     expect(JSON.stringify(log.mock.calls)).not.toContain('private-redis-token')
   })
@@ -71,5 +77,14 @@ describe('health routes', () => {
 
     expect(response.status).toBe(503)
     expect(json.checks.redis).toBe('required')
+  })
+
+  it('rejects an empty puzzle database even when PostgreSQL accepts connections', async () => {
+    const { inspectPlayableContent } = await import('@/lib/puzzles/contentReadiness')
+    vi.mocked(inspectPlayableContent).mockResolvedValueOnce({ status: 'MISSING' } as never)
+    const { GET } = await import('@/app/api/health/route')
+    const response = await GET()
+    expect(response.status).toBe(503)
+    expect((await response.json()).checks).toMatchObject({ database: 'up', content: 'missing' })
   })
 })

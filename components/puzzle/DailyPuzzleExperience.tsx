@@ -46,6 +46,7 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
     assistanceDisabled,
     elapsedTimeSec,
     officialTimeTakenSec,
+    victoryTimeTakenSec,
     bestAttemptTimeSec,
     bestAttemptHintsUsed,
     lastHintMessage,
@@ -257,7 +258,7 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
         </div>
 
         <div className="flex min-w-0 flex-col gap-3 sm:gap-5">
-          <FixtureGrid puzzle={puzzle} feedback={visibleFeedback} className="h-full" />
+          <FixtureGrid puzzle={puzzle} feedback={visibleFeedback} busy={isHintPending || isSubmitPending || isAnswerRevealPending} className="h-full" />
         </div>
       </section>
 
@@ -373,11 +374,8 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
       <VictoryScreen
         isOpen={isVictoryOpen}
         onClose={() => setIsVictoryOpen(false)}
-        puzzleLabel={{
-          dailyDate: puzzle.dailyDate,
-          campaignOrder: puzzle.campaignOrder
-        }}
-        timeTakenSec={elapsedTimeSec}
+        puzzle={puzzle}
+        timeTakenSec={victoryTimeTakenSec}
         hintsUsed={hintsUsed}
         inputs={inputs}
         revealedMatchIds={revealedMatchIds}

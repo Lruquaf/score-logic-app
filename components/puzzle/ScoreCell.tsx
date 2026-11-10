@@ -6,6 +6,7 @@ import { useEffect, useRef } from 'react'
 import { usePuzzleStore } from '@/store/puzzleStore'
 
 interface ScoreCellProps {
+  disabled?: boolean
   matchId: string
   side: 'home' | 'away'
   isCompleted: boolean
@@ -16,6 +17,7 @@ interface ScoreCellProps {
 }
 
 export function ScoreCell({
+  disabled = false,
   matchId,
   side,
   isCompleted,
@@ -59,13 +61,14 @@ export function ScoreCell({
   return (
     <motion.input
       ref={inputRef}
+      disabled={disabled}
       type="number"
       min={0}
       max={19}
       inputMode="numeric"
       value={value ?? ''}
       readOnly={isRevealed}
-      className={`h-11 w-14 rounded-[var(--radius-sm)] border text-center font-mono text-xl font-bold outline-none transition [appearance:textfield] placeholder:text-[var(--faint)] focus:ring-0 max-sm:h-10 max-sm:w-[52px] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none ${tone} ${
+      className={`h-11 w-14 rounded-[var(--radius-sm)] border text-center font-mono text-xl font-bold outline-none transition [appearance:textfield] placeholder:text-[var(--faint)] focus:ring-0 max-sm:h-11 max-sm:w-11 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none ${tone} ${
         isSelected ? 'shadow-[0_0_0_3px_var(--light-glow),0_0_18px_rgba(57,209,123,0.16)]' : ''
       }`}
       placeholder="-"

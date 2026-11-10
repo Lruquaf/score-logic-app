@@ -49,7 +49,9 @@
     "ops:synthetic": "tsx scripts/run-synthetic-smoke.ts",
     "perf:check": "tsx scripts/check-performance-budgets.ts",
     "perf:load": "tsx scripts/run-load-test.ts",
-    "perf:load:local": "node scripts/run-local-load.mjs"
+    "perf:load:local": "node scripts/run-local-load.mjs",
+    "db:release": "node scripts/release.mjs",
+    "db:ensure-content": "tsx scripts/ensure-content.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

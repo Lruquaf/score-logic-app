@@ -1,0 +1,17 @@
+# Deployment receives configuration from Railway, never from a local snapshot.
+.env*
+!.env.example
+.next*
+node_modules/
+.local/
+.backups/
+.git/
+.railway/
+.codex/
+.agents/
+.aws/
+coverage/
+playwright-report/
+test-results/
+*.log
+*.tsbuildinfo

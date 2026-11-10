@@ -29,14 +29,15 @@ export function HintModal({
     <AnimatePresence>
       {isOpen ? (
         <motion.div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-[rgba(23,33,27,0.36)] p-4 backdrop-blur-sm sm:items-center"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-[rgba(23,33,27,0.36)] p-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur-sm sm:items-center"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={onClose}
         >
           <motion.div
-            className="w-full max-w-2xl rounded-[var(--radius-xl)] border border-[var(--line)] bg-white shadow-[var(--shadow-lift)]"
+            role="dialog" aria-modal="true" aria-labelledby="hint-title"
+            className="max-h-[calc(100dvh-2rem)] w-full max-w-2xl overflow-y-auto rounded-[var(--radius-xl)] border border-[var(--line)] bg-white shadow-[var(--shadow-lift)]"
             initial={{ opacity: 0, y: 28, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 18, scale: 0.98 }}
@@ -46,7 +47,7 @@ export function HintModal({
             <div className="border-b border-[var(--line)] px-5 py-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <h2 className="font-[var(--font-display)] text-3xl font-semibold text-[var(--ink)]">Hint</h2>
+                  <h2 id="hint-title" className="font-[var(--font-display)] text-3xl font-semibold text-[var(--ink)]">Hint</h2>
                 </div>
                 <button
                   type="button"
@@ -72,8 +73,8 @@ export function HintModal({
                   {isPending ? 'Getting hint...' : 'Get a hint'}
                 </div>
                 <p className="mt-2 text-sm font-semibold text-[var(--muted)]">
-                  Reveals a score only when every solution compatible with your entries
-                  shares that value; otherwise it explains the remaining conflict or branch.
+                  Opens one score or corrects a conflicting entry to help you move forward.
+                  Given scores and earlier hints stay protected.
                 </p>
               </button>
             </div>

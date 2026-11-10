@@ -117,6 +117,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
   const pauseTimer = usePuzzleStore((state) => state.pauseTimer)
   const resumeTimer = usePuzzleStore((state) => state.resumeTimer)
 
+  const [solvedAttempt, setSolvedAttempt] = useState<{ puzzleId: string; seconds: number } | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [hintError, setHintError] = useState<string | null>(null)
   const [displayElapsedTimeSec, setDisplayElapsedTimeSec] = useState(0)
@@ -419,6 +420,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     onSuccess: (response, variables) => {
       if (!acceptsResponse(variables.puzzleId, variables.attemptId, variables.ownerKey)) return
       invalidateSummaries()
+      if (response.isCorrect) setSolvedAttempt({ puzzleId: variables.puzzleId, seconds: response.progress.currentAttempt?.elapsedTimeSec ?? response.progress.timeTakenSec ?? 0 })
       applySubmitResolution(response)
       setSubmitError(null)
       if (response.isCorrect) {
@@ -538,6 +540,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     saveError,
     startedAt,
     elapsedTimeSec: isReplayMode ? displayElapsedTimeSec : timeTakenSec ?? displayElapsedTimeSec,
+    victoryTimeTakenSec: solvedAttempt && solvedAttempt.puzzleId === puzzle?.id ? solvedAttempt.seconds : timeTakenSec ?? displayElapsedTimeSec,
     officialTimeTakenSec: timeTakenSec,
     completedAt,
     bestAttemptTimeSec,

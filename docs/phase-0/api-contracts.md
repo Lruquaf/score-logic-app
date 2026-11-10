@@ -362,12 +362,13 @@ interface HintResponse {
 - hint sayısı ve türü sunucuda attempt üzerinde artırılır; request içindeki sayaçlar
   canonical kabul edilmez
 - scoreline `reveal` güvenli bir skor hücresini açar ve progress kaydini degistirir
-- kullanicinin dolu hücresinin üzerine yazılmaz
+- verilen ve önceden hint ile açılan skorlar korunur; çelişki halinde bir kullanıcı hücresi en yakın geçerli yola göre düzeltilebilir
 - secim, mevcut girdilerle uyumlu `allSolutions` alt kumesine gore yapilir
 - ayni hücre ikinci kez reveal edilmez
 - tam answer reveal ayri endpoint'tir, normal completion ve campaign unlock uretmez
-- güvenli ortak hücre yoksa veya mevcut girdiler çelişkiliyse skor açmadan açıklayıcı
-  mesaj döner
+- ortak boş hücre yoksa uyumlu bir çözüm yolundan hücre açılır ve seçim açıklanır
+- çelişkide en az değişiklik isteyen çözüm yoluna göre bir dolu kullanıcı hücresi düzeltilir
+- zaten doğru ve dolu tahtada skor değişmez, Check yönlendirmesi yapılır; hint sayısı/olayı artmaz
 
 ## POST `/api/puzzles/[id]/answer`
 

@@ -1,10 +1,11 @@
 import { prisma } from '@/lib/db/prisma'
 import { getRedis, isRedisRequired } from '@/lib/cache/redis'
 import { jsonResponse } from '@/lib/api/http'
+import { inspectPlayableContent } from '@/lib/puzzles/contentReadiness'
 
 export const runtime = 'nodejs'
 
-function reportDependencyFailure(dependency: 'database' | 'redis', error: unknown) {
+function reportDependencyFailure(dependency: 'database' | 'redis' | 'content', error: unknown) {
   // Error messages can contain connection URLs or credentials; log only safe metadata.
   const code = error && typeof error === 'object' && 'code' in error ? error.code : null
   const safeCode = typeof code === 'string' && /^[A-Z0-9_]{1,40}$/.test(code) ? code : null
@@ -19,6 +20,7 @@ function reportDependencyFailure(dependency: 'database' | 'redis', error: unknow
 export async function GET() {
   const redis = getRedis()
   let database = 'up'
+  let content = 'unknown'
   let redisStatus = redis ? 'up' : isRedisRequired() ? 'required' : 'disabled'
 
   try {
@@ -26,6 +28,16 @@ export async function GET() {
   } catch (error) {
     database = 'down'
     reportDependencyFailure('database', error)
+  }
+
+  if (database === 'up') {
+    try {
+      const readiness = await inspectPlayableContent(prisma)
+      content = readiness.status === 'READY' ? 'up' : 'missing'
+    } catch (error) {
+      content = 'down'
+      reportDependencyFailure('content', error)
+    }
   }
 
   if (redis) {
@@ -38,13 +50,14 @@ export async function GET() {
   }
 
   const ok =
-    database === 'up' && (redisStatus === 'up' || redisStatus === 'disabled')
+    database === 'up' && content === 'up' && (redisStatus === 'up' || redisStatus === 'disabled')
 
   return jsonResponse(
     {
       status: ok ? 'ok' : 'degraded',
       checks: {
         database,
+        content,
         redis: redisStatus
       },
       timestamp: new Date().toISOString()

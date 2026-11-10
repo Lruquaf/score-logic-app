@@ -1,0 +1,9 @@
+# Optional daily refresh for an explicitly opted-in disposable test environment.
+[build]
+builder = "RAILPACK"
+buildCommand = "npm run db:generate"
+
+[deploy]
+startCommand = "NODE_ENV=production npm run db:ensure-content"
+cronSchedule = "15 21 * * *"
+restartPolicyType = "NEVER"
