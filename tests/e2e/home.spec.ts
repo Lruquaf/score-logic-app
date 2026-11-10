@@ -99,12 +99,14 @@ test('beginner completes through score cells and unlocks the next level', async 
   await expect(editableScores).toHaveCount(2)
 
   await page.getByRole('button', { name: 'Hint', exact: true }).click()
-  await page.getByRole('button', { name: 'Reveal score cell' }).click()
+  await page.getByRole('button', { name: 'Get a hint' }).click()
   await expect(revealedScores).toHaveCount(11)
+  await page.getByRole('button', { name: 'Close', exact: true }).click()
 
   await page.getByRole('button', { name: 'Hint', exact: true }).click()
-  await page.getByRole('button', { name: 'Reveal score cell' }).click()
+  await page.getByRole('button', { name: 'Get a hint' }).click()
   await expect(revealedScores).toHaveCount(12)
+  await page.getByRole('button', { name: 'Close', exact: true }).click()
 
   await page.getByRole('button', { name: 'Check', exact: true }).click()
   await expect(page.getByRole('heading', { name: /^Solved in/ })).toBeVisible()
@@ -136,4 +138,82 @@ test('registration merges anonymous progress and expires the guest cookie', asyn
   expect(progressResponse.status()).toBe(200)
   expect(progressPayload.user.isAnonymous).toBe(false)
   expect(progressPayload.progress.totalStarted).toBeGreaterThanOrEqual(1)
+})
+
+test('campaign reflects reveal immediately after returning through SPA navigation', async ({ page }) => {
+  await page.goto('/campaign')
+  await page.getByRole('link', { name: 'Beginner level 1: Next', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Reveal answer', exact: true })).toBeEnabled()
+  await page.getByRole('button', { name: 'Reveal answer', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Answer shown', exact: true })).toBeVisible()
+  await page.getByRole('link', { name: 'Campaign', exact: true }).click()
+  await expect(page.getByRole('link', { name: 'Beginner level 1: Answer shown', exact: true })).toBeVisible()
+})
+
+test('hint result remains visible inside the open hint dialog', async ({ page }) => {
+  await page.goto('/puzzles/ckscorepuzzlecamp000000001')
+  await expect(page.getByRole('button', { name: 'Hint', exact: true })).toBeEnabled()
+  await page.getByRole('button', { name: 'Hint', exact: true }).click()
+  await page.getByRole('button', { name: 'Get a hint' }).click()
+  await expect(page.getByRole('heading', { name: 'Hint', exact: true })).toBeVisible()
+  await expect(page.getByText('Latest:', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Close', exact: true })).toBeVisible()
+})
+
+test('sign-out, guest play and sign-in preserve the account history and draft', async ({ page }) => {
+  const email = `feedback-${Date.now()}@scorelogic.test`
+  const password = 'feedback-test-password'
+  const puzzlePath = '/api/puzzles/ckscorepuzzlecamp000000001'
+  await page.goto('/register')
+  await page.getByLabel('Email').fill(email)
+  await page.getByLabel('Password').fill(password)
+  await page.getByRole('button', { name: 'Create account' }).click()
+  await page.waitForURL('/')
+  const identity = await (await page.request.get('/api/user/stats')).json()
+  expect(identity.user.isAnonymous).toBe(false)
+  if (process.env.E2E_BASE_URL?.startsWith('https://')) {
+    expect((await page.context().cookies()).some((cookie) => cookie.name === '__Secure-authjs.session-token')).toBe(true)
+  }
+
+  await page.goto('/puzzles/ckscorepuzzlecamp000000001')
+  await expect(page.getByRole('button', { name: 'Reveal answer', exact: true })).toBeEnabled()
+  await page.getByRole('textbox').first().fill('account-only draft')
+  await expect.poll(async () => {
+    const payload = await (await page.request.get(puzzlePath)).json()
+    return JSON.stringify(payload.progress?.currentState?.notes)
+  }).toContain('account-only draft')
+
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click()
+  await page.waitForURL('/')
+  await page.goto('/daily')
+  await expect.poll(async () =>
+    (await page.context().cookies()).some((cookie) => cookie.name === 'sl-anon-id')
+  ).toBe(true)
+  await page.goto('/login')
+  await page.getByLabel('Email').fill(email)
+  await page.getByLabel('Password').fill(password)
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await page.waitForURL('/')
+
+  const restored = await (await page.request.get('/api/user/stats')).json()
+  expect(restored.user.userId).toBe(identity.user.userId)
+  expect(restored.stats.totalAttempts).toBeGreaterThanOrEqual(1)
+  const puzzle = await (await page.request.get(puzzlePath)).json()
+  expect(JSON.stringify(puzzle.progress.currentState.notes)).toContain('account-only draft')
+  await page.goto('/stats')
+  await expect(page.getByText('Signed-in player', { exact: true })).toBeVisible()
+})
+
+test('game pages attach the current CSP nonce to their inline scripts', async ({ page }) => {
+  for (const path of ['/campaign', '/daily', '/stats']) {
+    const response = await page.goto(path)
+    const csp = response?.headers()['content-security-policy'] ?? ''
+    const nonce = csp.match(/'nonce-([^']+)'/)?.[1]
+    expect(nonce).toBeTruthy()
+    if (process.env.E2E_BASE_URL) expect(csp).not.toContain("'unsafe-eval'")
+    await expect.poll(async () => page.locator('script:not([src])').evaluateAll((scripts, expected) =>
+      scripts.some((script) => script.textContent?.trim()) && scripts
+        .filter((script) => script.textContent?.trim()).every((script) => script.nonce === expected), nonce!
+    )).toBe(true)
+  }
 })

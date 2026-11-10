@@ -98,3 +98,11 @@ tanımı için `docs/product-rules.md` dosyasına bak.
 ## Design System
 
 Arayüz standardı ve yeniden tasarım kararları için `docs/design-system.md` dosyasına bak.
+
+## Feedback düzeltmeleri ve doğrulama
+
+9 Kasım hata düzeltmeleri, kapsam dışında kalan özellikler ve test sonuçları
+[uygulama kaydında](docs/feedback-uygulama-plani-2026-11-09.md#16-uygulama-kaydı--9-kasım-2026)
+yer alır. Playwright varsayılan olarak yerel dev server açar; hazır bir production
+sunucusu için `E2E_BASE_URL=<adres> npm run test:e2e` kullanılabilir. Yalnız yerel,
+kendinden imzalı HTTPS testinde `E2E_IGNORE_HTTPS_ERRORS=true` verilebilir.

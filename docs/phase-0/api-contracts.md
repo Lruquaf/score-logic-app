@@ -385,6 +385,16 @@ interface AnswerRevealRequest {
   `answerReveals` attempt metriğine dahil olur.
 - Yeniden çözmek için yeni attempt gerekir.
 
+Answer response'undaki `answer` alanı `solution`, `allSolutions`, `outcomes` yanında:
+
+- `solutionCount`: başlangıçta verilen skorlarla uyumlu çözüm sayısı.
+- `totalSolutionCount`: özgün final tablonun toplam çözüm sayısı.
+- `compatibleSolutionCount`: istek anındaki girdilerle ve verilen skorlarla uyumlu sayı.
+
+Gösterilen `solution`, uyumlu girdi varsa onu korur; yoksa verilen skorlarla uyumlu bir
+örnektir. Sayı sıfırsa UI mevcut girdilerin çeliştiğini belirtir. `allSolutions` yalnız
+cevap açma endpoint'inde kalır; normal public puzzle ve hint response'larına eklenmez.
+
 ## Campaign Erisim Kurallari
 
 - her pack'in ilk seviyesi aciktir

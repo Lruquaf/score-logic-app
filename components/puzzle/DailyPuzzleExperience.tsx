@@ -29,6 +29,7 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
     isLoading,
     isError,
     error,
+    retry,
     puzzle,
     phase,
     status,
@@ -185,8 +186,9 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
             We could not load the puzzle.
           </h1>
           <p className="mt-4 text-sm text-[var(--muted)]">
-            {error ? 'Try refreshing the page.' : 'Check back soon for a new challenge.'}
+            {error ?? 'Check back soon for a new challenge.'}
           </p>
+          <button type="button" className="btn-secondary mt-4" onClick={retry}>Try again</button>
         </section>
       </main>
     )
@@ -360,7 +362,6 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
         }}
         onRequestHint={(hintType) => {
           requestHint(hintType)
-          setIsHintOpen(false)
         }}
         isPending={isHintPending}
         answerRevealed={answerRevealed || assistanceDisabled}

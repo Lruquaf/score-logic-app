@@ -566,3 +566,33 @@ describe('puzzle store', () => {
     expect(state.shouldForceNewAttempt).toBe(true)
   })
 })
+
+describe('draft ownership', () => {
+  it('keeps account drafts separate and restores only the matching owner', () => {
+    const store = createPuzzleStore()
+    store.getState().setOwner('account:a')
+    store.getState().initializePuzzle(sampleDailyPuzzlePublic, null)
+    store.getState().setScoreCell({ matchId: 'm1', side: 'home' }, 7)
+
+    store.getState().setOwner('account:b')
+    expect(store.getState().puzzle).toBeNull()
+    store.getState().initializePuzzle(sampleDailyPuzzlePublic, null)
+    expect(store.getState().inputs.m1?.home ?? null).toBeNull()
+    store.getState().setScoreCell({ matchId: 'm1', side: 'home' }, 3)
+
+    store.getState().setOwner('account:a')
+    store.getState().initializePuzzle(sampleDailyPuzzlePublic, null)
+    expect(store.getState().inputs.m1.home).toBe(7)
+  })
+
+  it('does not resurrect a merged guest draft after sign-out', () => {
+    const store = createPuzzleStore()
+    store.getState().setOwner('guest')
+    store.getState().initializePuzzle(sampleDailyPuzzlePublic, null)
+    store.getState().setScoreCell({ matchId: 'm1', side: 'home' }, 9)
+    store.getState().setOwner('account:a')
+    store.getState().setOwner('guest')
+    store.getState().initializePuzzle(sampleDailyPuzzlePublic, null)
+    expect(store.getState().inputs.m1?.home ?? null).toBeNull()
+  })
+})

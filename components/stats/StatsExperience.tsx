@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
+import { useSession } from 'next-auth/react'
 
 import { fetchUserProgress, fetchUserStats } from '@/lib/api/client'
 import { formatDuration, formatPuzzleLabel } from '@/lib/utils/format'
@@ -11,6 +12,7 @@ function renderTime(value: number | null) {
 }
 
 export function StatsExperience() {
+  const session = useSession()
   const statsQuery = useQuery({
     queryKey: ['user-stats'],
     queryFn: fetchUserStats,
@@ -22,11 +24,26 @@ export function StatsExperience() {
     staleTime: 30_000
   })
 
-  if (statsQuery.isLoading || progressQuery.isLoading) {
+  if (statsQuery.isPending || progressQuery.isPending) {
     return (
       <main className="flex flex-1 flex-col gap-6 pb-8 pt-6">
         <div className="h-[180px] animate-pulse rounded-[var(--radius-lg)] bg-[var(--surface-warm)]" />
         <div className="h-[360px] animate-pulse rounded-[var(--radius-lg)] bg-[var(--surface-warm)]" />
+      </main>
+    )
+  }
+
+  const identityMismatch = session.status === 'authenticated' && statsQuery.data &&
+    statsQuery.data.user?.userId !== session.data?.user?.id
+  if (statsQuery.isError || progressQuery.isError || identityMismatch) {
+    return (
+      <main className="panel my-6 px-5 py-6" role="alert">
+        <h1 className="text-xl font-semibold">We could not load your progress.</h1>
+        <p className="mt-2">Your saved results are unavailable. Try again.</p>
+        <button type="button" className="btn-secondary mt-4" onClick={() => {
+          void statsQuery.refetch()
+          void progressQuery.refetch()
+        }}>Try again</button>
       </main>
     )
   }

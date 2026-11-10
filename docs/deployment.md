@@ -228,6 +228,9 @@ Redis erişilemiyorsa `503` döner ve deployment promote edilmez.
 - Limit aşımı `429`, `Retry-After`, `RateLimit`, `RateLimit-Policy` ve geriye uyumlu
   `X-RateLimit-*` başlıklarını döndürür.
 - Telemetry JSON gövdeleri 16 KiB ile, string alanları schema üst sınırlarıyla korunur.
+- Root layout `connection()` ile HTML sayfalarını istek zamanında render eder; böylece
+  script nonce'ı response CSP'siyle eşleşir. Sayfaları tekrar static prerender/ISR'a
+  çevirmek production'da hydration'ı engeller. Metadata dosyaları ayrı kalabilir.
 - Middleware her document isteği için kriptografik nonce üretip CSP'yi hem request'e hem
   response'a taşır. Production `script-src`, nonce + `strict-dynamic` kullanır;
   `unsafe-inline` ve `unsafe-eval` script izni yoktur. `unsafe-eval` yalnız Next.js local

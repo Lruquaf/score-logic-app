@@ -43,11 +43,17 @@ interface AnswerRevealResolution {
     allSolutions: MatchSolutionDTO[][]
     outcomes: Record<string, MatchOutcome>
     solutionCount: number
+    totalSolutionCount?: number
+    compatibleSolutionCount?: number
   }
   progress: PuzzleProgressEnvelope
 }
 
 export interface PuzzleStoreState {
+  ownerKey: string | null
+  draftsByOwner: Record<string, Record<string, PersistedPuzzleDraft>>
+  unclaimedDrafts: Record<string, PersistedPuzzleDraft>
+  setOwner: (ownerKey: string) => void
   puzzle: PuzzlePublicDTO | null
   phase: PuzzlePhase
   status: 'IN_PROGRESS' | 'COMPLETED' | 'ABANDONED'
@@ -462,6 +468,23 @@ export function createPuzzleStore() {
     persist(
       (set, get) => ({
         ...createInitialPuzzleData(),
+        ownerKey: null,
+        draftsByOwner: {},
+        unclaimedDrafts: {},
+        setOwner: (ownerKey) => set((state) => {
+          if (state.ownerKey === ownerKey) return state
+          const draftsByOwner = { ...state.draftsByOwner }
+          if (state.ownerKey) draftsByOwner[state.ownerKey] = state.drafts
+          // Once sign-in has merged the anonymous history, its local copy must
+          // not become the draft of a new guest after sign-out.
+          if (ownerKey.startsWith('account:')) delete draftsByOwner.guest
+          return {
+            ...createInitialPuzzleData(),
+            ownerKey,
+            draftsByOwner,
+            drafts: draftsByOwner[ownerKey] ?? {}
+          }
+        }),
         setPhase: (phase) => set({ phase }),
         setCurrentAttempt: (attempt) =>
           set({
@@ -1176,9 +1199,15 @@ export function createPuzzleStore() {
               saveError: null,
               lastSyncedAt: wasReplayMode ? state.lastSyncedAt : nextDraft.updatedAt,
               lastHintMessage:
-                result.answer.solutionCount > 1
-                  ? `Answer revealed. Showing one of ${result.answer.solutionCount} valid solutions.`
-                  : 'Answer revealed.',
+                result.answer.compatibleSolutionCount === 0
+                  ? 'Your entries did not fit a valid solution. Showing an example that keeps the given scores.'
+                  : result.answer.compatibleSolutionCount !== undefined
+                    ? result.answer.compatibleSolutionCount === 1
+                      ? 'Answer revealed. One solution fits your entries and the given scores.'
+                      : `Answer revealed. Showing one of ${result.answer.compatibleSolutionCount} solutions that fit your entries and the given scores.`
+                    : result.answer.solutionCount > 1
+                      ? `Answer revealed. Showing one of ${result.answer.solutionCount} valid solutions.`
+                      : 'Answer revealed.',
               drafts: wasReplayMode
                 ? state.drafts
                 : {
@@ -1326,8 +1355,21 @@ export function createPuzzleStore() {
       {
         name: 'scorelogic-puzzle-store',
         storage: puzzleStorage,
+        version: 1,
+        // Keep legacy drafts recoverable, but never assign an unknown owner's
+        // board to whichever account happens to sign in next.
+        migrate: (persisted) => ({
+          draftsByOwner: {},
+          unclaimedDrafts: persisted && typeof persisted === 'object' && 'drafts' in persisted
+            ? persisted.drafts as Record<string, PersistedPuzzleDraft>
+            : {}
+        }),
         partialize: (state) => ({
-          drafts: state.drafts
+          unclaimedDrafts: state.unclaimedDrafts,
+          draftsByOwner: {
+            ...state.draftsByOwner,
+            ...(state.ownerKey ? { [state.ownerKey]: state.drafts } : {})
+          }
         })
       }
     )

@@ -23,7 +23,7 @@ import {
   campaignAccessErrorDetails,
   getCampaignAccessDecision
 } from '@/lib/puzzles/campaignAccess'
-import { solutionMatchesOutcomes } from '@/lib/puzzles/outcomes'
+import { buildAnswerReveal } from '@/lib/puzzles/answerReveal'
 import {
   applyRateLimitHeaders,
   enforceRateLimit,
@@ -74,15 +74,7 @@ export async function POST(
       { matchId: match.id, side: 'home' as const },
       { matchId: match.id, side: 'away' as const }
     ])
-    const solutionInputs: Record<string, ScoreInput> = Object.fromEntries(
-      puzzle.solution.map((match) => [
-        match.id,
-        { home: match.homeScore, away: match.awayScore }
-      ])
-    )
-    const outcomes = solutionMatchesOutcomes(puzzle.solution)
-
-    const progress = await prisma.$transaction(async (tx) => {
+    const revealed = await prisma.$transaction(async (tx) => {
       await acquireUserIdentityLocks([userId], tx)
       await acquireAttemptLock(userId, puzzleId, tx)
       const attempt = await getOwnedAttempt(
@@ -90,6 +82,11 @@ export async function POST(
         tx
       )
       const previous = mapAttemptProgressState(attempt)
+      const answer = buildAnswerReveal(puzzle, { ...previous?.inputs, ...body.currentInputs })
+      const solutionInputs: Record<string, ScoreInput> = Object.fromEntries(answer.solution.map((match) => [
+        match.id, { home: match.homeScore, away: match.awayScore }
+      ]))
+      const outcomes = answer.outcomes
       const now = new Date()
       const elapsedTimeSec = authoritativeElapsedTimeSec(attempt, now)
       const hintTypes = attempt.hintTypes.filter(
@@ -159,7 +156,7 @@ export async function POST(
         tx
       )
       await rebuildUserAggregates(userId, tx)
-      return progress
+      return { progress, answer }
     })
 
     captureServerEvent('puzzle_answer_reveal', {
@@ -172,13 +169,8 @@ export async function POST(
     return applyRateLimitHeaders(
       withResponseCookie(
         jsonResponse({
-          answer: {
-            solution: puzzle.solution,
-            allSolutions: puzzle.allSolutions,
-            outcomes,
-            solutionCount: puzzle.allSolutions.length
-          },
-          progress
+          answer: revealed.answer,
+          progress: revealed.progress
         }),
         user.cookie
       ),

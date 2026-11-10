@@ -1,7 +1,7 @@
 # ScoreLogic Kanonik Ürün Kuralları
 
 > Durum: Aktif ürün sözleşmesi  
-> Son güncelleme: 3 Ağustos 2026  
+> Son güncelleme: 9 Kasım 2026
 > Kapsam: çözüm doğrulama, campaign erişimi, attempt/replay/reveal ve istatistik semantiği
 
 Bu doküman ScoreLogic'in ürün davranışı için kanonik kaynaktır. Eski MVP ve teknik tasarım
@@ -17,8 +17,12 @@ kümesindeki çözümlerden herhangi biriyle tam eşleşiyorsa doğrudur.
 - `allSolutions`, doğrulamada kullanılan geçerli çözüm kümesidir.
 - Kullanıcı hiçbir zaman yalnızca `solution` ile eşleşmeye zorlanmaz.
 - Public puzzle DTO'su `solution` veya `allSolutions` içermez.
-- Answer reveal, kanonik çözümü örnek cevap olarak gösterebilir ve alternatif çözüm sayısını
-  açıklamalıdır.
+- Answer reveal, başlangıçta verilen skorlarla uyumlu bir örnek cevap gösterir. Mevcut
+  girdilerle uyumlu bir çözüm varsa bu girdiler korunur; yoksa verilen skorlar korunarak
+  geçerli bir örnek gösterilir ve çelişki açıkça belirtilir.
+- Toplam tablo çözümü, verilen skorlarla oynanabilir çözümler ve mevcut girdilerle uyumlu
+  çözümlerin sayıları ayrı anlam taşır. Arayüzde mevcut girdilerle uyumlu sayı açıklanır;
+  toplam tablo sayısı mevcut tahtanın kalan çözüm sayısı olarak sunulmaz.
 
 ### Hint kuralları
 

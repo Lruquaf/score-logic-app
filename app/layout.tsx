@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next'
+import { connection } from 'next/server'
 
 import { Analytics } from '@/components/Analytics'
 import { QueryProvider } from '@/components/providers/QueryProvider'
@@ -24,7 +25,10 @@ export const viewport: Viewport = {
   themeColor: '#2F6F45'
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // The strict CSP nonce comes from this request. Prerendered HTML cannot
+  // carry it, so its scripts would be blocked before the game hydrates.
+  await connection()
   return (
     <html lang="en" data-scroll-behavior="smooth">
       <body className="scorelogic-shell min-h-screen text-[var(--ink)] antialiased">

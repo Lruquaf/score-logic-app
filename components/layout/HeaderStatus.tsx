@@ -67,7 +67,7 @@ export function HeaderStatus() {
   const displayedIsAnonymous = isAuthenticated ? false : isAnonymous
 
   const statsQuery = useQuery({
-    queryKey: ['user-stats', sessionUserId ?? 'guest-or-anonymous'],
+    queryKey: ['user-stats'],
     queryFn: fetchUserStats,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -76,6 +76,7 @@ export function HeaderStatus() {
 
   useEffect(() => {
     if (statsQuery.data) {
+      if (isAuthenticated && statsQuery.data.user?.userId !== sessionUserId) return
       if (isAuthenticated && sessionUserId) {
         setUser(sessionUserId, false)
         setStats(statsQuery.data.stats)

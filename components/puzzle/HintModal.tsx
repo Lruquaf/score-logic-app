@@ -69,7 +69,7 @@ export function HintModal({
                 className="w-full rounded-[var(--radius-lg)] border border-[var(--success)]/25 bg-[var(--success-soft)] px-4 py-5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.66)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_26px_rgba(31,85,53,0.10)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
               >
                 <div className="text-lg font-bold text-[var(--ink)]">
-                  Reveal score cell
+                  {isPending ? 'Getting hint...' : 'Get a hint'}
                 </div>
                 <p className="mt-2 text-sm font-semibold text-[var(--muted)]">
                   Reveals a score only when every solution compatible with your entries
@@ -78,7 +78,7 @@ export function HintModal({
               </button>
             </div>
 
-            <div className="space-y-3 px-5 pb-5">
+            <div className="space-y-3 px-5 pb-5" aria-live="polite" aria-busy={isPending}>
               {lastHintMessage ? (
                 <div className="rounded-[var(--radius-lg)] border border-[var(--blue)]/25 bg-[var(--blue-soft)] px-4 py-4 text-sm text-[var(--ink)]">
                   <span className="font-bold">Latest:</span> {lastHintMessage}

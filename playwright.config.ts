@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
 
 const e2ePort = Number(process.env.E2E_PORT ?? 3100)
-const e2eBaseURL = `http://127.0.0.1:${e2ePort}`
+const e2eBaseURL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${e2ePort}`
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -12,6 +12,7 @@ export default defineConfig({
   },
   use: {
     baseURL: e2eBaseURL,
+    ignoreHTTPSErrors: process.env.E2E_IGNORE_HTTPS_ERRORS === 'true',
     trace: 'on-first-retry'
   },
   projects: [
@@ -20,7 +21,7 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] }
     }
   ],
-  webServer: {
+  webServer: process.env.E2E_BASE_URL ? undefined : {
     command: `npx next dev --hostname 127.0.0.1 --port ${e2ePort}`,
     port: e2ePort,
     reuseExistingServer: !process.env.CI

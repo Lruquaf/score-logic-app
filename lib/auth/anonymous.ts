@@ -59,7 +59,9 @@ async function resolveSessionUserId(request: NextRequest) {
   try {
     const token = await getToken({
       req: request,
-      secret: getAuthSecret()
+      secret: getAuthSecret(),
+      // Auth.js uses the __Secure- cookie (also the JWT salt) on HTTPS.
+      secureCookie: process.env.NODE_ENV === 'production'
     })
 
     if (typeof token?.userId === 'string') {

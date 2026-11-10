@@ -151,8 +151,15 @@ export function CampaignProgress() {
     staleTime: Infinity,
     gcTime: 24 * 60 * 60 * 1000
   })
-  if (campaignQuery.isLoading) {
+  if (campaignQuery.isPending) {
     return <div className="panel h-[320px] animate-pulse" />
+  }
+
+  if (campaignQuery.isError) {
+    return <section className="panel p-5" role="alert">
+      <p>We could not load your campaign progress.</p>
+      <button type="button" className="btn-secondary mt-3" onClick={() => { void campaignQuery.refetch() }}>Try again</button>
+    </section>
   }
 
   const puzzles = campaignQuery.data?.puzzles ?? []

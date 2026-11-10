@@ -1,12 +1,8 @@
 'use client'
 
-import { useQueryClient } from '@tanstack/react-query'
-import { useRouter } from 'next/navigation'
 import { signIn, useSession } from 'next-auth/react'
 import { useEffect, useState, type FormEvent } from 'react'
 
-import { fetchUserStats } from '@/lib/api/client'
-import { useUserStore } from '@/store/userStore'
 
 function signInErrorMessage(error?: string | null) {
   if (!error || error === 'CredentialsSignin') {
@@ -17,10 +13,7 @@ function signInErrorMessage(error?: string | null) {
 }
 
 export function LoginForm({ initialError }: { initialError?: string | null }) {
-  const router = useRouter()
   const session = useSession()
-  const queryClient = useQueryClient()
-  const syncFromStatsPayload = useUserStore((state) => state.syncFromStatsPayload)
   const [errorMessage, setErrorMessage] = useState<string | null>(
     initialError ? signInErrorMessage(initialError) : null
   )
@@ -28,8 +21,8 @@ export function LoginForm({ initialError }: { initialError?: string | null }) {
   const [isReady, setIsReady] = useState(false)
 
   useEffect(() => {
-    setIsReady(true)
-  }, [])
+    setIsReady(session.status !== 'loading')
+  }, [session.status])
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -59,13 +52,8 @@ export function LoginForm({ initialError }: { initialError?: string | null }) {
         return
       }
 
-      await session.update()
-      const statsPayload = await fetchUserStats()
-      syncFromStatsPayload(statsPayload)
-      await queryClient.invalidateQueries({ queryKey: ['user-stats'] })
       window.localStorage.setItem('scorelogic-skip-intro-once', 'true')
-      router.replace('/')
-      router.refresh()
+      window.location.assign(result.url || '/')
     } catch (error) {
       console.error('login failed', error)
       setErrorMessage('Authentication could not be completed. Try again.')
@@ -91,6 +79,7 @@ export function LoginForm({ initialError }: { initialError?: string | null }) {
             name="email"
             type="email"
             required
+            disabled={!isReady || isPending}
             autoComplete="email"
             placeholder="you@example.com"
             className="mt-2 w-full rounded-[var(--radius-sm)] border border-[var(--line)] bg-white px-4 py-3 text-sm text-[var(--ink)] outline-none ring-0 placeholder:text-[var(--faint)] focus:border-[var(--field)]"
@@ -106,6 +95,7 @@ export function LoginForm({ initialError }: { initialError?: string | null }) {
             name="password"
             type="password"
             required
+            disabled={!isReady || isPending}
             autoComplete="current-password"
             className="mt-2 w-full rounded-[var(--radius-sm)] border border-[var(--line)] bg-white px-4 py-3 text-sm text-[var(--ink)] outline-none ring-0 placeholder:text-[var(--faint)] focus:border-[var(--field)]"
           />

@@ -100,6 +100,8 @@ export interface AnswerRevealResponse {
     allSolutions: MatchSolutionDTO[][]
     outcomes: Record<string, MatchOutcome>
     solutionCount: number
+    totalSolutionCount?: number
+    compatibleSolutionCount?: number
   }
   progress: PuzzleProgressEnvelope
 }

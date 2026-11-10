@@ -37,11 +37,33 @@ interface UsePuzzleOptions {
 export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
   const queryClient = useQueryClient()
   const syncUserStore = useUserStore((state) => state.syncFromStatsPayload)
+  const ownerKey = usePuzzleStore((state) => state.ownerKey)
+  const mounted = useRef(false)
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false }
+  }, [])
+  function acceptsResponse(puzzleId?: string, attemptId?: string, requestOwner = ownerKey) {
+    const state = usePuzzleStore.getState()
+    return mounted.current && state.ownerKey === requestOwner &&
+      (!puzzleId || state.puzzle?.id === puzzleId) &&
+      (!attemptId || state.currentAttemptId === attemptId)
+  }
+  function invalidateSummaries(refetchType: 'active' | 'none' = 'active') {
+    // Mark inactive screens stale; returning to campaign must refetch even
+    // though the catalog itself has an infinite stale time.
+    for (const key of ['campaign-puzzles', 'user-progress', 'user-stats']) {
+      void queryClient.invalidateQueries({ queryKey: [key], refetchType })
+    }
+  }
+
   const puzzleQueryKey = options.puzzleId ? ['puzzle', options.puzzleId] : ['daily-puzzle']
   const puzzleQuery = useQuery({
     queryKey: puzzleQueryKey,
     queryFn: () => (options.puzzleId ? fetchPuzzle(options.puzzleId) : fetchDailyPuzzle()),
-    staleTime: Infinity,
+    staleTime: options.puzzleId ? Infinity : 30_000,
+    refetchOnWindowFocus: !options.puzzleId,
+    refetchInterval: options.puzzleId ? false : 60_000,
     gcTime: 24 * 60 * 60 * 1000
   })
   const statsQuery = useQuery({
@@ -132,6 +154,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
 
   const attemptMutation = useMutation({
     mutationFn: (payload: {
+      ownerKey: string | null
       puzzleId: string
       kind: 'STANDARD' | 'REPLAY'
       forceNew: boolean
@@ -139,12 +162,15 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       kind: payload.kind,
       forceNew: payload.forceNew
     }),
-    onSuccess: (response) => {
+    onSuccess: (response, variables) => {
+      if (!acceptsResponse(variables.puzzleId, undefined, variables.ownerKey)) return
+      invalidateSummaries()
       attemptedStartRef.current = null
       setCurrentAttempt(response.attempt)
       setSubmitError(null)
     },
-    onError: (error) => {
+    onError: (error, variables) => {
+      if (!acceptsResponse(variables.puzzleId, undefined, variables.ownerKey)) return
       setSubmitError(getErrorMessage(error))
     }
   })
@@ -167,6 +193,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     }
     attemptedStartRef.current = startKey
     attemptMutation.mutate({
+      ownerKey,
       puzzleId: puzzle.id,
       kind: isReplayMode ? 'REPLAY' : 'STANDARD',
       forceNew: shouldForceNewAttempt
@@ -179,6 +206,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     isRoutePuzzleActive,
     puzzle,
     shouldForceNewAttempt,
+    ownerKey,
     status
   ])
 
@@ -231,16 +259,16 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     return () => {
       window.clearInterval(timer)
       const latest = latestTimerRef.current
-      if (latest.puzzleId === activePuzzleId && latest.canPause) {
+      if (usePuzzleStore.getState().ownerKey === ownerKey && latest.puzzleId === activePuzzleId && latest.canPause) {
         pauseTimer(latest.puzzleId, latest.elapsedTimeSec)
       }
     }
-  }, [activePuzzleId, answerRevealed, elapsedBaseSec, isReplayMode, isRoutePuzzleActive, phase, pauseTimer, startedAt, status, timeTakenSec])
+  }, [activePuzzleId, answerRevealed, elapsedBaseSec, isReplayMode, isRoutePuzzleActive, phase, pauseTimer, startedAt, status, timeTakenSec, ownerKey])
 
   useEffect(() => {
     const pauseVisibleTimer = () => {
       const latest = latestTimerRef.current
-      if (!latest.puzzleId || !latest.canPause) {
+      if (usePuzzleStore.getState().ownerKey !== ownerKey || !latest.puzzleId || !latest.canPause) {
         return
       }
 
@@ -251,7 +279,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       window.removeEventListener('pagehide', pauseVisibleTimer)
       pauseVisibleTimer()
     }
-  }, [pauseTimer])
+  }, [pauseTimer, ownerKey])
 
   useEffect(() => {
     if (
@@ -272,12 +300,14 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
   }, [activePuzzleId, answerRevealed, isReplayMode, isRoutePuzzleActive, phase, resumeTimer, startedAt, status])
 
   const saveMutation = useMutation({
-    mutationFn: (payload: { puzzleId: string; attemptId: string; progress: PuzzleProgressState }) =>
+    mutationFn: (payload: { ownerKey: string | null; puzzleId: string; attemptId: string; progress: PuzzleProgressState }) =>
       savePuzzleProgress(payload.puzzleId, payload.attemptId, payload.progress),
     onMutate: () => {
       markSaving()
     },
     onSuccess: (response, variables) => {
+      if (!acceptsResponse(variables.puzzleId, variables.attemptId, variables.ownerKey)) return
+      invalidateSummaries('none')
       if (response.progress.currentAttempt) {
         setCurrentAttempt(response.progress.currentAttempt)
       }
@@ -288,6 +318,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       markSaved(variables.progress.updatedAt)
     },
     onError: (error, variables) => {
+      if (!acceptsResponse(variables.puzzleId, variables.attemptId, variables.ownerKey)) return
       if (
         error instanceof ApiError &&
         error.status === 409 &&
@@ -308,6 +339,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
 
   const hintMutation = useMutation({
     mutationFn: (payload: {
+      ownerKey: string | null
       puzzleId: string
       attemptId: string
       hintType: 'reveal'
@@ -322,20 +354,37 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       answerRevealed: boolean
       answerRevealedAt: string | null
       isReplay: boolean
-    }) => requestPuzzleHint(payload.puzzleId, payload),
-    onSuccess: (response) => {
+    }) => requestPuzzleHint(payload.puzzleId, {
+      attemptId: payload.attemptId,
+      hintType: payload.hintType,
+      currentInputs: payload.currentInputs,
+      currentOutcomes: payload.currentOutcomes,
+      notes: payload.notes,
+      completedMatchIds: payload.completedMatchIds,
+      revealedMatchIds: payload.revealedMatchIds,
+      revealedCells: payload.revealedCells,
+      hintsUsed: payload.hintsUsed,
+      hintTypes: payload.hintTypes,
+      answerRevealed: payload.answerRevealed,
+      answerRevealedAt: payload.answerRevealedAt,
+      isReplay: payload.isReplay
+    }),
+    onSuccess: (response, variables) => {
+      if (!acceptsResponse(variables.puzzleId, variables.attemptId, variables.ownerKey)) return
+      invalidateSummaries()
       setCurrentAttempt(response.attempt)
       applyHintPatch(response.progressPatch, response.hint.message)
       setHintError(null)
-      void queryClient.invalidateQueries({ queryKey: ['user-progress'] })
     },
-    onError: (error) => {
+    onError: (error, variables) => {
+      if (!acceptsResponse(variables.puzzleId, variables.attemptId, variables.ownerKey)) return
       setHintError(getErrorMessage(error))
     }
   })
 
   const submitMutation = useMutation({
     mutationFn: (payload: {
+      ownerKey: string | null
       puzzleId: string
       attemptId: string
       idempotencyKey: string
@@ -367,17 +416,17 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       setSubmitError(null)
       setPhase('CHECKING')
     },
-    onSuccess: (response) => {
+    onSuccess: (response, variables) => {
+      if (!acceptsResponse(variables.puzzleId, variables.attemptId, variables.ownerKey)) return
+      invalidateSummaries()
       applySubmitResolution(response)
       setSubmitError(null)
       if (response.isCorrect) {
-        void queryClient.invalidateQueries({ queryKey: ['user-stats'] })
-        void queryClient.invalidateQueries({ queryKey: ['user-progress'] })
-        void queryClient.invalidateQueries({ queryKey: ['campaign-puzzles'] })
         void queryClient.invalidateQueries({ queryKey: puzzleQueryKey })
       }
     },
-    onError: (error) => {
+    onError: (error, variables) => {
+      if (!acceptsResponse(variables.puzzleId, variables.attemptId, variables.ownerKey)) return
       setSubmitError(getErrorMessage(error))
       setPhase('FAILED')
     }
@@ -385,6 +434,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
 
   const answerRevealMutation = useMutation({
     mutationFn: (payload: {
+      ownerKey: string | null
       puzzleId: string
       attemptId: string
       elapsedTimeSec: number
@@ -405,13 +455,14 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
         hintTypes: payload.hintTypes,
         isReplay: payload.isReplay
       }),
-    onSuccess: (response) => {
+    onSuccess: (response, variables) => {
+      if (!acceptsResponse(variables.puzzleId, variables.attemptId, variables.ownerKey)) return
+      invalidateSummaries()
       applyAnswerReveal(response)
       setHintError(null)
-      void queryClient.invalidateQueries({ queryKey: ['user-stats'] })
-      void queryClient.invalidateQueries({ queryKey: ['user-progress'] })
     },
-    onError: (error) => {
+    onError: (error, variables) => {
+      if (!acceptsResponse(variables.puzzleId, variables.attemptId, variables.ownerKey)) return
       setHintError(getErrorMessage(error))
     }
   })
@@ -421,7 +472,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       return
     }
 
-    if (!currentAttemptId || (status === 'COMPLETED' && !isReplayMode) || phase === 'CHECKING' || saveState !== 'idle') {
+    if (!currentAttemptId || (status === 'COMPLETED' && !isReplayMode) || phase === 'CHECKING' || hintMutation.isPending || answerRevealMutation.isPending || saveState !== 'idle') {
       return
     }
 
@@ -441,6 +492,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       }
 
       saveMutation.mutate({
+        ownerKey,
         puzzleId: puzzle.id,
         attemptId: currentAttemptId,
         progress: latestProgressState
@@ -448,10 +500,13 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     }, 800)
 
     return () => window.clearTimeout(timeout)
-  }, [puzzle, updatedAt, lastSyncedAt, status, phase, saveState, isReplayMode, saveMutation, isRoutePuzzleActive, currentAttemptId])
+  }, [puzzle, updatedAt, lastSyncedAt, status, phase, saveState, isReplayMode, saveMutation, hintMutation.isPending, answerRevealMutation.isPending, isRoutePuzzleActive, currentAttemptId, ownerKey])
 
   const assistanceDisabled =
     !currentAttemptId ||
+    hintMutation.isPending ||
+    answerRevealMutation.isPending ||
+    submitMutation.isPending ||
     answerRevealed ||
     phase === 'SOLVED' ||
     (status === 'COMPLETED' && !isReplayMode)
@@ -462,6 +517,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     // so its revealed-answer state cannot flash on the newly opened route.
     isLoading: puzzleQuery.isLoading || (!puzzleQuery.isError && !isRoutePuzzleActive),
     isError: puzzleQuery.isError,
+    retry: () => { void puzzleQuery.refetch() },
     error: puzzleQuery.error ? getErrorMessage(puzzleQuery.error) : null,
     puzzle: isRoutePuzzleActive ? puzzle : null,
     phase,
@@ -491,15 +547,13 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     hintError,
     submitError,
     canSubmit:
-      answerRevealed
-        ? false
-        : puzzle?.matches.every(
-            (match) =>
-              inputs[match.id]?.home !== null &&
-              inputs[match.id]?.home !== undefined &&
-              inputs[match.id]?.away !== null &&
-              inputs[match.id]?.away !== undefined
-          ) ?? false,
+      !assistanceDisabled && (puzzle?.matches.every(
+        (match) =>
+          inputs[match.id]?.home !== null &&
+          inputs[match.id]?.home !== undefined &&
+          inputs[match.id]?.away !== null &&
+          inputs[match.id]?.away !== undefined
+      ) ?? false),
     isHintPending: hintMutation.isPending,
     isAnswerRevealPending: answerRevealMutation.isPending,
     isSubmitPending: submitMutation.isPending,
@@ -524,6 +578,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       }
 
       hintMutation.mutate({
+        ownerKey,
         puzzleId: puzzle.id,
         attemptId: currentAttemptId,
         hintType,
@@ -556,6 +611,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       const elapsedTimeSec = isReplayMode ? displayElapsedTimeSec : timeTakenSec ?? displayElapsedTimeSec
       pauseTimer(puzzle.id, elapsedTimeSec)
       answerRevealMutation.mutate({
+        ownerKey,
         puzzleId: puzzle.id,
         attemptId: currentAttemptId,
         elapsedTimeSec,
@@ -568,7 +624,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       })
     },
     submit: () => {
-      if (!puzzle) return
+      if (!puzzle || assistanceDisabled) return
       if (!currentAttemptId) {
         setSubmitError('The attempt is still starting. Please try again.')
         return
@@ -590,6 +646,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       pauseTimer(puzzle.id, elapsedTimeSec)
 
       submitMutation.mutate({
+        ownerKey,
         puzzleId: puzzle.id,
         attemptId: currentAttemptId,
         idempotencyKey: crypto.randomUUID(),
