@@ -1,5 +1,7 @@
 'use client'
 
+import { normalizeElapsedTimeSec } from '@/lib/contracts/time'
+
 import { create } from 'zustand'
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware'
 
@@ -1240,7 +1242,7 @@ export function createPuzzleStore() {
         pauseTimer: (puzzleId, elapsedTimeSec) =>
           set((state) => {
             const timestamp = new Date().toISOString()
-            const elapsed = Math.max(0, Math.floor(elapsedTimeSec))
+            const elapsed = normalizeElapsedTimeSec(elapsedTimeSec)
 
             if (state.puzzle?.id === puzzleId) {
               if (state.elapsedBaseSec === elapsed && state.drafts[puzzleId]?.elapsedTimeSec === elapsed) {

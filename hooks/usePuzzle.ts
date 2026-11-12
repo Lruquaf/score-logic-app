@@ -15,6 +15,7 @@ import {
   submitPuzzle
 } from '@/lib/api/client'
 import type { PuzzleProgressState } from '@/lib/contracts/progress'
+import { normalizeElapsedTimeSec } from '@/lib/contracts/time'
 import { selectCurrentProgressState, usePuzzleStore } from '@/store/puzzleStore'
 import { useUserStore } from '@/store/userStore'
 
@@ -122,7 +123,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
   const [hintError, setHintError] = useState<string | null>(null)
   const hintInFlight = useRef(false)
   const hintRequestIdentity = useRef<{ ownerKey: string | null; attemptId: string; count: number; requestId: string } | null>(null)
-  const [displayElapsedTimeSec, setDisplayElapsedTimeSec] = useState(0)
+  const [displayTimer, setDisplayTimer] = useState<{ puzzleId: string | null; seconds: number }>({ puzzleId: null, seconds: 0 })
   const attemptedStartRef = useRef<string | null>(null)
   const initializedPuzzleDataRef = useRef<typeof puzzleQuery.data>(undefined)
   const latestTimerRef = useRef<{
@@ -136,6 +137,9 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
   })
   const queriedPuzzleId = puzzleQuery.data?.puzzle.id ?? null
   const activePuzzleId = puzzle?.id ?? null
+  // Bind displayed time to its puzzle so a new daily never renders the old clock,
+  // even before the timer synchronization effect has run.
+  const displayElapsedTimeSec = displayTimer.puzzleId === activePuzzleId ? displayTimer.seconds : elapsedBaseSec
   const isRoutePuzzleActive =
     initializedPuzzleDataRef.current === puzzleQuery.data &&
     queriedPuzzleId !== null &&
@@ -215,7 +219,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
 
   useEffect(() => {
     if (!activePuzzleId || !isRoutePuzzleActive) {
-      setDisplayElapsedTimeSec(0)
+      setDisplayTimer({ puzzleId: null, seconds: 0 })
       latestTimerRef.current = {
         puzzleId: null,
         elapsedTimeSec: 0,
@@ -235,7 +239,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       answerRevealed
     ) {
       const elapsed = isReplayMode ? elapsedBaseSec : timeTakenSec ?? elapsedBaseSec
-      setDisplayElapsedTimeSec(elapsed)
+      setDisplayTimer({ puzzleId: activePuzzleId, seconds: elapsed })
       latestTimerRef.current = {
         puzzleId: activePuzzleId,
         elapsedTimeSec: elapsed,
@@ -246,7 +250,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
 
     const startedAtMs = new Date(startedAt).getTime()
     const currentElapsed = () =>
-      elapsedBaseSec + Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000))
+      normalizeElapsedTimeSec(elapsedBaseSec + Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000)))
     const update = () => {
       const elapsed = currentElapsed()
       latestTimerRef.current = {
@@ -254,7 +258,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
         elapsedTimeSec: elapsed,
         canPause: true
       }
-      setDisplayElapsedTimeSec(elapsed)
+      setDisplayTimer({ puzzleId: activePuzzleId, seconds: elapsed })
     }
 
     update()
@@ -262,11 +266,16 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     return () => {
       window.clearInterval(timer)
       const latest = latestTimerRef.current
-      if (usePuzzleStore.getState().ownerKey === ownerKey && latest.puzzleId === activePuzzleId && latest.canPause) {
+      const state = usePuzzleStore.getState()
+      const stillOwnsClock = state.puzzle?.id !== activePuzzleId ||
+        (state.startedAt === startedAt && state.elapsedBaseSec === elapsedBaseSec && state.currentAttemptId === currentAttemptId)
+      // A refresh/reset may already have installed a new clock. Its values
+      // must not be overwritten by the previous effect's cleanup snapshot.
+      if (state.ownerKey === ownerKey && latest.puzzleId === activePuzzleId && latest.canPause && stillOwnsClock) {
         pauseTimer(latest.puzzleId, latest.elapsedTimeSec)
       }
     }
-  }, [activePuzzleId, answerRevealed, elapsedBaseSec, isReplayMode, isRoutePuzzleActive, phase, pauseTimer, startedAt, status, timeTakenSec, ownerKey])
+  }, [activePuzzleId, answerRevealed, elapsedBaseSec, isReplayMode, isRoutePuzzleActive, phase, pauseTimer, startedAt, status, timeTakenSec, ownerKey, currentAttemptId])
 
   useEffect(() => {
     const pauseVisibleTimer = () => {

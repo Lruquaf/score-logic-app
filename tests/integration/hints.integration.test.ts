@@ -4,6 +4,10 @@ import { Prisma } from '@prisma/client'
 import { sampleDailyPuzzlePrivate } from '@/lib/fixtures/samplePuzzle'
 import { POST } from '@/app/api/puzzles/[id]/hint/route'
 import { PUT as saveProgress } from '@/app/api/puzzles/[id]/progress/route'
+import { POST as revealAnswer } from '@/app/api/puzzles/[id]/answer/route'
+import { POST as submitAnswer } from '@/app/api/puzzles/[id]/submit/route'
+import { puzzleProgressEnvelopeSchema } from '@/lib/validations'
+import { calibrateObservedDifficulty } from '@/lib/db/queries/difficultyCalibration'
 import { prisma } from '@/lib/db/prisma'
 import { getPuzzlePrivateById } from '@/lib/db/queries/puzzles'
 import { startOrResumePuzzleAttempt } from '@/lib/db/queries/attempts'
@@ -108,6 +112,59 @@ describe('hint transaction concurrency and retry', () => {
     expect(Object.keys(patch)).toHaveLength(1)
     expect(Object.keys(Object.values(patch)[0])).toHaveLength(1)
     expect(await counts()).toEqual({ hints: 1, cells: 1, events: 1 })
+  })
+
+  it('saves and reveals an attempt older than 120 minutes using actual server time', async () => {
+    await prisma.puzzleAttempt.update({ where: { id: attemptId }, data: {
+      startedAt: new Date(Date.now() - 9001_000), elapsedTimeSec: 7200
+    } })
+    const state = buildProgressState({ puzzleId: puzzle.id, inputs: {}, hintsUsed: 0, hintTypes: [], elapsedTimeSec: 9001 })
+    const saved = await saveProgress(new NextRequest(`http://localhost/api/puzzles/${puzzle.id}/progress`, {
+      method: 'PUT', headers: { cookie: `sl-anon-id=${userId}` }, body: JSON.stringify({ attemptId, progress: state })
+    }), { params: Promise.resolve({ id: puzzle.id }) })
+    expect(saved.status).toBe(200)
+    const response = await revealAnswer(new NextRequest(`http://localhost/api/puzzles/${puzzle.id}/answer`, {
+      method: 'POST', headers: { cookie: `sl-anon-id=${userId}` }, body: JSON.stringify({ attemptId, elapsedTimeSec: 9001 })
+    }), { params: Promise.resolve({ id: puzzle.id }) })
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.progress.currentState.elapsedTimeSec).toBeGreaterThanOrEqual(9001)
+    expect(puzzleProgressEnvelopeSchema.safeParse(body.progress).success).toBe(true)
+    expect((await prisma.puzzleAttempt.findUniqueOrThrow({ where: { id: attemptId } })).status).toBe('REVEALED')
+  })
+
+  it('accepts Check after 120 minutes and persists server-measured solve time', async () => {
+    await prisma.puzzleAttempt.update({ where: { id: attemptId }, data: {
+      startedAt: new Date(Date.now() - 9001_000), elapsedTimeSec: 7200
+    } })
+    const inputs = Object.fromEntries(puzzle.solution.map((m) => [m.id, { home: m.homeScore, away: m.awayScore }]))
+    const response = await submitAnswer(new NextRequest(`http://localhost/api/puzzles/${puzzle.id}/submit`, {
+      method: 'POST', headers: { cookie: `sl-anon-id=${userId}`, 'Idempotency-Key': randomUUID() },
+      body: JSON.stringify({ attemptId, inputs, timeTakenSec: 99999 })
+    }), { params: Promise.resolve({ id: puzzle.id }) })
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.isCorrect).toBe(true)
+    expect(body.progress.timeTakenSec).toBeGreaterThanOrEqual(9001)
+    expect(body.progress.timeTakenSec).toBeLessThan(9100)
+    expect(puzzleProgressEnvelopeSchema.safeParse(body.progress).success).toBe(true)
+    const stored = await prisma.puzzleAttempt.findUniqueOrThrow({ where: { id: attemptId } })
+    expect(stored.elapsedTimeSec).toBeGreaterThanOrEqual(9001)
+    expect(stored.status).toBe('SOLVED')
+    const windowEnd = new Date(Date.now() + 60_000)
+    const run = await calibrateObservedDifficulty({
+      windowStart: new Date(windowEnd.getTime() - 86_400_000), windowEnd,
+      minimumSampleSize: 1, staleAttemptHours: 24
+    }, prisma)
+    try {
+      const observation = await prisma.puzzleDifficultyObservation.findUniqueOrThrow({
+        where: { runId_puzzleId: { runId: run.id, puzzleId: puzzle.id } }
+      })
+      expect(observation.medianSolveTimeSec).toBeGreaterThanOrEqual(9001)
+      expect(observation.p75SolveTimeSec).toBeGreaterThanOrEqual(9001)
+    } finally {
+      await prisma.difficultyCalibrationRun.delete({ where: { id: run.id } })
+    }
   })
 
   it('repeated requests for a correct full board consume no hints', async () => {

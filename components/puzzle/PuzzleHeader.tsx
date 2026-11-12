@@ -214,7 +214,9 @@ export function PuzzleHeader({
                     {item.icon}
                   </span>
                   <span className="min-w-0 text-[10px] font-bold uppercase text-[var(--muted)]">{item.label}</span>
-                  <span className="ml-auto font-mono text-xs font-bold tabular-nums text-current sm:ml-0">
+                  <span role={item.label === 'Time' ? 'timer' : undefined}
+                    aria-label={item.label === 'Time' ? 'Elapsed time' : undefined}
+                    className="ml-auto font-mono text-xs font-bold tabular-nums text-current sm:ml-0">
                     {item.value}
                   </span>
                 </div>

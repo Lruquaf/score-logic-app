@@ -515,3 +515,10 @@ Client katmani asagidaki sirayi izler:
 7. solve basariliysa victory state
 
 Bu nedenle API tasarimi local optimistic UI ve canonical remote save modelini desteklemelidir.
+
+### Uzun süreli attempt'ler (12 Kasım 2026)
+
+`elapsedTimeSec` ve `timeTakenSec` alanlarında 120 dakika oyun sınırı yoktur. İstek,
+progress ve attempt response süreleri `0..2147483647` arasında tam saniyedir; bu üst sınır
+PostgreSQL Int saklama kapasitesidir. Check/Reveal/progress için 7200 üstü geçerlidir.
+Canonical süre istemci iddiasından değil sunucu attempt başlangıcından hesaplanır.

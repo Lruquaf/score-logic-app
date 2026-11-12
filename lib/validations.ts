@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { MAX_ELAPSED_TIME_SEC } from '@/lib/contracts/time'
 
 import { CAMPAIGN_PACK_VALUES, DIFFICULTY_VALUES, PUZZLE_MODE_VALUES } from '@/lib/contracts/puzzle'
 import { HINT_TYPE_VALUES, MATCH_OUTCOME_VALUES, PUZZLE_PROGRESS_STATUS_VALUES } from '@/lib/contracts/progress'
@@ -107,7 +108,7 @@ export const puzzleProgressStateSchema = z.object({
   hintTypes: hintTypesSchema,
   answerRevealed: z.boolean().default(false),
   answerRevealedAt: z.string().datetime().nullable().default(null),
-  elapsedTimeSec: z.number().int().min(0).max(7200).default(0),
+  elapsedTimeSec: z.number().int().min(0).max(MAX_ELAPSED_TIME_SEC).default(0),
   startedAt: z.string().datetime().nullable(),
   updatedAt: z.string().datetime(),
   lastSubmittedAt: z.string().datetime().nullable()
@@ -121,7 +122,7 @@ export const puzzleProgressEnvelopeSchema = z.object({
   hintTypes: hintTypesSchema,
   answerRevealed: z.boolean().default(false),
   answerRevealedAt: z.string().datetime().nullable().default(null),
-  timeTakenSec: z.number().int().min(0).max(7200).nullable(),
+  timeTakenSec: z.number().int().min(0).max(MAX_ELAPSED_TIME_SEC).nullable(),
   completedAt: z.string().datetime().nullable(),
   currentState: puzzleProgressStateSchema.nullable(),
   currentAttempt: z.lazy(() => puzzleAttemptSummarySchema).nullable().optional(),
@@ -140,7 +141,7 @@ export const puzzleAttemptSummarySchema = z.object({
   status: z.enum(['ACTIVE', 'SOLVED', 'REVEALED', 'ABANDONED']),
   startedAt: z.string().datetime(),
   completedAt: z.string().datetime().nullable(),
-  elapsedTimeSec: z.number().int().min(0).max(7200),
+  elapsedTimeSec: z.number().int().min(0).max(MAX_ELAPSED_TIME_SEC),
   hintsUsed: z.number().int().min(0),
   hintTypes: hintTypesSchema,
   answerRevealedAt: z.string().datetime().nullable(),
@@ -162,7 +163,7 @@ export const submitPuzzleSchema = z.object({
   inputs: z.record(submitScoreInputSchema).default({}),
   outcomes: z.record(matchOutcomeSchema).default({}),
   notes: z.record(matchNoteSchema).default({}),
-  timeTakenSec: z.number().int().min(0).max(7200),
+  timeTakenSec: z.number().int().min(0).max(MAX_ELAPSED_TIME_SEC),
   completedMatchIds: z.array(matchIdSchema).default([]),
   revealedMatchIds: z.array(matchIdSchema).default([]),
   revealedCells: z.array(revealedScoreCellSchema).default([]),
@@ -209,7 +210,7 @@ export const analyzeBoardRequestSchema = z.object({
 
 export const answerRevealSchema = z.object({
   attemptId: z.string().uuid(),
-  elapsedTimeSec: z.number().int().min(0).max(7200).optional(),
+  elapsedTimeSec: z.number().int().min(0).max(MAX_ELAPSED_TIME_SEC).optional(),
   currentInputs: z.record(scoreInputSchema).default({}),
   currentOutcomes: z.record(matchOutcomeSchema.nullable()).default({}),
   notes: z.record(matchNoteSchema).default({}),

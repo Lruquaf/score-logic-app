@@ -22,9 +22,13 @@ const attempt: PuzzleAttemptSummary = {
 }
 const progress = { ...sampleProgressEnvelope, currentAttempt: attempt }
 let latest: ReturnType<typeof useDailyPuzzle>
+let timerRenders: Array<{ puzzleId: string | null; seconds: number }>
 function Harness() {
   const value = useDailyPuzzle()
-  useLayoutEffect(() => { latest = value })
+  useLayoutEffect(() => {
+    latest = value
+    timerRenders.push({ puzzleId: value.puzzle?.id ?? null, seconds: value.elapsedTimeSec })
+  })
   return null
 }
 let root: Root
@@ -37,6 +41,7 @@ async function settle() {
 beforeEach(async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
   vi.clearAllMocks()
+  timerRenders = []
   usePuzzleStore.getState().setOwner(`account:${crypto.randomUUID()}`)
   vi.mocked(api.fetchDailyPuzzle).mockResolvedValue({ puzzle: sampleDailyPuzzlePublic, progress })
   vi.mocked(api.fetchUserStats).mockResolvedValue({ user: null, stats: null })
@@ -50,6 +55,20 @@ beforeEach(async () => {
 afterEach(async () => { await act(async () => root.unmount()); client.clear() })
 
 describe('puzzle lifecycle regressions', () => {
+  it('never renders yesterday\'s timer on the new daily and preserves yesterday\'s draft', async () => {
+    await act(async () => usePuzzleStore.getState().pauseTimer(sampleDailyPuzzlePublic.id, 9000))
+    await settle()
+    expect(latest.elapsedTimeSec).toBeGreaterThanOrEqual(9000)
+    vi.mocked(api.fetchDailyPuzzle).mockResolvedValue({
+      puzzle: { ...sampleDailyPuzzlePublic, id: 'tomorrow-daily', dailyDate: '2026-06-18' }, progress: null
+    })
+    await act(async () => { await client.invalidateQueries({ queryKey: ['daily-puzzle'] }) })
+    await settle()
+    const fresh = timerRenders.filter((r) => r.puzzleId === 'tomorrow-daily')
+    expect(fresh.length).toBeGreaterThan(0)
+    expect(fresh.every((r) => r.seconds < 5)).toBe(true)
+    expect(usePuzzleStore.getState().drafts[sampleDailyPuzzlePublic.id]?.elapsedTimeSec).toBeGreaterThanOrEqual(9000)
+  })
   it('sends only one hint request when invoked repeatedly before React renders pending state', async () => {
     vi.mocked(api.requestPuzzleHint).mockImplementation(() => new Promise(() => {}))
     await act(async () => {

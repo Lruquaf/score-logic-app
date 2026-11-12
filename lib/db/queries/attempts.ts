@@ -1,3 +1,4 @@
+import { normalizeElapsedTimeSec } from '@/lib/contracts/time'
 import {
   AttemptEventType,
   AttemptKind,
@@ -87,11 +88,10 @@ export function authoritativeElapsedTimeSec(
   now: Date = new Date()
 ) {
   if (attempt.status !== AttemptStatus.ACTIVE) {
-    return Math.min(7200, Math.max(0, attempt.elapsedTimeSec))
+    return normalizeElapsedTimeSec(attempt.elapsedTimeSec)
   }
 
-  return Math.min(
-    7200,
+  return normalizeElapsedTimeSec(
     Math.max(
       attempt.elapsedTimeSec,
       Math.floor((now.getTime() - attempt.startedAt.getTime()) / 1000)

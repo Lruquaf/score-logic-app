@@ -588,3 +588,63 @@ ve kilit korunmasını doğrular.
 - Yalnız Railway **test** ortamına snapshot deploy yapıldı; production ortamı değişmedi.
   Yeni migration/env/dependency yok; kullanıcı ilerlemesi ve mevcut içerik sıfırlanmadı.
 - Kod commit/push edilmedi. Ürün kuralları ve API sözleşmesi de güncellendi.
+
+## 20. Hint modalinin otomatik açılması, daily gün devri ve 120 dakika sınırı — 12 Kasım 2026
+
+### Tespit ve çözüm
+
+- **Hint penceresi:** Önceki tasarım başarıdan sonra sonuç ekranını aynı modalde tutuyordu;
+  arka plan yenilemesindeki yeniden çizimler pencereyi yeniden açılmış gibi gösteriyordu.
+  Başarılı hint yanıtı artık ilgili modal oturumunu kapatır; mesaj oyun ekranındaki status
+  alanında kalır. Modal yalnız açık bir Hint butonu eylemiyle açılır. Oturum ve puzzle
+  kimliği kontrolü, eski bir isteğin yeni pencereye/günlük oyuna etki etmesini engeller.
+  Hata durumunda pencere retry için açık kalır; tek-hint/idempotency korumaları korunur.
+- **Gün değişimi:** Görünen timer state'i puzzle kimliği taşımıyordu. Ayrıca eski timer
+  effect cleanup'ı yeni yüklenen süreyi ezebiliyordu; hook regresyonunda 9000 saniyelik
+  durumu 0'a düşürmesi yeniden oluşturuldu. Ekran saati artık puzzle kimliğine bağlıdır;
+  cleanup yalnız halen sahibi olduğu clock snapshot'ını durdurabilir. Yeni daily'de
+  önceki ilerleme yoksa süre 0'dan başlar; eski günün girdileri/notları/süresi saklanır.
+- **120 dakika:** Sunucu `authoritativeElapsedTimeSec` içinde 7200'e kırpıyor, beş Zod
+  süre alanı 7200 üstünü reddediyordu. Tarayıcı timer'ı ilerlediğinde Check/Reveal ve
+  autosave bu yüzden 400 alabiliyordu. Oyun süresi sınırı kaldırıldı. Bütün süre alanları,
+  istemci timer normalizasyonu ve sunucu ölçümü PostgreSQL Int kapasitesiyle uyumludur
+  (2.147.483.647 saniye; oyun süresi politikası değildir). Resmi süre halen sunucuya aittir.
+  Eski aktif attempt 7200'de kaydedilmiş olsa da başlangıç tarihiyle gerçek süre hesaplanır.
+- **Türetilmiş istatistikler:** Difficulty observation tablosunun median/p75 CHECK
+  constraint'i de 7200 sınırı taşıyordu. `20261112120000_extend_solve_time_range` migration'ı
+  yalnız bu üst sınırı kaldırır; negatif süre ve p75 >= median koşulları korunur.
+  Mevcut kullanıcı/ilerleme kayıtları sıfırlanmaz ve eski tamamlanmış süreler yeniden yazılmaz.
+
+### Doğrulama
+
+- **315 unit test geçti:** eski saatin yeni daily render'ına sızmaması, eski draft'ın
+  korunması, sunucu süresinin 7200 sonrasında ilerlemesi, 7200/7201/9001/172800 saniyelerin
+  istek/state/response şemalarında kabulü ve geçersiz sürelerin reddi dahil.
+- **7 PostgreSQL integration testi geçti:** 150 dakikayı aşmış gerçek attempt'te autosave,
+  Reveal ve Check; istemcinin 99999 iddiası yerine sunucunun ~9001 saniyesinin saklanması;
+  aynı uzun sürenin median/p75 kalibrasyon kayıtlarına yazılması ve önceki hint yarışları.
+- Migration ayrı yerel test DB'sine uygulandı. TypeScript, lint ve opsiyonel servisler
+  kapalı minimum production build geçti.
+- Playwright'ta başarılı hint'in otomatik kapanması, refresh sonrası kapalı kalması,
+  ağ hatası/retry, tarayıcı saati 150 dakikadayken Check/Reveal ve açık tabda gerçek
+  yayımlanmış ertesi gün puzzle'ına geçişte timer/notes/modal ayrımı sınanır.
+  Tarayıcı saatini ilerletme UI testidir; gerçek sunucu süresi ayrı integration testinde
+  attempt başlangıcını 9001 saniye geriye alarak doğrulanır.
+
+- Production standalone HTTPS'te **60 Playwright testi geçti** (3 bilinçli skip).
+  Masaüstü Chromium, Android Chromium ve iPhone/WebKit'in üçünde de yeni hint/timer
+  senaryoları ve mevcut auth/paylaşım/erişim regresyonları doğrulandı.
+
+### Canlı test ortamı
+
+- Deployment: `0272ac46-b1b2-4ce8-8cb8-894f508c9a47` — **SUCCESS**.
+- Adres: https://score-logic-app-test.up.railway.app/
+- Canlı readiness HTTP 200: database/content `up`, Redis `disabled`.
+- Public HTTPS domaininde **60 Playwright testi geçti** (3 bilinçli skip). Masaüstü,
+  Android Chromium ve iPhone/WebKit'te modalin otomatik kapanıp kapalı kalması, 150 dakika
+  sonrası Check/Reveal ve açık daily sekmesinin gerçek ertesi gün puzzle'ına sıfır timer
+  ile geçmesi doğrulandı. Mevcut paylaşım/auth/erişim testleri de geçti.
+- Servisten salt-okuma SQL ile migration `applied=true` doğrulandı. Gerçek constraint
+  tanımında artık 7200 üst sınırı yok; yalnız negatif olmama ve p75 >= median korunuyor.
+- Yalnız Railway **test** ortamı değiştirildi; production ortamına dokunulmadı.
+  Kaynak snapshot ile yayımlandı; commit/push yapılmadı. Yeni env veya paket gerekmiyor.

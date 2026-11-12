@@ -10,8 +10,8 @@ async function openHint(page: import('@playwright/test').Page) {
   await page.getByRole('button', { name: 'Hint', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Hint', exact: true })
   await dialog.getByRole('button', { name: 'Use 1 hint' }).click()
-  await expect(dialog.getByText('Latest:', { exact: true })).toBeVisible()
-  return dialog
+  await expect(dialog).toHaveCount(0)
+  return page.getByRole('status').filter({ hasText: 'Hint:' })
 }
 
 test('all main screens fit narrow phones and a tablet, with visible navigation', async ({ page }, info) => {
@@ -70,14 +70,9 @@ test('a wrong score gets a useful correction, then shares an exact puzzle invita
   await editable.first().fill('19')
   const hint = await openHint(page)
   await expect(hint.getByText(/Corrected/)).toBeVisible()
-  const rect = await hint.boundingBox()
-  expect(rect!.y).toBeGreaterThanOrEqual(0)
-  expect(rect!.y + rect!.height).toBeLessThanOrEqual(page.viewportSize()!.height)
   await page.screenshot({ path: info.outputPath('hint-correction.png') })
-  await hint.getByRole('button', { name: 'Close', exact: true }).click()
   await expect(editable).toHaveCount(1)
-  const next = await openHint(page)
-  await next.getByRole('button', { name: 'Close', exact: true }).click()
+  await openHint(page)
   await page.getByRole('button', { name: 'Check', exact: true }).click()
   const victory = page.getByRole('dialog', { name: /^Solved in/ })
   await expect(victory).toBeVisible()
@@ -101,8 +96,7 @@ test('share failure leaves a selectable invitation instead of losing the result'
   await page.goto(`/puzzles/${puzzleId}`)
   await expect(page.getByRole('button', { name: 'Hint', exact: true })).toBeEnabled()
   for (let i = 0; i < 2; i++) {
-    const hint = await openHint(page)
-    await hint.getByRole('button', { name: 'Close', exact: true }).click()
+    await openHint(page)
   }
   await page.getByRole('button', { name: 'Check', exact: true }).click()
   const victory = page.getByRole('dialog', { name: /^Solved in/ })

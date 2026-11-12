@@ -1,7 +1,7 @@
 # ScoreLogic Kanonik Ürün Kuralları
 
 > Durum: Aktif ürün sözleşmesi  
-> Son güncelleme: 10 Kasım 2026
+> Son güncelleme: 12 Kasım 2026
 > Kapsam: çözüm doğrulama, campaign erişimi, attempt/replay/reveal ve istatistik semantiği
 
 Bu doküman ScoreLogic'in ürün davranışı için kanonik kaynaktır. Eski MVP ve teknik tasarım
@@ -42,8 +42,9 @@ kümesindeki çözümlerden herhangi biriyle tam eşleşiyorsa doğrudur.
 - Gerçek hücre açma/düzeltme sunucuda assistance olarak sayılır; solve-any geçerliliği,
   attempt sahipliği ve campaign erişim kuralları değişmez.
 - Modal açılması/kapatılması istek göndermez. Açıklama alanından ayrı `Use 1 hint`
-  butonu bulunur; bekleme sırasında yeniden etkinleştirme engellenir. Sonuç ekranında
-  yeni hint eylemi bulunmaz; ikinci hint için puzzle'a dönülüp Hint yeniden açılır.
+  butonu bulunur; bekleme sırasında yeniden etkinleştirme engellenir. Başarılı yanıtta
+  modal otomatik kapanır ve sonuç oyun ekranında gösterilir. Modal yalnız Hint butonuna
+  açıkça basılınca açılır; arka plan yenilemesi veya hint sonucu onu yeniden açamaz.
 - İstemci aynı event-loop içindeki tekrarlı çağrıları anlık kilitle engeller. Her eylem
   bir `requestId` taşır; ağ hatası tekrarında aynı kimlik korunur. Sunucu attempt kilidi
   altında HINT_USED olayındaki yanıtı tekrar döndürür, yeni skor veya sayaç oluşturmaz.
@@ -51,7 +52,7 @@ kümesindeki çözümlerden herhangi biriyle tam eşleşiyorsa doğrudur.
   art arda hint tüketmesini engeller; uyuşmazlık `409 HINT_STATE_CHANGED` üretir.
 - Otomatik progress kaydı hint hücrelerini silemez, değiştiremez veya yeni açılmış
   hücre uyduramaz. Verilen skorlar ve hint değerleri sunucu state'inden geri konur.
-- Arka plan yenilemesi açık modalin sonuç snapshot'ını korur. Daha yeni yerel taslak
+- Arka plan yenilemesi oyun ekranındaki hint sonuç mesajını korur. Daha yeni yerel taslak
   seçilse bile sunucuda alınmış ek hint'ler birleştirilir; yerel notlar ve diğer girdiler
   korunur. Kayıp yanıtın retry kimliği bu senkronizasyon yüzünden değişmez.
 - Başlangıçta verilen hücreler nötr/yeşil; hint ile açılanlar mavi görünür. Sonuç mesajı
@@ -322,6 +323,15 @@ observed      = round(12
 - Replay `uniquePuzzlesSolved` değerini artırmaz.
 
 ## 4. Attempt ve İstatistikler
+
+- Oyun süresinde 120 dakika sınırı yoktur. Check, Reveal, kayıt ve response şemaları
+  uzun süreleri kabul eder; canonical süre sunucuda attempt başlangıcından ölçülür.
+  İstemci süreyi değiştirerek resmi sonucu belirleyemez. Saklama üst sınırı PostgreSQL
+  `Int` kapasitesi olan 2.147.483.647 saniyedir; oyun oturumu süresi politikası değildir.
+- Yeni daily/puzzle, kendi süre durumunu kullanır. O puzzle için önceki ilerleme yoksa
+  timer sıfırdan başlar; eski günün notları/girdileri/süresi kendi taslağında korunur.
+- Timer cleanup işlemi yalnız oluşturulduğu saat durumunu durdurabilir; sonradan
+  yüklenen yeni puzzle/attempt süresini eski snapshot ile ezemez.
 
 `PuzzleAttempt`, `PuzzleCompletion` ve puzzle metadata'sı birincil gerçek kaynaklardır.
 `UserStats` ile `DailyStreak` yalnız hızlı okuma için tutulan, yeniden üretilebilir

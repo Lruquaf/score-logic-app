@@ -11,7 +11,6 @@ interface HintModalProps {
   onRequestHint: (hintType: HintType) => Promise<boolean>
   isPending: boolean
   answerRevealed: boolean
-  completedMessage: string | null
   hintError: string | null
   hintsUsed: number
 }
@@ -22,20 +21,21 @@ export function HintModal({
   onRequestHint,
   isPending,
   answerRevealed,
-  completedMessage,
   hintError,
   hintsUsed
 }: HintModalProps) {
   const [step, setStep] = useState<'confirm' | 'pending'>('confirm')
   const submitted = useRef(false)
   async function getHint() {
-    if (submitted.current || completedMessage !== null || isPending || answerRevealed) return
+    if (submitted.current || isPending || answerRevealed) return
     submitted.current = true
     setStep('pending')
     try {
       const applied = await onRequestHint('reveal')
-      setStep('confirm')
-      if (!applied) submitted.current = false
+      if (!applied) {
+        setStep('confirm')
+        submitted.current = false
+      }
     } catch {
       setStep('confirm')
       submitted.current = false
@@ -80,31 +80,16 @@ export function HintModal({
             </div>
 
             <div className="space-y-4 px-5 py-5" aria-live="polite" aria-busy={pending}>
-              {completedMessage !== null ? (
-                <>
-                  <h3 className="text-lg font-bold text-[var(--ink)]">Your hint is ready</h3>
-                  <div className="rounded-[var(--radius-lg)] border border-[var(--blue)]/25 bg-[var(--blue-soft)] px-4 py-4 text-sm text-[var(--ink)]">
-                    <span className="font-bold">Latest:</span> {completedMessage}
-                  </div>
-                  <button type="button" onClick={onClose} className="btn-primary min-h-11 w-full">
-                    Back to puzzle
-                  </button>
-                  <p className="text-sm text-[var(--muted)]">To request another hint, return to the puzzle and open Hint again.</p>
-                </>
-              ) : (
-                <>
-                  <div className="rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--field-soft)] px-4 py-4 text-sm text-[var(--ink-soft)]">
-                    <p className="font-bold text-[var(--ink)]">Need a hand with one score?</p>
-                    <p className="mt-2">A hint reveals one empty score or corrects one conflicting score. It counts as 1 hint used.</p>
-                    <p className="mt-2">Given scores and earlier hints stay unchanged. Opening this window uses no hints.</p>
-                  </div>
-                  <button type="button" onClick={() => void getHint()} disabled={pending || answerRevealed}
-                    className="btn-primary min-h-12 w-full text-base">
-                    {pending ? 'Getting your hint…' : hintError ? 'Retry 1 hint' : 'Use 1 hint'}
-                  </button>
-                  {pending ? <p role="status" className="text-sm text-[var(--muted)]">Please wait. Only one hint is being requested.</p> : null}
-                </>
-              )}
+              <div className="rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--field-soft)] px-4 py-4 text-sm text-[var(--ink-soft)]">
+                <p className="font-bold text-[var(--ink)]">Need a hand with one score?</p>
+                <p className="mt-2">A hint reveals one empty score or corrects one conflicting score. It counts as 1 hint used.</p>
+                <p className="mt-2">Given scores and earlier hints stay unchanged. Opening this window uses no hints.</p>
+              </div>
+              <button type="button" onClick={() => void getHint()} disabled={pending || answerRevealed}
+                className="btn-primary min-h-12 w-full text-base">
+                {pending ? 'Getting your hint…' : hintError ? 'Retry 1 hint' : 'Use 1 hint'}
+              </button>
+              {pending ? <p role="status" className="text-sm text-[var(--muted)]">Please wait. Only one hint is being requested.</p> : null}
               {hintError ? (
                 <div className="rounded-[var(--radius-lg)] border border-[var(--danger)]/25 bg-[var(--danger-soft)] px-4 py-4 text-sm text-[var(--danger)]">
                   {hintError}

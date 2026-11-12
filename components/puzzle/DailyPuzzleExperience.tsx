@@ -1,7 +1,7 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { AnalyzeBoard } from '@/components/puzzle/AnalyzeBoard'
 import { FixtureGrid } from '@/components/puzzle/FixtureGrid'
@@ -62,9 +62,9 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
   const setPhase = usePuzzleStore((state) => state.setPhase)
   const resetCurrentPuzzle = usePuzzleStore((state) => state.resetCurrentPuzzle)
   const stats = useUserStore((state) => state.stats)
-  const [isHintOpen, setIsHintOpen] = useState(false)
-  const [hintSession, setHintSession] = useState(0)
-  const [hintResult, setHintResult] = useState<string | null>(null)
+  const hintSequence = useRef(0)
+  const [hintDialog, setHintDialog] = useState<{ puzzleId: string; session: number } | null>(null)
+  const [hintNotice, setHintNotice] = useState<{ puzzleId: string; message: string } | null>(null)
   const [isVictoryOpen, setIsVictoryOpen] = useState(false)
   const campaignQuery = useQuery({
     queryKey: ['campaign-puzzles'],
@@ -159,7 +159,7 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
 
     if (shouldShowVictory) {
       setIsVictoryOpen(true)
-      setIsHintOpen(false)
+      setHintDialog(null)
       return
     }
 
@@ -197,6 +197,8 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
     )
   }
 
+  const visibleHintMessage = answerRevealed ? lastHintMessage
+    : hintNotice?.puzzleId === puzzle.id ? hintNotice.message : lastHintMessage
   const analyzeBoardMode =
     puzzle.campaignPack && puzzle.campaignLevel
       ? campaignAnalyzeBoardModeFor(puzzle.campaignPack, puzzle.campaignLevel)
@@ -214,9 +216,7 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
         assistanceDisabled={assistanceDisabled}
         onOpenHints={() => {
           if (!assistanceDisabled) {
-            setHintSession((session) => session + 1)
-            setHintResult(null)
-            setIsHintOpen(true)
+            setHintDialog({ puzzleId: puzzle.id, session: ++hintSequence.current })
           }
         }}
         onRevealAnswer={revealAnswer}
@@ -266,7 +266,7 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
         </div>
       </section>
 
-      {(saveError || submitError || hintError || lastHintMessage || savedAttemptNotice || answerRevealed || phase === 'FAILED' || phase === 'SOLVED') && (
+      {(saveError || submitError || hintError || visibleHintMessage || savedAttemptNotice || answerRevealed || phase === 'FAILED' || phase === 'SOLVED') && (
         <section className="panel px-3 py-3 sm:px-5 sm:py-5">
           <div className="space-y-3">
             {savedAttemptNotice ? (
@@ -308,13 +308,13 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
                 {hintError}
               </div>
             ) : null}
-            {lastHintMessage ? (
-              <div className={`rounded-[var(--radius-lg)] border px-3 py-3 text-sm text-[var(--ink)] ${
+            {visibleHintMessage ? (
+              <div role="status" className={`rounded-[var(--radius-lg)] border px-3 py-3 text-sm text-[var(--ink)] ${
                 answerRevealed
                   ? 'border-[var(--answer)]/30 bg-[var(--answer-soft)]'
                   : 'border-[var(--blue)]/25 bg-[var(--blue-soft)]'
               }`}>
-                <span className="font-bold">{answerRevealed ? 'Answer:' : 'Hint:'}</span> {lastHintMessage}
+                <span className="font-bold">{answerRevealed ? 'Answer:' : 'Hint:'}</span> {visibleHintMessage}
               </div>
             ) : null}
             {phase === 'SOLVED' ? (
@@ -347,6 +347,8 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
             type="button"
             className="btn-secondary mt-5 w-full disabled:cursor-not-allowed disabled:opacity-60"
             onClick={() => {
+              setHintDialog(null)
+              setHintNotice(null)
               resetCurrentPuzzle()
               setPhase('ACTIVE')
               setIsVictoryOpen(false)
@@ -358,10 +360,10 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
       )}
 
       <HintModal
-        key={`${puzzle.id}:${hintSession}`}
-        isOpen={isHintOpen}
+        key={`${puzzle.id}:${hintDialog?.session ?? 'closed'}`}
+        isOpen={hintDialog?.puzzleId === puzzle.id}
         onClose={() => {
-          setIsHintOpen(false)
+          setHintDialog(null)
           if (phase === 'HINT_SHOWN') {
             setPhase('ACTIVE')
           }
@@ -369,12 +371,12 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
         onRequestHint={async (hintType) => {
           const response = await requestHint(hintType)
           if (!response) return false
-          setHintResult(response.hint.message)
+          setHintNotice({ puzzleId: puzzle.id, message: response.hint.message })
+          setHintDialog((current) => current?.session === hintDialog?.session ? null : current)
           return true
         }}
         isPending={isHintPending}
         answerRevealed={answerRevealed || assistanceDisabled}
-        completedMessage={hintResult}
         hintError={hintError}
         hintsUsed={hintsUsed}
       />

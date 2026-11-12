@@ -101,12 +101,12 @@ test('beginner completes through score cells and unlocks the next level', async 
   await page.getByRole('button', { name: 'Hint', exact: true }).click()
   await page.getByRole('button', { name: 'Use 1 hint' }).click()
   await expect(revealedScores).toHaveCount(11)
-  await page.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Hint', exact: true })).toHaveCount(0)
 
   await page.getByRole('button', { name: 'Hint', exact: true }).click()
   await page.getByRole('button', { name: 'Use 1 hint' }).click()
   await expect(revealedScores).toHaveCount(12)
-  await page.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Hint', exact: true })).toHaveCount(0)
 
   await page.getByRole('button', { name: 'Check', exact: true }).click()
   await expect(page.getByRole('heading', { name: /^Solved in/ })).toBeVisible()
@@ -150,14 +150,13 @@ test('campaign reflects reveal immediately after returning through SPA navigatio
   await expect(page.getByRole('link', { name: 'Beginner level 1: Answer shown', exact: true })).toBeVisible()
 })
 
-test('hint result remains visible inside the open hint dialog', async ({ page }) => {
+test('a successful hint closes its modal and shows its result on the board', async ({ page }) => {
   await page.goto('/puzzles/ckscorepuzzlecamp000000001')
   await expect(page.getByRole('button', { name: 'Hint', exact: true })).toBeEnabled()
   await page.getByRole('button', { name: 'Hint', exact: true }).click()
   await page.getByRole('button', { name: 'Use 1 hint' }).click()
-  await expect(page.getByRole('heading', { name: 'Hint', exact: true })).toBeVisible()
-  await expect(page.getByText('Latest:', { exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Close', exact: true })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: 'Hint', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('status').filter({ hasText: 'Hint:' })).toBeVisible()
 })
 
 test('sign-out, guest play and sign-in preserve the account history and draft', async ({ page }) => {
