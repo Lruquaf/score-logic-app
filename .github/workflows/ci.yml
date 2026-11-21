@@ -87,6 +87,9 @@ jobs:
         run: npm run test:integration
 
       - name: Production build
+        env:
+          # Build validation requires HTTPS; browser E2E still uses its local HTTP origin.
+          AUTH_URL: https://ci.scorelogic.example
         run: npm run build
 
   e2e:
@@ -145,7 +148,7 @@ jobs:
         run: npm run db:audit-content
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium webkit
 
       - name: Run E2E tests
         run: npm run test:e2e
@@ -155,3 +158,84 @@ jobs:
           LOAD_TEST_DURATION_SECONDS: 10
           LOAD_TEST_CONCURRENCY: 8
         run: npm run perf:load:local
+
+  mobile-ux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install prototype browsers
+        run: npx playwright install --with-deps chromium webkit
+
+      - name: Mobile UX prototype acceptance
+        run: npm run test:mobile:prototype
+
+      - name: Upload prototype failure traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-ux-failure-traces
+          path: test-results/
+          retention-days: 7
+
+  native-client:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/mobile
+    env:
+      EXPO_PUBLIC_API_URL: https://score-logic-app-test.up.railway.app
+      CI: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+
+      - name: Install isolated native dependencies
+        run: npm ci
+
+      - name: Audit native production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Type check native client
+        run: npm run type-check
+
+      - name: Native durability tests
+        run: npm test
+
+      - name: Native component and navigation flows
+        run: npm run test:components
+
+      - name: Native source contrast budgets
+        run: npm run check:a11y
+
+      - name: Expo dependency checks
+        run: npx expo install --check
+
+      - name: Export iOS and Android JavaScript
+        env:
+          AUTH_SECRET: SCORELOGIC_SERVER_ONLY_CANARY_CI_AUTH
+          DATABASE_URL: SCORELOGIC_SERVER_ONLY_CANARY_CI_DATABASE
+          SENTRY_AUTH_TOKEN: SCORELOGIC_SERVER_ONLY_CANARY_CI_UPLOAD
+        run: npm run export:native:maps
+
+      - name: Verify native Debug IDs and private-source boundary
+        run: npm run check:export

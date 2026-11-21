@@ -1,0 +1,38 @@
+name: Native device acceptance
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Dedicated runner with an installed development build and Maestro
+        required: true
+        type: choice
+        options: [android, ios]
+      flow:
+        description: Installed-app acceptance flow
+        required: true
+        type: choice
+        options: [smoke, gameplay, player, resilience]
+        default: smoke
+      puzzle_url:
+        description: Configured scheme URL for seeded Beginner level 1
+        required: true
+        default: scorelogic-dev://puzzles/ckscorepuzzlecamp000000001
+      application_id:
+        description: Installed test application id
+        required: true
+        default: dev.scorelogic.localpoc
+permissions:
+  contents: read
+jobs:
+  smoke:
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    runs-on: [self-hosted, scorelogic-mobile, '${{ inputs.platform }}']
+    timeout-minutes: 10
+    env:
+      APP_ID: ${{ inputs.application_id }}
+      PUZZLE_URL: ${{ inputs.puzzle_url }}
+      FLOW_PATH: apps/mobile/.maestro/${{ inputs.flow }}.yaml
+    steps:
+      - uses: actions/checkout@v4
+      - name: Native installed-app cold restart and navigation
+        run: maestro test --env APP_ID="$APP_ID" --env PUZZLE_URL="$PUZZLE_URL" "$FLOW_PATH"

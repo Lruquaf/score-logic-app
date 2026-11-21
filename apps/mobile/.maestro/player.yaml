@@ -1,0 +1,40 @@
+appId: ${APP_ID}
+---
+# Provisioned, dedicated test installation/backend. Read-only player navigation;
+# no credentials, storage reset, account mutation or deletion in this flow.
+- launchApp:
+    clearState: false
+    stopApp: true
+- assertVisible: "Your next clever move."
+- tapOn: "How to play"
+- assertVisible: "Read the table. Reconstruct the scores."
+- tapOn: "Go back"
+- tapOn:
+    id: "tab-campaign"
+- assertVisible: "Every pack starts at level 1. Solve levels in order within a pack."
+- tapOn: "expert pack"
+- scrollUntilVisible:
+    element: "Level 1, open"
+    direction: DOWN
+- assertVisible: "Level 1, open"
+- tapOn:
+    id: "tab-stats"
+- assertVisible: "Your stats"
+- tapOn: "Open account"
+- assertVisible: "Account and settings"
+- scrollUntilVisible:
+    element: "Privacy and data"
+    direction: DOWN
+- tapOn: "Privacy and data"
+- assertVisible: "Privacy and data"
+- tapOn: "Go back"
+- scrollUntilVisible:
+    element: "Help and support"
+    direction: DOWN
+- tapOn: "Help and support"
+- assertVisible: "Help and support"
+- tapOn: "Go back"
+- scrollUntilVisible:
+    element: "App information"
+    direction: DOWN
+- assertVisible: "App information"

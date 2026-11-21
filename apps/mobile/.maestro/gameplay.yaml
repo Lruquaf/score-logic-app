@@ -1,0 +1,34 @@
+appId: ${APP_ID}
+---
+# Dedicated test build + seeded Beginner level 1. Each run starts a new replay;
+# existing installation identity, official solve and unlocked levels are preserved.
+- launchApp:
+    clearState: false
+    stopApp: true
+- openLink: ${PUZZLE_URL}
+- assertVisible: "Reconstruct the scores"
+- tapOn: "More"
+- tapOn: "Start new attempt"
+- tapOn: "Start new attempt"
+- assertVisible: "Replay attempt"
+- tapOn: "Analyze board"
+- assertVisible: "At least one complete solution remains."
+- tapOn: "Close"
+- tapOn: "Hint"
+- assertVisible: "Get one hint"
+- tapOn: "Use 1 hint"
+- assertNotVisible: "Get one hint"
+- tapOn: "Hint"
+- tapOn: "Use 1 hint"
+- assertNotVisible: "Get one hint"
+- tapOn: "Check scores"
+- assertVisible: "Solved in .*"
+- assertVisible: "Official saved result: .*"
+- tapOn: "Play again"
+- tapOn: "Start new attempt"
+- assertVisible: "Replay attempt"
+- tapOn: "More"
+- tapOn: "Reveal answer"
+- tapOn: "Reveal answer"
+- assertVisible: "Answer revealed. This assisted attempt does not unlock the next level."
+- assertVisible: "Official saved result: .*"

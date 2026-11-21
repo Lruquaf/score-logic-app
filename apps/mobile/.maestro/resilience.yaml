@@ -1,0 +1,27 @@
+appId: ${APP_ID}
+---
+# Dedicated test installation + reviewed Beginner level 1. Starts a new replay;
+# never clears app storage, changes identity or deletes an account.
+- launchApp:
+    clearState: false
+    stopApp: true
+- openLink: ${PUZZLE_URL}
+- assertVisible: "Reconstruct the scores"
+- tapOn: "More"
+- tapOn: "Start new attempt"
+- tapOn: "Start new attempt"
+- assertVisible: "Replay attempt"
+- tapOn: "Hint"
+- tapOn: "Use 1 hint"
+- assertNotVisible: "Get one hint"
+- assertVisible: "1 hints used"
+- stopApp
+- launchApp:
+    clearState: false
+    stopApp: true
+- openLink: ${PUZZLE_URL}
+- assertVisible: "1 hints used"
+- assertVisible: "Replay attempt"
+# A duplicate warm invitation must not start or charge another action.
+- openLink: ${PUZZLE_URL}
+- assertVisible: "1 hints used"

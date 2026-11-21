@@ -3,6 +3,7 @@
 !.env.example
 .next*
 node_modules/
+apps/mobile/
 .local/
 .backups/
 .git/

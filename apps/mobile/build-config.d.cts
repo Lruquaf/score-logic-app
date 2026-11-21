@@ -1,0 +1,1 @@
+export function buildSettings(env: Readonly<Record<string, string | undefined>>): { release: boolean; preview: boolean; identifier: string; linkHost?: string; scheme: string; buildNumber?: string; crash: boolean }

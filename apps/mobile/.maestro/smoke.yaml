@@ -1,0 +1,27 @@
+appId: ${APP_ID}
+---
+# Dedicated development/test device with the Phase 3 backend and reviewed daily content.
+# Do not clear storage: this flow must preserve and reopen the same installation.
+- launchApp:
+    clearState: false
+    stopApp: true
+- assertVisible: "Your next clever move."
+- tapOn:
+    id: "tab-campaign"
+- assertVisible: "Every pack starts at level 1. Solve levels in order within a pack."
+- tapOn: "Open help"
+- assertVisible: "Read the table. Reconstruct the scores."
+- tapOn: "Go back"
+- tapOn:
+    id: "tab-daily"
+- assertVisible: "Daily puzzle"
+- assertVisible: "More"
+- stopApp
+- launchApp:
+    clearState: false
+    stopApp: true
+- assertVisible: "Your next clever move."
+- tapOn:
+    id: "tab-daily"
+- assertVisible: "Daily puzzle"
+- assertVisible: "More"
