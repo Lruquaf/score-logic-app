@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { commandIdSchema, identifierSchema, isoDateTimeSchema, successEnvelopeSchema } from './common'
+import { commandIdSchema, identifierSchema, isoDateTimeSchema, openEnum, successEnvelopeSchema } from './common'
 
 export const opaqueTokenSchema = z.string().min(32).max(4_096).regex(/^\S+$/)
 export const installationSecretSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/, 'Expected 32 random bytes encoded as base64url.')
@@ -38,27 +38,27 @@ export const nativeMergeRequestSchema = z.object({
 }).strict()
 export const nativeUserSchema = z.object({
   id: identifierSchema, email: z.string().email().nullable(), isAnonymous: z.boolean()
-}).strict()
+})
 export const nativeSessionSchema = z.object({
   id: z.string().uuid(), accessToken: opaqueTokenSchema, refreshToken: opaqueTokenSchema,
   accessTokenExpiresAt: isoDateTimeSchema, refreshTokenExpiresAt: isoDateTimeSchema
-}).strict()
+})
 export const anonymousMergeSchema = z.object({
-  status: z.enum(['merged', 'already_merged', 'skipped']), sourceUserId: identifierSchema,
+  status: openEnum(['merged', 'already_merged', 'skipped'] as const), sourceUserId: identifierSchema,
   targetUserId: identifierSchema, affectedPuzzleCount: z.number().int().min(0),
   movedAttemptCount: z.number().int().min(0), movedSubmissionCount: z.number().int().min(0)
-}).strict()
+})
 export const nativeSessionDataSchema = z.object({
   user: nativeUserSchema, session: nativeSessionSchema, merge: anonymousMergeSchema.optional()
-}).strict()
+})
 export const nativeSessionResponseSchema = successEnvelopeSchema(nativeSessionDataSchema)
-export const nativeLogoutResponseSchema = successEnvelopeSchema(z.object({ revoked: z.literal(true) }).strict())
-export const nativeMergeResponseSchema = successEnvelopeSchema(z.object({ merge: anonymousMergeSchema }).strict())
+export const nativeLogoutResponseSchema = successEnvelopeSchema(z.object({ revoked: z.literal(true) }))
+export const nativeMergeResponseSchema = successEnvelopeSchema(z.object({ merge: anonymousMergeSchema }))
 export const deleteAccountRequestSchema = z.object({
   commandId: commandIdSchema.optional(), deletionSecret: installationSecretSchema.optional(),
   confirmation: z.literal('DELETE'), password: z.string().min(1).max(128).optional()
 }).strict().refine(value => Boolean(value.commandId) === Boolean(value.deletionSecret), { message: 'Provide both deletion command and recovery secret.' })
-export const deleteAccountDataSchema = z.object({ deleted: z.literal(true) }).strict()
+export const deleteAccountDataSchema = z.object({ deleted: z.literal(true) })
 export const deleteAccountResponseSchema = successEnvelopeSchema(deleteAccountDataSchema)
 
 export type NativeGuestRequest = z.infer<typeof nativeGuestRequestSchema>

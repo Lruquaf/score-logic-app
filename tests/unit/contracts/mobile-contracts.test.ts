@@ -6,6 +6,7 @@ import {
   nativeSessionResponseSchema, puzzleCommandSchema, puzzleCommandResponseSchema,
   puzzlePublicSchema, puzzleResponseSchema
 } from '@/packages/contracts/src'
+import { stripPuzzleSolution } from '@/lib/db/mappers/puzzle'
 import { sampleDailyPuzzlePrivate, sampleDailyPuzzlePublic, sampleProgressEnvelope, sampleProgressState } from '@/lib/fixtures/samplePuzzle'
 
 const commandId = '00000000-0000-4000-8000-000000000001'
@@ -18,15 +19,24 @@ describe('public mobile contracts', () => {
     expect(result.data.puzzle.matches).toHaveLength(6)
   })
 
-  it('fails closed on private solutions in public reads and nested fixture scores', () => {
-    expect(puzzlePublicSchema.safeParse(sampleDailyPuzzlePrivate).success).toBe(false)
-    expect(puzzlePublicSchema.safeParse({ ...sampleDailyPuzzlePublic, matches: sampleDailyPuzzlePrivate.solution }).success).toBe(false)
+  it('drops private solutions from public reads; leak protection lives on the server DTO', () => {
+    const parsed = puzzlePublicSchema.parse(sampleDailyPuzzlePrivate) as Record<string, unknown>
+    expect('solution' in parsed).toBe(false)
+    expect('allSolutions' in parsed).toBe(false)
+    const scored = puzzlePublicSchema.parse({ ...sampleDailyPuzzlePublic, matches: sampleDailyPuzzlePrivate.solution })
+    for (const match of scored.matches as Record<string, unknown>[]) {
+      expect('homeScore' in match).toBe(false)
+      expect('awayScore' in match).toBe(false)
+    }
+    const stripped = stripPuzzleSolution(sampleDailyPuzzlePrivate) as unknown as Record<string, unknown>
+    expect('solution' in stripped).toBe(false)
+    expect('allSolutions' in stripped).toBe(false)
   })
 
   it('rejects impossible calendar dates, unsupported metadata versions and malformed errors', () => {
     expect(businessDateSchema.safeParse('2026-02-30').success).toBe(false)
     expect(businessDateSchema.safeParse('2028-02-29').success).toBe(true)
-    expect(apiMetaSchema.safeParse({ ...meta, apiVersion: '2' }).success).toBe(false)
+    expect(apiMetaSchema.safeParse({ ...meta, apiVersion: '2' }).success).toBe(true)
     expect(apiErrorEnvelopeSchema.safeParse({ error: { code: 'REVISION_CONFLICT', message: 'Choose which board to keep.', details: { revision: 2 } }, meta }).success).toBe(true)
     expect(apiErrorEnvelopeSchema.safeParse({ error: { code: 'FAIL' }, meta }).success).toBe(false)
   })
@@ -46,10 +56,11 @@ describe('public mobile contracts', () => {
     expect(nativeRegisterRequestSchema.safeParse({ commandId, email: 'x@example.com', password: '1234567' }).success).toBe(false)
   })
 
-  it('validates issued credentials and refuses secret database fields in the public user', () => {
+  it('validates issued credentials and strips secret database fields from the public user', () => {
     const value = { data: { user: { id: 'guest', email: null, isAnonymous: true }, session: { id: commandId, accessToken: 'a'.repeat(43), refreshToken: 'r'.repeat(43), accessTokenExpiresAt: meta.serverTime, refreshTokenExpiresAt: meta.nextDailyAt } }, meta }
     expect(nativeSessionResponseSchema.safeParse(value).success).toBe(true)
-    expect(nativeSessionResponseSchema.safeParse({ ...value, data: { ...value.data, user: { ...value.data.user, passwordHash: 'private' } } }).success).toBe(false)
+    const leaked = nativeSessionResponseSchema.parse({ ...value, data: { ...value.data, user: { ...value.data.user, passwordHash: 'private' } } })
+    expect('passwordHash' in leaked.data.user).toBe(false)
   })
 
   it('validates command CAS boundaries without reintroducing the 120 minute cutoff', () => {

@@ -1,10 +1,22 @@
 import { z } from 'zod'
 
 export const API_VERSION = '1' as const
+export const CONTRACTS_VERSION = '1.3.0' as const
 export const BUSINESS_TIME_ZONE = 'Europe/Istanbul' as const
 // Storage capacity, not a gameplay duration limit. Legacy wire scores allow 20;
 // the existing player's score editor offers 0–19.
 export const MAX_ELAPSED_TIME_SEC = 2_147_483_647
+/**
+ * Forward-compatible enum for server-to-client fields: known values keep their
+ * literal types, unknown future values are kept as strings. Never map an unknown
+ * value to a known one; callers branch with `isKnown`.
+ */
+export function openEnum<const T extends readonly [string, ...string[]]>(values: T) {
+  return z.union([z.enum(values), z.string().min(1).max(64)]) as z.ZodType<T[number] | (string & {})>
+}
+export function isKnown<const T extends readonly string[]>(values: T, value: string): value is T[number] {
+  return (values as readonly string[]).includes(value)
+}
 export const identifierSchema = z.string().min(1).max(200)
 export const puzzleIdSchema = z.string().cuid()
 export const commandIdSchema = z.string().uuid()
@@ -17,7 +29,7 @@ export const businessDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine
 }, 'Expected a real calendar date.')
 
 export const apiMetaSchema = z.object({
-  apiVersion: z.literal(API_VERSION),
+  apiVersion: z.string().min(1).max(16),
   serverTime: isoDateTimeSchema,
   businessDate: businessDateSchema,
   timeZone: z.literal(BUSINESS_TIME_ZONE),
