@@ -90,6 +90,12 @@ Opsiyonel servisler:
   Yoksa süreli bellek içi rate limiter çalışır. Limitler instance bazlıdır ve restart'ta
   sıfırlanır; çok instance için Redis kullanın. Yapılandırılmış Redis production'da
   kesilirse korunan istekler `503` döndürmeye devam eder.
+- `NATIVE_MIN_APP_VERSION` (`x.y.z`): yüklü native uygulama bu sürümün altındaysa
+  `/api/v1` istekleri `426 UPGRADE_REQUIRED` döner (`details.minAppVersion` ile).
+  Yalnızca eski sürümlerin sunucu sözleşmesiyle uyumsuz kalacağı bir yayın öncesinde,
+  yeni sürüm mağazalarda yayınlandıktan sonra açın. Varsayılan boştur ve kontrol kapalıdır.
+  `X-ScoreLogic-Client` header'ı olmayan istekler (ör. web sitesindeki hesap silme formu)
+  her zaman kabul edilir; biçimi bozuk header'lar sürüm altı sayılır.
 - `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`: sunucu ve tarayıcı hata takibi.
 - `OTEL_EXPORTER_OTLP_ENDPOINT`: yoksa OTel exporter başlatılmaz.
   `OTEL_TRACES_SAMPLER_ARG` varsayılanı `0.1`.
