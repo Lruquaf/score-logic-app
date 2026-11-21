@@ -3,7 +3,8 @@ import { ApiError } from './http.ts'
 import { boardKey, type CheckedBoard } from './game-view.ts'
 import { ServerClock } from './clock.ts'
 import { SessionClient } from './session.ts'
-import { emptySnapshot, mergeDraft, secondsElapsed, source, terminal } from './puzzle.ts'
+import { emptySnapshot, mergeDraft, secondsElapsed, source, terminal, UPDATE_REQUIRED_NOTICE } from './puzzle.ts'
+import { ATTEMPT_STATUS_VALUES, isKnown } from '@scorelogic/contracts'
 import type { CommandData, CommandType, Draft, DraftStore, Envelope, PendingCommand, PuzzleData, RandomSource, SessionData, Side, BoardAnalysis } from './types.ts'
 
 export interface GameState {
@@ -108,7 +109,9 @@ export class PuzzleController {
       this.serverOffset = Date.parse(response.meta.serverTime) - Date.now()
       if (offline) this.serverOffset = 0 // Offline display is an estimate; only reconnect can re-establish official time.
       if (this.state.draft?.attemptId !== draft.attemptId || this.state.data?.data.puzzle.id !== response.data.puzzle.id) { this.analysisTicket++; this.publish({ checked: null, analysis: null, analyzing: false, analysisError: null }) }
-      const notice = this.state.data?.data.puzzle.id === response.data.puzzle.id ? this.state.notice : null
+      const attemptStatus = response.data.progress?.currentAttempt?.status
+      const notice = attemptStatus && !isKnown(ATTEMPT_STATUS_VALUES, attemptStatus) ? UPDATE_REQUIRED_NOTICE
+        : this.state.data?.data.puzzle.id === response.data.puzzle.id ? this.state.notice : null
       this.publish({ data: response, draft, offline, pending: Boolean(pending), pendingType: pending?.body.type ?? null, busy: null, conflict, loading: false, notice })
       if (!conflict) await this.persist(draft)
       if (generation !== this.generation || this.state.identity?.id !== identity.user.id) return
