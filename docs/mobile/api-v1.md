@@ -116,6 +116,17 @@ Belirsiz yanıt yeni UUID ile tekrar edilmez veya otomatik guest yaratılarak gi
 Backend rollout: `20261114000000_native_deletion_receipts` dahil 22 migration uygulanmalıdır. Public contract paket sürümü 1.2.0, API wire sürümü v1’dir. Bu rapordaki migration yalnız yerel test veritabanlarına uygulandı.
 
 
+## İleri uyumluluk ve sürüm
+
+- **Response ve request:** Response şemaları (`z.object`) bilinmeyen alanları düşürür; request şemaları `z.strictObject` kalır. `meta.apiVersion` response’ta açık string’dir.
+- **Açık enum'lar (`openEnum`):** Sunucunun ürettiği enum değerlerinde bilinmeyen değer korunur; istemci bunu güvenli şekilde işler. Attempt status bilinmiyorsa terminal/read-only kabul edilir ve bilgi notu gösterilir; bilinmeyen mode etiketi "Update required" olur. Request içinde echo edilen `hintTypes` bilinmeyen değerleri kabul eder.
+- **Kapalı yapısal enum'lar:** `side` ve match outcome kapalıdır. İstemcinin seçtiği request alanları (`hintType`, attempt `kind`, silme `confirmation`) da kapalı kalır.
+- **Hâlâ kırıcı değişiklikler:** Alan kaldırma, alan yeniden adlandırma ve yapısal enum değişikliği kırıcıdır; yeni alan/enum değeri eklemek kırıcı değildir.
+- **İstemci header’ı:** `X-ScoreLogic-Client: <ios|android|web>/<appVersion>/<contractsVersion>`. Mobil istemci her istekte gönderir; mevcut contracts sürümü `1.3.0`.
+- **Sürüm kapısı:** `NATIVE_MIN_APP_VERSION` (semver `x.y.z`; boş = kapalı) ayarlıysa, minimumun altındaki veya bozuk biçimli header `426` döner:
+  `{ error: { code: 'UPGRADE_REQUIRED', message, details: { minAppVersion } }, meta }`. Header’sız istekler her zaman kabul edilir. Değer `prebuild`/`prestart` sırasında `scripts/validate-env.ts` ile doğrulanır.
+- **Mobil 426 davranışı:** İstemci `'upgrade'` blocked durumuna geçer ve güncelleme ekranı gösterir. Outbox komutu ve `auth-pending` korunur; kullanıcı güncelledikten sonra aynı `requestId` ile devam edilir.
+
 ## Sınırlar ve doğrulama
 
 - Şema geçerliliği sahiplik, campaign erişimi, canonical matematik veya CAS kabulü kanıtı değildir; servis katmanı bunları tekrar kontrol eder.
