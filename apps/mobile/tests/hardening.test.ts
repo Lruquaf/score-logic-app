@@ -136,7 +136,7 @@ test('reinstall-like retained vault and empty SQLite reloads canonical progress 
 test('an incompatible backend keeps cached drafts editable locally and cannot run an official mutation', async () => {
   const saved = vault(), database = store(), rng = random(), current = puzzle(), canonical = progress(current)
   await saved.set('session', identity()); await database.savePuzzle('guest-one', 'daily', envelope({ puzzle: current, progress: canonical }))
-  const client = new SessionClient(origin, saved, rng, nativeSessionDataSchema, async () => json({ ...envelope({ puzzle: current, progress: canonical }), meta: { ...envelope(null).meta, apiVersion: '2' } }))
+  const client = new SessionClient(origin, saved, rng, nativeSessionDataSchema, async () => json({ ...envelope({ puzzle: current, progress: canonical }), meta: { ...envelope(null).meta, timeZone: 'UTC' } }))
   const controller = new PuzzleController(client, database, rng)
   try {
     await controller.load()
