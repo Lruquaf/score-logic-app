@@ -17,6 +17,12 @@ import { usePuzzleStore } from '@/store/puzzleStore'
 interface AnalyzeBoardProps {
   puzzle: PuzzlePublicDTO
   mode: CampaignAnalyzeBoardMode
+  /**
+   * Blocks starting a new analysis. The component stays mounted while disabled
+   * so a transient pause (autosave, hint, check) cannot drop an in-flight or
+   * open snapshot.
+   */
+  disabled?: boolean
 }
 
 interface AnalysisSnapshot {
@@ -100,7 +106,7 @@ function SatisfiabilityMessage({ result }: { result: BoardAnalysisResult }) {
   )
 }
 
-export function AnalyzeBoard({ puzzle, mode }: AnalyzeBoardProps) {
+export function AnalyzeBoard({ puzzle, mode, disabled = false }: AnalyzeBoardProps) {
   const inputs = usePuzzleStore((state) => state.inputs)
   const [snapshot, setSnapshot] = useState<AnalysisSnapshot | null>(null)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
@@ -122,6 +128,7 @@ export function AnalyzeBoard({ puzzle, mode }: AnalyzeBoardProps) {
   })
 
   const runAnalysis = () => {
+    if (disabled) return
     analysisMutation.mutate({
       inputSignature,
       inputs
@@ -154,8 +161,8 @@ export function AnalyzeBoard({ puzzle, mode }: AnalyzeBoardProps) {
         type="button"
         className="group flex min-h-9 min-w-0 items-center justify-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--field-line)] bg-[var(--field-soft)] px-2 py-2 text-xs font-bold text-[var(--field-deep)] shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] transition hover:-translate-y-0.5 hover:border-[var(--field)] hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 sm:gap-2 sm:px-3"
         onClick={runAnalysis}
-        disabled={analysisMutation.isPending}
-        whileTap={!analysisMutation.isPending ? { scale: 0.98 } : undefined}
+        disabled={disabled || analysisMutation.isPending}
+        whileTap={!disabled && !analysisMutation.isPending ? { scale: 0.98 } : undefined}
         title={
           analysisMutation.isError
             ? analysisErrorMessage(analysisMutation.error)

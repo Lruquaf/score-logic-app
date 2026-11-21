@@ -73,6 +73,51 @@ test('campaign puzzle opens in the playable workspace', async ({ page }) => {
   await expect(page.getByText('10/12 cells fixed')).toBeVisible()
 })
 
+test('an autosave that starts during Analyze Board keeps its snapshot', async ({ page }) => {
+  let holdSaves = false
+  const heldSaves: import('@playwright/test').Route[] = []
+  let markSaveHeld!: () => void
+  const saveHeld = new Promise<void>((resolve) => { markSaveHeld = resolve })
+  await page.route('**/api/puzzles/*/progress', async (route) => {
+    if (!holdSaves || route.request().method() !== 'PUT') return route.continue()
+    heldSaves.push(route)
+    markSaveHeld()
+  })
+  // The analysis answers only once an autosave is in flight, so the response
+  // lands while assistance is temporarily disabled.
+  await page.route('**/api/puzzles/*/analyze', async (route) => {
+    await saveHeld
+    await route.continue()
+  })
+
+  // A fake clock holds the 800 ms autosave debounce, so the save starts only
+  // after the analysis request is already in flight.
+  await page.clock.install()
+  const initialSave = page.waitForResponse((r) => r.url().endsWith('/progress') && r.request().method() === 'PUT')
+  await page.goto('/puzzles/ckscorepuzzlecamp000000001')
+  const analyze = page.getByRole('button', { name: 'Analyze board' })
+  await expect(analyze).toBeVisible()
+  await page.clock.runFor(1_000)
+  await initialSave
+  await expect(analyze).toBeEnabled()
+
+  holdSaves = true
+  await page.locator('input[type="number"]:not([readonly])').first().fill('1')
+  const analysisSent = page.waitForRequest((r) => r.url().endsWith('/analyze'))
+  // Filling scrolls the board; on phones the sticky header would then cover the button.
+  await page.evaluate(() => window.scrollTo(0, 0))
+  await analyze.click()
+  await analysisSent
+  await page.clock.runFor(1_000)
+  await expect(page.getByRole('heading', { name: 'Board Analysis' })).toBeVisible()
+  await expect(page.getByText('11/12 cells fixed')).toBeVisible()
+
+  holdSaves = false
+  await Promise.all(heldSaves.map((route) => route.continue()))
+  await expect(analyze).toBeEnabled()
+  await expect(page.getByRole('heading', { name: 'Board Analysis' })).toBeVisible()
+})
+
 test('campaign API opens each pack at level one and blocks direct level skips', async ({ request }) => {
   const beginnerLevelOne = await request.get('/api/puzzles/ckscorepuzzlecamp000000001')
   const easyLevelOne = await request.get('/api/puzzles/ckscorepuzzlecamp000000031')
