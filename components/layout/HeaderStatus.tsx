@@ -121,7 +121,7 @@ export function HeaderStatus() {
       <div className="hidden border-l border-[var(--line)] pl-4 text-xs text-[var(--muted)] sm:block">
         Streak <span className="font-mono font-bold text-[var(--ink)]">{stats?.currentStreak ?? 0}</span>
       </div>
-      <div className="hidden text-xs text-[var(--muted)] md:block">
+      <div className="hidden text-xs text-[var(--muted)] lg:block">
         {displayedUserId ? (displayedIsAnonymous ? 'Anonymous' : 'Signed in') : 'Guest'}
       </div>
       {!displayedUserId || displayedIsAnonymous ? (

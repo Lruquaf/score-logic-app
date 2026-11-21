@@ -29,7 +29,7 @@ test('all main screens fit narrow phones and a tablet, with visible navigation',
       if (path.startsWith('/puzzles')) await expect(page.getByRole('heading', { name: 'Fixtures', exact: true })).toBeVisible()
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true)
       if (!['/login', '/register'].includes(path)) {
-        const nav = page.getByRole('navigation', { name: width < 640 ? 'Mobile navigation' : 'Main navigation', exact: true })
+        const nav = page.getByRole('navigation', { name: width < 768 ? 'Mobile navigation' : 'Main navigation', exact: true })
         for (const name of ['Home', 'Campaign', 'Daily', 'Stats']) {
           const link = nav.getByRole('link', { name, exact: true })
           await expect(link).toBeVisible()
@@ -55,6 +55,22 @@ test('all main screens fit narrow phones and a tablet, with visible navigation',
         await page.screenshot({ path: info.outputPath(`${path.slice(1)}.png`), fullPage: true })
       }
     }
+  }
+})
+
+test('the header row fits tablet widths even with a wide fallback font', async ({ page }) => {
+  // Fraunces / IBM Plex are not bundled, so each OS falls back to its own font.
+  // Verdana (macOS/Windows) and DejaVu Sans (Linux CI) are among the widest.
+  for (const width of [640, 700, 768, 1024]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto('/stats')
+    await expect(page.getByRole('heading', { name: /^You have solved/ })).toBeVisible()
+    await page.addStyleTag({ content: ':root { --font-body: Verdana, "DejaVu Sans", sans-serif; --font-display: Verdana, "DejaVu Sans", serif; }' })
+    await expect.poll(() => page.evaluate(() => {
+      const row = document.querySelector('header > div')!
+      const last = row.lastElementChild!.getBoundingClientRect()
+      return document.documentElement.scrollWidth <= innerWidth + 1 && last.right <= row.getBoundingClientRect().right + 1
+    }), { message: `Header fits ${width}px` }).toBe(true)
   }
 })
 
