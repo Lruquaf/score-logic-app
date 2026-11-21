@@ -7,7 +7,8 @@ Next.js, private puzzle engines, environment secrets, or the web `@/` alias.
 The package exports TypeScript source; consuming bundlers (Next/Metro) compile it.
 Existing `lib/contracts` and web routes remain compatible and are not moved.
 Scores retain the legacy wire range 0–20; the current player editor offers 0–19.
-Canonical public reads reject private solution keys. Explicit authenticated Reveal
+Public reads strip unknown keys; leak protection is the server's public DTO guard
+(`lib/validations.ts` / `lib/db/mappers/puzzle.ts`), not these schemas. Explicit authenticated Reveal
 responses may contain the answer, as required by the existing product behavior.
 
 Requests and sensitive DTOs reject unknown fields; outer envelopes tolerate

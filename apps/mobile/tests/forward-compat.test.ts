@@ -126,3 +126,25 @@ test('426 keeps auth-pending', async () => {
   await assert.rejects(client.authenticate('login', 'demo@example.invalid', 'invented-password', { commandsSettled: true, draftsSynced: true }))
   assert.equal(saved.values.has('auth-pending'), true)
 })
+
+test('426 during deletion shows upgrade and keeps the deletion proof', async () => {
+  const saved = vault(), database = store(), rng = random()
+  await saved.set('session', identity())
+  const client = new SessionClient(origin, saved, rng, nativeSessionDataSchema, async () => json({ error: { code: 'UPGRADE_REQUIRED', message: 'Update ScoreLogic to continue.' } }, 426))
+  const controller = new PuzzleController(client, database, rng), runtime = new MobileRuntime(client, database, controller)
+  await runtime.start()
+  try {
+    await assert.rejects(runtime.deleteAccount())
+    assert.equal(runtime.getSnapshot().issue, 'upgrade')
+    assert.equal(runtime.getSnapshot().message, 'Update ScoreLogic to continue.')
+    assert.ok(await saved.get('delete-pending'))
+  } finally { controller.dispose() }
+})
+
+test('unknown progress status without an attempt is terminal and starts no attempt', async () => {
+  const { controller, commands } = await controllerFor(canonical => { canonical.currentAttempt = null; (canonical as { status: string }).status = 'ARCHIVED' })
+  try {
+    assert.equal(terminal(controller.getSnapshot().data!.data.progress), true)
+    assert.equal(commands.some(command => command.type === 'attempt'), false)
+  } finally { controller.dispose() }
+})

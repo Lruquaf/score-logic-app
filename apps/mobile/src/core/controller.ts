@@ -1,10 +1,9 @@
-import { analyzeBoardDataSchema, analyzeModeFor, puzzleCommandResultSchema, puzzleDataSchema } from '@scorelogic/contracts'
+import { ATTEMPT_STATUS_VALUES, analyzeBoardDataSchema, analyzeModeFor, isKnown, puzzleCommandResultSchema, puzzleDataSchema } from '@scorelogic/contracts'
 import { ApiError } from './http.ts'
 import { boardKey, type CheckedBoard } from './game-view.ts'
 import { ServerClock } from './clock.ts'
 import { SessionClient } from './session.ts'
 import { emptySnapshot, mergeDraft, secondsElapsed, source, terminal, UPDATE_REQUIRED_NOTICE } from './puzzle.ts'
-import { ATTEMPT_STATUS_VALUES, isKnown } from '@scorelogic/contracts'
 import type { CommandData, CommandType, Draft, DraftStore, Envelope, PendingCommand, PuzzleData, RandomSource, SessionData, Side, BoardAnalysis } from './types.ts'
 
 export interface GameState {

@@ -1,7 +1,7 @@
 # K1 — İleri uyumlu `/api/v1` kontratı (tasarım)
 
 > Tarih: 21 Kasım 2026 · Kaynak bulgu: [denetim raporu K1](../../denetim-2026-11-21.md)
-> Durum: Onay bekliyor · Branch: `worktree-k1-tolerant-contracts`
+> Durum: Onaylandı (21 Kasım 2026) · Branch: `worktree-k1-tolerant-contracts`
 
 ## Amaç ve neden
 
@@ -108,7 +108,7 @@ ayrı worktree önerisi kabul edildi.
 - **İstemci:** her `/api/v1` isteğine `X-ScoreLogic-Client: <ios|android|web>/<appVersion>/<contractsVersion>`
   header'ı eklenir. `appVersion` mevcut `app.version` kaynağından gelir.
 - **Sunucu:**
-  - `lib/api/v1.ts` içinde, auth dahil bütün v1 girişlerinde ortak bir kontrol çalışır.
+  - `lib/api/v1.ts` içinde, auth dahil bütün v1 girişlerinde ortak bir kontrol çalışır. (Not: uygulamada plana uygun olarak `proxy.ts` içinde yapıldı.)
   - Kontrol, opsiyonel `NATIVE_MIN_APP_VERSION` env'ini okur. Değer semver'dir; boşsa kontrol kapalıdır.
   - Header eksikse istek kabul edilir (bugünkü preview build'leri kilitlenmesin).
   - Header geçersiz veya sürüm minimumun altındaysa `426` döner:

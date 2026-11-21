@@ -158,7 +158,12 @@ export class MobileRuntime {
       await this.finishDeletion()
     } catch (error) {
       const pending = await this.client.deletionRecovery()
-      if (pending) { this.publish({ phase: 'blocked', issue: 'request', message: 'Deletion could not yet be confirmed. Retry the same deletion; your recovery proof is preserved.' }) }
+      if (pending) {
+        const upgrade = failureKind(error) === 'upgrade'
+        this.publish(upgrade
+          ? { phase: 'blocked', issue: 'upgrade', message: error instanceof Error ? error.message : 'Update ScoreLogic to continue.' }
+          : { phase: 'blocked', issue: 'request', message: 'Deletion could not yet be confirmed. Retry the same deletion; your recovery proof is preserved.' })
+      }
       else if (error instanceof ApiError && error.status === 401 && error.code !== 'REAUTHENTICATION_REQUIRED') this.report(error)
       throw error
     } finally { this.changing = false; this.controller.lockEdits(false); this.publish({ transition: false }); this.controller.onForeground() }
