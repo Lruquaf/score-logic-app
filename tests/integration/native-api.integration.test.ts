@@ -194,6 +194,18 @@ describe('versioned native API with canonical PostgreSQL transactions', () => {
     expect(stale.body.error.details.reason).toBe('REVISION_CONFLICT')
   })
 
+  it('keeps committing native progress when the device clock is behind the server', async () => {
+    const initial = await start()
+    const state = initial.result.progress.currentState
+    const save = (updatedAt: string, base: number) => command('progress', { attemptId: initial.result.attempt.id, progress: { ...state, updatedAt } }, base)
+    const first = await save(new Date().toISOString(), initial.revision)
+    expect(first.status).toBe(200)
+    expect(first.body.data.revision).toBe(initial.revision + 1)
+    const second = await save(new Date(Date.now() - 10 * 60_000).toISOString(), first.body.data.revision)
+    expect(second.status).toBe(200)
+    expect(second.body.data.revision).toBe(first.body.data.revision + 1)
+  })
+
   it('replays a lost legacy web hint response before checking its now-stale base revision', async () => {
     const initial = await start(), requestId = randomUUID()
     const body = { attemptId: initial.result.attempt.id, requestId, expectedHintCount: 0, hintType: 'reveal', currentInputs: {} }

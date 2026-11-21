@@ -106,7 +106,13 @@ async function handle(
         tx
       )
       const attemptState = mapAttemptProgressState(attempt)
+      // Stored updatedAt is server time while the incoming one is the device
+      // clock. Revision-aware writers are already guarded by the revision CAS
+      // in runPuzzleMutation, so the clock comparison only protects legacy
+      // writers that send no base revision.
+      const hasBaseRevision = request.headers.get('x-scorelogic-base-revision') !== null
       if (
+        !hasBaseRevision &&
         attemptState &&
         isIncomingProgressStale(
           attemptState.updatedAt,
