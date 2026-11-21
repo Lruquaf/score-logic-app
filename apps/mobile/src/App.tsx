@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react'
-import { StatusBar } from 'react-native'
+import { Platform, StatusBar } from 'react-native'
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
-import { nativeSessionDataSchema } from '@scorelogic/contracts'
+import { CONTRACTS_VERSION, nativeSessionDataSchema } from '@scorelogic/contracts'
+import app from '../package.json'
+import { clientIdentity, withClientHeader } from './core/http'
 import { initDiagnostics } from './diagnostics'
 import { CrashBoundary } from './ui/CrashBoundary'
 import { mobileConfig } from './config'
@@ -24,7 +26,8 @@ function openServices(): Promise<Services> {
     initDiagnostics()
     const namespace = environmentNamespace(config.apiOrigin)
     const store = await openDraftStore(namespace)
-    const client = new SessionClient(config.apiOrigin, secureVault(namespace), randomSource, nativeSessionDataSchema)
+    const identity = clientIdentity(Platform.OS === 'ios' || Platform.OS === 'android' ? Platform.OS : 'web', app.version, CONTRACTS_VERSION)
+    const client = new SessionClient(config.apiOrigin, secureVault(namespace), randomSource, nativeSessionDataSchema, withClientHeader((input, init) => fetch(input, init), identity))
     const controller = new PuzzleController(client, store, randomSource)
     const runtime = new MobileRuntime(client, store, controller)
     const lifecycle = new LifecycleCoordinator(controller)

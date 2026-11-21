@@ -291,7 +291,7 @@ export class PuzzleController {
   }
   private async failed(error: unknown, pending: PendingCommand | null) {
     if (pending && (this.state.identity?.id !== pending.owner || this.state.data?.data.puzzle.id !== pending.puzzleId)) return
-    const knownRejection = error instanceof ApiError && error.status >= 400 && error.status < 500 && ![401, 408, 429].includes(error.status) && error.code !== 'OWNER_CHANGED'
+    const knownRejection = error instanceof ApiError && error.status >= 400 && error.status < 500 && ![401, 408, 426, 429].includes(error.status) && error.code !== 'OWNER_CHANGED'
     if (pending && knownRejection) {
       await this.store.discardCommand(pending.owner, pending.puzzleId)
       this.publish({ pending: false, pendingType: null })

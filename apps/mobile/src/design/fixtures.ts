@@ -1,5 +1,7 @@
 /** Design-time public examples only. This module is imported exclusively by App.web. */
-import { nativeSessionDataSchema, puzzleCommandSchema, puzzleProgressStateSchema, type PuzzlePublic, type PuzzleProgressEnvelope } from '@scorelogic/contracts'
+import { CONTRACTS_VERSION, nativeSessionDataSchema, puzzleCommandSchema, puzzleProgressStateSchema, type PuzzlePublic, type PuzzleProgressEnvelope } from '@scorelogic/contracts'
+import app from '../../package.json'
+import { clientIdentity, withClientHeader } from '../core/http'
 import { SessionClient } from '../core/session'
 import { PuzzleController } from '../core/controller'
 import { LifecycleCoordinator, MobileRuntime } from '../core/runtime'
@@ -58,7 +60,7 @@ export async function createStudioServices(state: StudioState = 'ready', screen:
     return boards.get(id)!
   }
   let offline = false
-  const client = new SessionClient(studioOrigin, ports.vault, rng, nativeSessionDataSchema, async (url, request) => {
+  const client = new SessionClient(studioOrigin, ports.vault, rng, nativeSessionDataSchema, withClientHeader(async (url, request) => {
     if (!url.startsWith(`${studioOrigin}/api/v1/`)) throw new Error('Design transport cannot leave its fixture origin.')
     const path = new URL(url).pathname.replace('/api/v1', '')
     if (offline) throw new Error('Simulated API offline')
@@ -111,7 +113,7 @@ export async function createStudioServices(state: StudioState = 'ready', screen:
     const result = { commandId: command.commandId, revision: g.revision, result: { progress: copy(g), ...(hint ? { hint } : {}), ...(isCorrect === undefined ? {} : { isCorrect, feedback: { mode: 'EXACT_WRONG_CELLS', message: isCorrect ? 'Every score adds up.' : 'Some scores need another look.', wrongMatchIds: [], wrongCells: [], wrongOutcomeMatchIds: [], errorCount: null, violations: [] } }) } }
     receipts.set(command.commandId, result)
     return response(wrap(result))
-  })
+  }, clientIdentity('web', app.version, CONTRACTS_VERSION)))
   const controller = new PuzzleController(client, ports.store, rng), runtime = new MobileRuntime(client, ports.store, controller)
   await runtime.start()
   if (state === 'offline') { await controller.load('daily'); await runtime.resource('/puzzles/daily', { parse: value => value }); offline = true; runtime.setOnline(false) }

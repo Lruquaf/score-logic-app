@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { nativeSessionDataSchema, puzzleCommandSchema } from '@scorelogic/contracts'
+import { CONTRACTS_VERSION, nativeSessionDataSchema, puzzleCommandSchema } from '@scorelogic/contracts'
+import { ApiError, clientIdentity, withClientHeader, type Transport } from '../src/core/http.ts'
+import { MobileRuntime, failureKind } from '../src/core/runtime.ts'
 import { PuzzleController } from '../src/core/controller.ts'
 import { SessionClient } from '../src/core/session.ts'
 import { hasUnknownCatalogItems, puzzleLabel, terminal, UPDATE_REQUIRED_NOTICE } from '../src/core/puzzle.ts'
@@ -67,4 +69,60 @@ test('puzzle label for an unknown mode asks for an update', () => {
 test('catalog with an unknown pack is detected', () => {
   assert.equal(hasUnknownCatalogItems([{ campaignPack: 'MASTER' }]), true)
   assert.equal(hasUnknownCatalogItems([{ campaignPack: 'BEGINNER' }, { campaignPack: 'HARD' }]), false)
+})
+
+const upgradeBody = { error: { code: 'UPGRADE_REQUIRED', message: 'Update ScoreLogic to continue.', details: { minAppVersion: '9.0.0' } } }
+
+test('every request carries the client identity header', async () => {
+  const saved = vault(), seen: Array<Record<string, string>> = []
+  await saved.set('session', identity())
+  const spy: Transport = async (_url, init) => { seen.push({ ...(init?.headers as Record<string, string>) }); return json(envelope({ ok: true })) }
+  const client = new SessionClient(origin, saved, random(), nativeSessionDataSchema, withClientHeader(spy, clientIdentity('android', '0.1.0', CONTRACTS_VERSION)))
+  await client.call('/one'); await client.call('/two')
+  assert.equal(seen.length, 2)
+  for (const headers of seen) {
+    assert.equal(headers['X-ScoreLogic-Client'], 'android/0.1.0/1.3.0')
+    assert.ok(headers.Authorization)
+  }
+})
+
+test('426 maps to upgrade and blocks the runtime', async () => {
+  assert.equal(failureKind(new ApiError(426, 'UPGRADE_REQUIRED', 'x')), 'upgrade')
+  assert.equal(failureKind(new ApiError(200, 'UPGRADE_REQUIRED', 'x')), 'upgrade')
+  const saved = vault(), database = store(), rng = random()
+  const client = new SessionClient(origin, saved, rng, nativeSessionDataSchema, async () => { throw new Error('unused') })
+  const runtime = new MobileRuntime(client, database, new PuzzleController(client, database, rng))
+  runtime.report(new ApiError(426, 'UPGRADE_REQUIRED', 'Update ScoreLogic to continue.'))
+  assert.equal(runtime.getSnapshot().phase, 'blocked')
+  assert.equal(runtime.getSnapshot().issue, 'upgrade')
+})
+
+test('426 keeps the pending command for the same UUID', async () => {
+  const saved = vault(), database = store(), rng = random(), current = puzzle(), canonical = progress(current)
+  await saved.set('session', identity())
+  const ids: string[] = []
+  const client = new SessionClient(origin, saved, rng, nativeSessionDataSchema, async (url, options) => {
+    if (url.includes('/commands')) { ids.push(url.endsWith('/commands') ? (JSON.parse(String(options?.body)) as Command).commandId : url.split('/').at(-1)!); return json(upgradeBody, 426) }
+    return json(envelope({ puzzle: current, progress: canonical }))
+  })
+  const controller = new PuzzleController(client, database, rng)
+  await controller.load()
+  try {
+    controller.setScore('m1', 'home', '3')
+    await controller.sync().catch(() => undefined)
+    const first = (await database.commands('guest-one')).map(command => command.body.commandId)
+    assert.equal(first.length, 1)
+    await controller.retryPending().catch(() => undefined)
+    assert.deepEqual((await database.commands('guest-one')).map(command => command.body.commandId), first)
+    assert.ok(ids.length >= 2)
+    assert.ok(ids.every(id => id === first[0]))
+  } finally { controller.dispose() }
+})
+
+test('426 keeps auth-pending', async () => {
+  const saved = vault()
+  await saved.set('session', identity())
+  const client = new SessionClient(origin, saved, random(), nativeSessionDataSchema, async () => json(upgradeBody, 426))
+  await assert.rejects(client.authenticate('login', 'demo@example.invalid', 'invented-password', { commandsSettled: true, draftsSynced: true }))
+  assert.equal(saved.values.has('auth-pending'), true)
 })
