@@ -227,8 +227,8 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
         hintsUsed={hintsUsed}
         visibleErrors={visibleErrorCount}
         analyzeBoardAction={
-          analyzeBoardMode && !assistanceDisabled
-            ? <AnalyzeBoard puzzle={puzzle} mode={analyzeBoardMode} />
+          analyzeBoardMode
+            ? <AnalyzeBoard puzzle={puzzle} mode={analyzeBoardMode} disabled={assistanceDisabled} />
             : null
         }
         campaignNavigation={
