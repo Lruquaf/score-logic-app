@@ -53,7 +53,9 @@ export function LoginForm({ initialError }: { initialError?: string | null }) {
       }
 
       window.localStorage.setItem('scorelogic-skip-intro-once', 'true')
-      window.location.assign(result.url || '/')
+      // This form requested Home. Keep the browser origin and its cookies even
+      // when the auth provider normalizes a local 127.0.0.1 URL to localhost.
+      window.location.assign(new URL('/', window.location.href).href)
     } catch (error) {
       console.error('login failed', error)
       setErrorMessage('Authentication could not be completed. Try again.')

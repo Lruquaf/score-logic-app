@@ -64,7 +64,7 @@ export function RegisterForm({ initialError }: { initialError?: string | null })
       }
 
       window.localStorage.setItem('scorelogic-skip-intro-once', 'true')
-      window.location.assign(result.url || '/')
+      window.location.assign(new URL('/', window.location.href).href)
     } catch (error) {
       console.error('register failed', error)
       setErrorMessage(error instanceof ApiError ? error.message : registerErrorMessage())

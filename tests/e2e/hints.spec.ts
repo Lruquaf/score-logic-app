@@ -88,12 +88,13 @@ test('retrying a lost daily hint response never reveals or charges a second scor
   const refreshed = page.waitForResponse((r) => r.url().endsWith('/api/puzzles/daily') && r.request().method() === 'GET')
   await page.clock.fastForward(61_000)
   await refreshed
-  await expect(dialog.getByRole('button', { name: 'Retry 1 hint', exact: true })).toBeVisible()
-  await dialog.getByRole('button', { name: 'Retry 1 hint', exact: true }).click()
+  // A fresh read reconciles the exact pending receipt before adopting its newer
+  // revision. Once acknowledged, the successful hint closes without buying one.
   await expect(dialog).toHaveCount(0)
   await expect(page.locator('input[data-score-source="hint"]')).toHaveCount(1)
   expect(requests).toHaveLength(2)
   expect(requests[0].requestId).toBe(requests[1].requestId)
+  expect(requests[1]).toEqual(requests[0])
   const saved = await (await page.request.get('/api/puzzles/daily')).json()
   expect(saved.progress.currentAttempt.hintsUsed).toBe(1)
   expect(saved.progress.currentState.revealedCells).toHaveLength(1)

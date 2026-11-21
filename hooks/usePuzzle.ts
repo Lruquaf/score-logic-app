@@ -35,10 +35,44 @@ interface UsePuzzleOptions {
   puzzleId?: string
 }
 
+type HintMutationVariables = {
+      ownerKey: string | null
+      baseRevision: number
+      puzzleId: string
+      attemptId: string
+      hintType: 'reveal'
+      requestId: string
+      expectedHintCount: number
+      currentInputs: PuzzleProgressState['inputs']
+      currentOutcomes: PuzzleProgressState['outcomes']
+      notes: PuzzleProgressState['notes']
+      completedMatchIds: string[]
+      revealedMatchIds: string[]
+      revealedCells: PuzzleProgressState['revealedCells']
+      hintsUsed: number
+      hintTypes: PuzzleProgressState['hintTypes']
+      answerRevealed: boolean
+      answerRevealedAt: string | null
+      isReplay: boolean
+
+}
+
 export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
   const queryClient = useQueryClient()
   const syncUserStore = useUserStore((state) => state.syncFromStatsPayload)
   const ownerKey = usePuzzleStore((state) => state.ownerKey)
+  const baseRevision = usePuzzleStore((state) => state.baseRevision)
+  const revisionConflict = usePuzzleStore((state) => state.revisionConflict)
+  const acknowledgeRevision = usePuzzleStore((state) => state.acknowledgeRevision)
+  const markRevisionConflict = usePuzzleStore((state) => state.markRevisionConflict)
+  function handleRevisionConflict(error: unknown) {
+    if (!(error instanceof ApiError) || error.status !== 409 ||
+      !['REVISION_CONFLICT', 'REVISION_REQUIRED'].includes(String(error.details?.reason))) return false
+    const revision = error.details?.actualRevision
+    if (typeof revision !== 'number' || !Number.isSafeInteger(revision) || revision < 0) return false
+    markRevisionConflict((error.details?.progress ?? null) as import('@/lib/contracts/progress').PuzzleProgressEnvelope | null, revision)
+    return true
+  }
   const mounted = useRef(false)
   useEffect(() => {
     mounted.current = true
@@ -49,6 +83,10 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     return mounted.current && state.ownerKey === requestOwner &&
       (!puzzleId || state.puzzle?.id === puzzleId) &&
       (!attemptId || state.currentAttemptId === attemptId)
+  }
+  function acceptsRevisionResponse(revision?: number) {
+    const state = usePuzzleStore.getState()
+    return !state.revisionConflict && (revision === undefined || revision >= state.baseRevision)
   }
   function invalidateSummaries(refetchType: 'active' | 'none' = 'active') {
     // Mark inactive screens stale; returning to campaign must refetch even
@@ -122,7 +160,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [hintError, setHintError] = useState<string | null>(null)
   const hintInFlight = useRef(false)
-  const hintRequestIdentity = useRef<{ ownerKey: string | null; attemptId: string; count: number; requestId: string } | null>(null)
+  const hintRequestIdentity = useRef<{ ownerKey: string | null; attemptId: string; count: number; requestId: string; baseRevision: number; payload?: HintMutationVariables } | null>(null)
   const [displayTimer, setDisplayTimer] = useState<{ puzzleId: string | null; seconds: number }>({ puzzleId: null, seconds: 0 })
   const attemptedStartRef = useRef<string | null>(null)
   const initializedPuzzleDataRef = useRef<typeof puzzleQuery.data>(undefined)
@@ -147,13 +185,6 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     (!options.puzzleId || queriedPuzzleId === options.puzzleId)
 
   useEffect(() => {
-    if (puzzleQuery.data) {
-      initializePuzzle(puzzleQuery.data.puzzle, puzzleQuery.data.progress)
-      initializedPuzzleDataRef.current = puzzleQuery.data
-    }
-  }, [puzzleQuery.data, initializePuzzle])
-
-  useEffect(() => {
     if (statsQuery.data) {
       syncUserStore(statsQuery.data)
     }
@@ -162,15 +193,18 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
   const attemptMutation = useMutation({
     mutationFn: (payload: {
       ownerKey: string | null
+      baseRevision: number
       puzzleId: string
       kind: 'STANDARD' | 'REPLAY'
       forceNew: boolean
     }) => startPuzzleAttempt(payload.puzzleId, {
       kind: payload.kind,
       forceNew: payload.forceNew
-    }),
+    }, payload.baseRevision),
     onSuccess: (response, variables) => {
       if (!acceptsResponse(variables.puzzleId, undefined, variables.ownerKey)) return
+      if (!acceptsRevisionResponse(response.revision)) return
+      acknowledgeRevision(response.revision, variables.baseRevision)
       invalidateSummaries()
       attemptedStartRef.current = null
       setCurrentAttempt(response.attempt)
@@ -178,6 +212,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     },
     onError: (error, variables) => {
       if (!acceptsResponse(variables.puzzleId, undefined, variables.ownerKey)) return
+      if (handleRevisionConflict(error)) return
       setSubmitError(getErrorMessage(error))
     }
   })
@@ -186,6 +221,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     if (
       !puzzle ||
       !isRoutePuzzleActive ||
+      revisionConflict ||
       currentAttemptId ||
       answerRevealed ||
       attemptMutation.isPending ||
@@ -201,6 +237,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     attemptedStartRef.current = startKey
     attemptMutation.mutate({
       ownerKey,
+      baseRevision: usePuzzleStore.getState().baseRevision,
       puzzleId: puzzle.id,
       kind: isReplayMode ? 'REPLAY' : 'STANDARD',
       forceNew: shouldForceNewAttempt
@@ -213,6 +250,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     isRoutePuzzleActive,
     puzzle,
     shouldForceNewAttempt,
+    revisionConflict,
     ownerKey,
     status
   ])
@@ -312,13 +350,15 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
   }, [activePuzzleId, answerRevealed, isReplayMode, isRoutePuzzleActive, phase, resumeTimer, startedAt, status])
 
   const saveMutation = useMutation({
-    mutationFn: (payload: { ownerKey: string | null; puzzleId: string; attemptId: string; progress: PuzzleProgressState }) =>
-      savePuzzleProgress(payload.puzzleId, payload.attemptId, payload.progress),
+    mutationFn: (payload: { ownerKey: string | null; baseRevision: number; puzzleId: string; attemptId: string; progress: PuzzleProgressState }) =>
+      savePuzzleProgress(payload.puzzleId, payload.attemptId, payload.progress, payload.baseRevision),
     onMutate: () => {
       markSaving()
     },
     onSuccess: (response, variables) => {
       if (!acceptsResponse(variables.puzzleId, variables.attemptId, variables.ownerKey)) return
+      if (!acceptsRevisionResponse(response.revision ?? response.progress.revision)) return
+      acknowledgeRevision(response.revision ?? response.progress.revision, variables.baseRevision)
       invalidateSummaries('none')
       if (response.progress.currentAttempt) {
         setCurrentAttempt(response.progress.currentAttempt)
@@ -331,6 +371,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     },
     onError: (error, variables) => {
       if (!acceptsResponse(variables.puzzleId, variables.attemptId, variables.ownerKey)) return
+      if (handleRevisionConflict(error)) return
       if (
         error instanceof ApiError &&
         error.status === 409 &&
@@ -350,25 +391,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
   })
 
   const hintMutation = useMutation({
-    mutationFn: (payload: {
-      ownerKey: string | null
-      puzzleId: string
-      attemptId: string
-      hintType: 'reveal'
-      requestId: string
-      expectedHintCount: number
-      currentInputs: PuzzleProgressState['inputs']
-      currentOutcomes: PuzzleProgressState['outcomes']
-      notes: PuzzleProgressState['notes']
-      completedMatchIds: string[]
-      revealedMatchIds: string[]
-      revealedCells: PuzzleProgressState['revealedCells']
-      hintsUsed: number
-      hintTypes: PuzzleProgressState['hintTypes']
-      answerRevealed: boolean
-      answerRevealedAt: string | null
-      isReplay: boolean
-    }) => requestPuzzleHint(payload.puzzleId, {
+    mutationFn: (payload: HintMutationVariables) => requestPuzzleHint(payload.puzzleId, {
       attemptId: payload.attemptId,
       hintType: payload.hintType,
       requestId: payload.requestId,
@@ -384,11 +407,13 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       answerRevealed: payload.answerRevealed,
       answerRevealedAt: payload.answerRevealedAt,
       isReplay: payload.isReplay
-    }),
+    }, payload.baseRevision),
     onSuccess: (response, variables) => {
       if (!acceptsResponse(variables.puzzleId, variables.attemptId, variables.ownerKey)) return
       hintRequestIdentity.current = null
+      if (!acceptsRevisionResponse(response.revision ?? response.progress?.revision)) return
       if (response.progressPatch.hintsUsed < usePuzzleStore.getState().hintsUsed) return
+      acknowledgeRevision(response.revision ?? response.progress?.revision, variables.baseRevision)
       invalidateSummaries()
       setCurrentAttempt(response.attempt)
       applyHintPatch(response.progressPatch, response.hint.message)
@@ -396,6 +421,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     },
     onError: (error, variables) => {
       if (!acceptsResponse(variables.puzzleId, variables.attemptId, variables.ownerKey)) return
+      if (handleRevisionConflict(error)) { hintRequestIdentity.current = null; return }
       setHintError(getErrorMessage(error))
       if (error instanceof ApiError && error.status === 409) {
         hintRequestIdentity.current = null
@@ -404,9 +430,35 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     }
   })
 
+  useEffect(() => {
+    if (puzzleQuery.data) {
+      const data = puzzleQuery.data
+      const pending = hintRequestIdentity.current
+      if (pending?.payload && pending.ownerKey === usePuzzleStore.getState().ownerKey &&
+          data.puzzle.id === usePuzzleStore.getState().puzzle?.id &&
+          (data.progress?.revision ?? 0) !== usePuzzleStore.getState().baseRevision && !hintInFlight.current) {
+        let cancelled = false
+        hintInFlight.current = true
+        void hintMutation.mutateAsync(pending.payload).catch(() => null).then(() => {
+          if (!cancelled && usePuzzleStore.getState().ownerKey === pending.ownerKey) {
+            initializePuzzle(data.puzzle, data.progress)
+            initializedPuzzleDataRef.current = data
+          }
+        }).finally(() => { hintInFlight.current = false })
+        return () => { cancelled = true }
+      }
+      initializePuzzle(data.puzzle, data.progress)
+      initializedPuzzleDataRef.current = data
+    }
+    // The action snapshot is immutable. Mutation observer changes must not
+    // restart this effect; only a new query snapshot triggers reconciliation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [puzzleQuery.data, initializePuzzle])
+
   const submitMutation = useMutation({
     mutationFn: (payload: {
       ownerKey: string | null
+      baseRevision: number
       puzzleId: string
       attemptId: string
       idempotencyKey: string
@@ -433,13 +485,15 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       hintsUsed: payload.hintsUsed,
       hintTypes: payload.hintTypes,
       isReplay: payload.isReplay
-    }),
+    }, payload.baseRevision),
     onMutate: () => {
       setSubmitError(null)
       setPhase('CHECKING')
     },
     onSuccess: (response, variables) => {
       if (!acceptsResponse(variables.puzzleId, variables.attemptId, variables.ownerKey)) return
+      if (!acceptsRevisionResponse(response.revision ?? response.progress.revision)) return
+      acknowledgeRevision(response.revision ?? response.progress.revision, variables.baseRevision)
       invalidateSummaries()
       if (response.isCorrect) setSolvedAttempt({ puzzleId: variables.puzzleId, seconds: response.progress.currentAttempt?.elapsedTimeSec ?? response.progress.timeTakenSec ?? 0 })
       applySubmitResolution(response)
@@ -450,6 +504,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     },
     onError: (error, variables) => {
       if (!acceptsResponse(variables.puzzleId, variables.attemptId, variables.ownerKey)) return
+      if (handleRevisionConflict(error)) return
       setSubmitError(getErrorMessage(error))
       setPhase('FAILED')
     }
@@ -458,6 +513,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
   const answerRevealMutation = useMutation({
     mutationFn: (payload: {
       ownerKey: string | null
+      baseRevision: number
       puzzleId: string
       attemptId: string
       elapsedTimeSec: number
@@ -477,15 +533,18 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
         hintsUsed: payload.hintsUsed,
         hintTypes: payload.hintTypes,
         isReplay: payload.isReplay
-      }),
+      }, payload.baseRevision),
     onSuccess: (response, variables) => {
       if (!acceptsResponse(variables.puzzleId, variables.attemptId, variables.ownerKey)) return
+      if (!acceptsRevisionResponse(response.revision ?? response.progress.revision)) return
+      acknowledgeRevision(response.revision ?? response.progress.revision, variables.baseRevision)
       invalidateSummaries()
       applyAnswerReveal(response)
       setHintError(null)
     },
     onError: (error, variables) => {
       if (!acceptsResponse(variables.puzzleId, variables.attemptId, variables.ownerKey)) return
+      if (handleRevisionConflict(error)) return
       setHintError(getErrorMessage(error))
     }
   })
@@ -495,7 +554,9 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       return
     }
 
-    if (!currentAttemptId || (status === 'COMPLETED' && !isReplayMode) || phase === 'CHECKING' || hintMutation.isPending || answerRevealMutation.isPending || saveState !== 'idle') {
+    const pendingHint = hintRequestIdentity.current
+    const hasUnconfirmedHint = pendingHint?.ownerKey === ownerKey && pendingHint?.payload?.puzzleId === puzzle.id && pendingHint?.attemptId === currentAttemptId
+    if (revisionConflict || hasUnconfirmedHint || !currentAttemptId || (status === 'COMPLETED' && !isReplayMode) || phase === 'CHECKING' || hintMutation.isPending || answerRevealMutation.isPending || saveState !== 'idle') {
       return
     }
 
@@ -516,6 +577,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
 
       saveMutation.mutate({
         ownerKey,
+        baseRevision: usePuzzleStore.getState().baseRevision,
         puzzleId: puzzle.id,
         attemptId: currentAttemptId,
         progress: latestProgressState
@@ -523,9 +585,11 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     }, 800)
 
     return () => window.clearTimeout(timeout)
-  }, [puzzle, updatedAt, lastSyncedAt, status, phase, saveState, isReplayMode, saveMutation, hintMutation.isPending, answerRevealMutation.isPending, isRoutePuzzleActive, currentAttemptId, ownerKey])
+  }, [puzzle, updatedAt, lastSyncedAt, status, phase, saveState, isReplayMode, saveMutation, hintMutation.isPending, answerRevealMutation.isPending, isRoutePuzzleActive, currentAttemptId, ownerKey, revisionConflict])
 
   const assistanceDisabled =
+    Boolean(revisionConflict) ||
+    saveMutation.isPending ||
     !currentAttemptId ||
     hintMutation.isPending ||
     answerRevealMutation.isPending ||
@@ -559,6 +623,8 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     attempts,
     saveState,
     saveError,
+    revisionConflict,
+    baseRevision,
     startedAt,
     elapsedTimeSec: isReplayMode ? displayElapsedTimeSec : timeTakenSec ?? displayElapsedTimeSec,
     victoryTimeTakenSec: solvedAttempt && solvedAttempt.puzzleId === puzzle?.id ? solvedAttempt.seconds : timeTakenSec ?? displayElapsedTimeSec,
@@ -605,14 +671,15 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       const saved = hintRequestIdentity.current
       // A background read can discover the committed hint after a lost reply.
       // Keep its original identity until acknowledgement, even if the count moved.
-      const identity = saved?.ownerKey === ownerKey && saved.attemptId === currentAttemptId
-        ? saved : { ownerKey, attemptId: currentAttemptId, count: hintsUsed, requestId: crypto.randomUUID() }
+      const identity: NonNullable<typeof hintRequestIdentity.current> = saved?.ownerKey === ownerKey && saved.attemptId === currentAttemptId
+        ? saved : { ownerKey, attemptId: currentAttemptId, count: hintsUsed, requestId: crypto.randomUUID(), baseRevision: usePuzzleStore.getState().baseRevision }
       hintRequestIdentity.current = identity
       hintInFlight.current = true
       setHintError(null)
       try {
-        const response = await hintMutation.mutateAsync({
+        const payload: HintMutationVariables = identity.payload ?? {
           ownerKey,
+          baseRevision: identity.baseRevision,
           puzzleId: puzzle.id,
           attemptId: currentAttemptId,
           hintType,
@@ -629,7 +696,9 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
           answerRevealed,
           answerRevealedAt: usePuzzleStore.getState().answerRevealedAt,
           isReplay: isReplayMode
-        })
+        }
+        hintRequestIdentity.current = { ...identity, payload }
+        const response = await hintMutation.mutateAsync(payload)
         return acceptsResponse(puzzle.id, currentAttemptId, ownerKey) ? response : null
       } catch {
         return null
@@ -654,6 +723,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
       pauseTimer(puzzle.id, elapsedTimeSec)
       answerRevealMutation.mutate({
         ownerKey,
+        baseRevision: usePuzzleStore.getState().baseRevision,
         puzzleId: puzzle.id,
         attemptId: currentAttemptId,
         elapsedTimeSec,
@@ -689,6 +759,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
 
       submitMutation.mutate({
         ownerKey,
+        baseRevision: usePuzzleStore.getState().baseRevision,
         puzzleId: puzzle.id,
         attemptId: currentAttemptId,
         idempotencyKey: crypto.randomUUID(),

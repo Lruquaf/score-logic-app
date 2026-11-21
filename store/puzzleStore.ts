@@ -19,7 +19,7 @@ import type { MatchSolutionDTO, PuzzlePublicDTO } from '@/lib/contracts/puzzle'
 import type { SubmitFeedback } from '@/lib/contracts/submit'
 import type { ConstraintViolation } from '@/lib/engine/types'
 import { validatePartialSolution } from '@/lib/engine/validator'
-import { buildProgressState } from '@/lib/utils/progress-state'
+import { buildProgressState as buildLegacyProgressState } from '@/lib/utils/progress-state'
 
 export type PuzzlePhase =
   | 'IDLE'
@@ -37,7 +37,20 @@ export interface CellState {
   side: 'home' | 'away'
 }
 
-export interface PersistedPuzzleDraft extends PuzzleProgressState {}
+export interface PersistedPuzzleDraft extends PuzzleProgressState {
+  /** The server revision this draft was edited against, never a refetch's revision. */
+  baseRevision?: number
+}
+
+function buildProgressState(params: Parameters<typeof buildLegacyProgressState>[0] & { baseRevision?: number }): PersistedPuzzleDraft {
+  const { baseRevision = 0, ...progress } = params
+  return { ...buildLegacyProgressState(progress), baseRevision }
+}
+
+export interface RevisionConflict {
+  progress: PuzzleProgressEnvelope | null
+  revision: number
+}
 
 interface AnswerRevealResolution {
   answer: {
@@ -53,9 +66,15 @@ interface AnswerRevealResolution {
 
 export interface PuzzleStoreState {
   ownerKey: string | null
+  baseRevision: number
+  revisionConflict: RevisionConflict | null
+  acknowledgeRevision: (revision: number | undefined, expectedBase: number) => void
+  markRevisionConflict: (progress: PuzzleProgressEnvelope | null, revision: number) => void
+  resolveRevisionConflict: (choice: 'local' | 'server') => void
   draftsByOwner: Record<string, Record<string, PersistedPuzzleDraft>>
   unclaimedDrafts: Record<string, PersistedPuzzleDraft>
   setOwner: (ownerKey: string) => void
+  forgetOwner: (ownerKey: string) => void
   puzzle: PuzzlePublicDTO | null
   phase: PuzzlePhase
   status: 'IN_PROGRESS' | 'COMPLETED' | 'ABANDONED'
@@ -234,8 +253,9 @@ function applyInitialRevealedMatchesToDraft(
   }
 }
 
-function createEmptyDraft(puzzleId: string, timestamp: string): PersistedPuzzleDraft {
+function createEmptyDraft(puzzleId: string, timestamp: string, baseRevision = 0): PersistedPuzzleDraft {
   return {
+    baseRevision,
     puzzleId,
     inputs: {},
     outcomes: {},
@@ -264,6 +284,7 @@ function draftFromProgress(
   if (progress.currentState) {
     return {
       ...progress.currentState,
+      baseRevision: progress.revision ?? 0,
       inputs: cloneInputs(progress.currentState.inputs),
       outcomes: cloneOutcomes(progress.currentState.outcomes),
       notes: cloneNotes(progress.currentState.notes ?? {}),
@@ -279,6 +300,7 @@ function draftFromProgress(
 
   return {
     ...createEmptyDraft(puzzleId, timestamp),
+    baseRevision: progress.revision ?? 0,
     hintsUsed: progress.hintsUsed,
     hintTypes: [...progress.hintTypes],
     answerRevealed: progress.answerRevealed,
@@ -324,6 +346,22 @@ function pickPreferredDraft(params: {
   }
 
   return params.localDraft ?? remoteDraft ?? createEmptyDraft(params.puzzleId, params.timestamp)
+}
+
+function keepLocalWithServerAssistance(local: PersistedPuzzleDraft, remote: PersistedPuzzleDraft): PersistedPuzzleDraft {
+  const inputs = cloneInputs(local.inputs)
+  for (const cell of remote.revealedCells) {
+    const value = remote.inputs[cell.matchId]?.[cell.side]
+    if (value !== null && value !== undefined) {
+      inputs[cell.matchId] = { ...(inputs[cell.matchId] ?? { home: null, away: null }), [cell.side]: value }
+    }
+  }
+  for (const matchId of remote.revealedMatchIds) {
+    if (remote.inputs[matchId]) inputs[matchId] = { ...remote.inputs[matchId] }
+  }
+  return { ...local, inputs, hintsUsed: remote.hintsUsed, hintTypes: [...remote.hintTypes],
+    revealedCells: cloneRevealedCells(remote.revealedCells), revealedMatchIds: [...remote.revealedMatchIds],
+    answerRevealed: remote.answerRevealed, answerRevealedAt: remote.answerRevealedAt }
 }
 
 function findNextCell(puzzle: PuzzlePublicDTO, completedMatchIds: string[]) {
@@ -386,6 +424,7 @@ function getViolations(
 function buildDraftFromRuntime(state: Pick<
   PuzzleStoreState,
   | 'puzzle'
+  | 'baseRevision'
   | 'inputs'
   | 'outcomes'
   | 'notes'
@@ -404,6 +443,7 @@ function buildDraftFromRuntime(state: Pick<
   if (!state.puzzle) return null
 
   return buildProgressState({
+    baseRevision: state.baseRevision,
     puzzleId: state.puzzle.id,
     inputs: cloneInputs(state.inputs),
     outcomes: cloneOutcomes(state.outcomes),
@@ -425,6 +465,7 @@ function buildDraftFromRuntime(state: Pick<
 export function selectCurrentProgressState(state: Pick<
   PuzzleStoreState,
   | 'puzzle'
+  | 'baseRevision'
   | 'inputs'
   | 'outcomes'
   | 'notes'
@@ -445,6 +486,8 @@ export function selectCurrentProgressState(state: Pick<
 
 function createInitialPuzzleData() {
   return {
+    baseRevision: 0,
+    revisionConflict: null as RevisionConflict | null,
     puzzle: null,
     phase: 'IDLE' as PuzzlePhase,
     status: 'IN_PROGRESS' as const,
@@ -505,6 +548,43 @@ export function createPuzzleStore() {
             drafts: draftsByOwner[ownerKey] ?? {}
           }
         }),
+        forgetOwner: (ownerKey) => set((state) => {
+          const draftsByOwner = { ...state.draftsByOwner }
+          delete draftsByOwner[ownerKey]
+          return state.ownerKey === ownerKey
+            ? { ...createInitialPuzzleData(), ownerKey, draftsByOwner, unclaimedDrafts: {} }
+            : { draftsByOwner }
+        }),
+        acknowledgeRevision: (revision, expectedBase) => set((state) => {
+          if (revision === undefined || !Number.isSafeInteger(revision) || revision < state.baseRevision ||
+              state.baseRevision !== expectedBase || state.revisionConflict || !state.puzzle) return state
+          return { baseRevision: revision, drafts: { ...state.drafts,
+            ...(state.drafts[state.puzzle.id] ? { [state.puzzle.id]: { ...state.drafts[state.puzzle.id], baseRevision: revision } } : {}) } }
+        }),
+        markRevisionConflict: (progress, revision) => set((state) => {
+          if (!state.puzzle || (progress && progress.puzzleId !== state.puzzle.id)) return state
+          return { revisionConflict: { progress, revision }, saveState: 'error',
+            saveError: 'This puzzle changed on another device. Choose which entries to keep.', phase: 'ACTIVE' }
+        }),
+        resolveRevisionConflict: (choice) => {
+          const state = get()
+          const conflict = state.revisionConflict
+          if (!state.puzzle || !conflict) return
+          const progress = conflict.progress
+          const remote = draftFromProgress(state.puzzle.id, progress, new Date().toISOString())
+          const local = state.drafts[state.puzzle.id]
+          // Terminal server history is never reopened by rebasing an old board.
+          if (choice === 'local' && (!local || progress?.answerRevealed ||
+            (progress?.status === 'COMPLETED' && progress.currentAttempt?.status !== 'ACTIVE'))) return
+          const draft = choice === 'local' && local
+            ? { ...(remote ? keepLocalWithServerAssistance(local, remote) : local),
+                baseRevision: conflict.revision,
+                updatedAt: new Date(Math.max(Date.now(), remote ? new Date(remote.updatedAt).getTime() : 0) + 1).toISOString() }
+            : remote ?? { ...createEmptyDraft(state.puzzle.id, new Date().toISOString()), baseRevision: conflict.revision }
+          set({ revisionConflict: null, baseRevision: conflict.revision, saveState: 'idle', saveError: null,
+            drafts: { ...state.drafts, [state.puzzle.id]: draft } })
+          get().initializePuzzle(state.puzzle, progress)
+        },
         setPhase: (phase) => set({ phase }),
         setCurrentAttempt: (attempt) =>
           set({
@@ -515,7 +595,9 @@ export function createPuzzleStore() {
           set((state) => {
             const timestamp = new Date().toISOString()
             const localDraft = state.drafts[puzzle.id] ?? null
-            const preferredDraft = pickPreferredDraft({
+            const remoteRevision = progress?.revision ?? 0
+            const hasConflict = Boolean(localDraft && (localDraft.baseRevision ?? 0) !== remoteRevision)
+            const preferredDraft = hasConflict && localDraft ? localDraft : pickPreferredDraft({
               puzzleId: puzzle.id,
               remoteProgress: progress,
               localDraft,
@@ -560,8 +642,10 @@ export function createPuzzleStore() {
 
             return {
               ...state,
+              baseRevision: localDraft?.baseRevision ?? remoteRevision,
+              revisionConflict: hasConflict ? { progress, revision: remoteRevision } : null,
               puzzle,
-              phase: nextStatus === 'COMPLETED' && !resumesReplay ? 'SOLVED' : 'ACTIVE',
+              phase: !hasConflict && nextStatus === 'COMPLETED' && !resumesReplay ? 'SOLVED' : 'ACTIVE',
               status: nextStatus,
               isReplayMode: resumesReplay,
               currentAttemptId:
@@ -625,7 +709,7 @@ export function createPuzzleStore() {
         setNote: (matchId, target, value) =>
           set((state) => {
             const { puzzle, status, isReplayMode } = state
-            if (!puzzle || (status === 'COMPLETED' && !isReplayMode)) {
+            if (!puzzle || state.revisionConflict || (status === 'COMPLETED' && !isReplayMode)) {
               return state
             }
 
@@ -635,6 +719,7 @@ export function createPuzzleStore() {
             currentNote[target] = value.slice(0, target === 'match' ? 180 : 120)
             nextNotes[matchId] = currentNote
             const nextDraft = buildProgressState({
+              baseRevision: state.baseRevision,
               puzzleId: puzzle.id,
               inputs: cloneInputs(state.inputs),
               outcomes: cloneOutcomes(state.outcomes),
@@ -670,6 +755,7 @@ export function createPuzzleStore() {
 
             if (
               !puzzle ||
+              state.revisionConflict ||
               (status === 'COMPLETED' && !isReplayMode) ||
               isScoreCellRevealed(cell, revealedCells, revealedMatchIds, initialRevealedMatchIds)
             ) {
@@ -683,6 +769,7 @@ export function createPuzzleStore() {
 
             const timestamp = new Date().toISOString()
             const nextDraft = buildProgressState({
+              baseRevision: state.baseRevision,
               puzzleId: puzzle.id,
               inputs: nextInputs,
               outcomes: cloneOutcomes(state.outcomes),
@@ -739,6 +826,7 @@ export function createPuzzleStore() {
               ? state.completedMatchIds
               : [...state.completedMatchIds, matchId]
             const nextDraft = buildProgressState({
+              baseRevision: state.baseRevision,
               puzzleId: puzzle.id,
               inputs: cloneInputs(state.inputs),
               outcomes: nextOutcomes,
@@ -800,6 +888,7 @@ export function createPuzzleStore() {
             nextInputs[selectedCell.matchId] = currentInput
             const timestamp = new Date().toISOString()
             const nextDraft = buildProgressState({
+              baseRevision: state.baseRevision,
               puzzleId: puzzle.id,
               inputs: nextInputs,
               outcomes: cloneOutcomes(state.outcomes),
@@ -864,6 +953,7 @@ export function createPuzzleStore() {
 
             const timestamp = new Date().toISOString()
             const nextDraft = buildProgressState({
+              baseRevision: state.baseRevision,
               puzzleId: puzzle.id,
               inputs: nextInputs,
               outcomes: cloneOutcomes(state.outcomes),
@@ -902,7 +992,7 @@ export function createPuzzleStore() {
         confirmScore: (matchId) =>
           set((state) => {
             const { puzzle, status, isReplayMode } = state
-            if (!puzzle || (status === 'COMPLETED' && !isReplayMode)) {
+            if (!puzzle || state.revisionConflict || (status === 'COMPLETED' && !isReplayMode)) {
               return state
             }
 
@@ -916,6 +1006,7 @@ export function createPuzzleStore() {
               ? state.completedMatchIds
               : [...state.completedMatchIds, matchId]
             const nextDraft = buildProgressState({
+              baseRevision: state.baseRevision,
               puzzleId: puzzle.id,
               inputs: cloneInputs(state.inputs),
               outcomes: cloneOutcomes(state.outcomes),
@@ -977,6 +1068,7 @@ export function createPuzzleStore() {
             })
 
             const nextDraft = buildProgressState({
+              baseRevision: state.baseRevision,
               puzzleId: puzzle.id,
               inputs: nextInputs,
               outcomes: nextOutcomes,
@@ -1025,6 +1117,11 @@ export function createPuzzleStore() {
           set((state) => {
             if (!state.puzzle || state.puzzle.id !== progress.puzzleId) {
               return state
+            }
+
+            if ((progress.revision ?? 0) !== state.baseRevision) {
+              return { revisionConflict: { progress, revision: progress.revision ?? 0 }, saveState: 'error',
+                saveError: 'This puzzle changed on another device. Choose which entries to keep.' }
             }
 
             const timestamp = new Date().toISOString()
@@ -1250,6 +1347,7 @@ export function createPuzzleStore() {
               }
 
               const nextDraft = buildProgressState({
+              baseRevision: state.baseRevision,
                 puzzleId,
                 inputs: cloneInputs(state.inputs),
                 outcomes: cloneOutcomes(state.outcomes),
@@ -1320,6 +1418,7 @@ export function createPuzzleStore() {
           }),
         resetCurrentPuzzle: () =>
           set((state) => {
+            if (state.revisionConflict) return state
             if (!state.puzzle) {
               return state
             }
@@ -1328,7 +1427,7 @@ export function createPuzzleStore() {
             const initialRevealedMatchIds = initialRevealedMatchIdsFromPuzzle(state.puzzle)
             const nextDraft = applyInitialRevealedMatchesToDraft(
               state.puzzle,
-              createEmptyDraft(state.puzzle.id, timestamp)
+              createEmptyDraft(state.puzzle.id, timestamp, state.baseRevision)
             )
             const startsReplaySession =
               state.status === 'COMPLETED' || state.answerRevealed

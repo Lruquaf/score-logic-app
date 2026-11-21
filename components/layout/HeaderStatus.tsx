@@ -102,14 +102,14 @@ export function HeaderStatus() {
     setIsSigningOut(true)
 
     try {
-      const result = await signOut({
+      await signOut({
         redirect: false,
         redirectTo: '/'
       })
 
       clearUser()
       window.localStorage.setItem('scorelogic-skip-intro-once', 'true')
-      window.location.assign(result.url || '/')
+      window.location.assign(new URL('/', window.location.href).href)
     } catch (error) {
       console.error('sign out failed', error)
       setIsSigningOut(false)

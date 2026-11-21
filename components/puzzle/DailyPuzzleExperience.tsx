@@ -37,6 +37,7 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
     violations,
     submitFeedback,
     saveError,
+    revisionConflict,
     hintsUsed,
     answerRevealed,
     canSubmit,
@@ -61,6 +62,7 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
   const revealedCells = usePuzzleStore((state) => state.revealedCells)
   const setPhase = usePuzzleStore((state) => state.setPhase)
   const resetCurrentPuzzle = usePuzzleStore((state) => state.resetCurrentPuzzle)
+  const resolveRevisionConflict = usePuzzleStore((state) => state.resolveRevisionConflict)
   const stats = useUserStore((state) => state.stats)
   const hintSequence = useRef(0)
   const [hintDialog, setHintDialog] = useState<{ puzzleId: string; session: number } | null>(null)
@@ -253,6 +255,21 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
         }
       />
 
+      {revisionConflict ? <section role="alert" className="panel space-y-3 p-4">
+        <h2 className="text-lg font-bold">This puzzle changed on another device.</h2>
+        <p>Your local scores and notes are still preserved. Choose which board to use before saving or requesting help. Given scores and server hints always stay fixed.</p>
+        <div className="flex flex-wrap gap-3">
+          <button type="button" className="btn-secondary min-h-12" onClick={() => resolveRevisionConflict('local')}
+            disabled={Boolean(revisionConflict.progress?.answerRevealed ||
+              (revisionConflict.progress?.status === 'COMPLETED' && revisionConflict.progress.currentAttempt?.status !== 'ACTIVE'))}>
+            Keep my entries
+          </button>
+          <button type="button" className="btn-primary min-h-12" onClick={() => resolveRevisionConflict('server')}>Use server board</button>
+        </div>
+        {revisionConflict.progress?.answerRevealed || revisionConflict.progress?.status === 'COMPLETED'
+          ? <p>The server has a completed or revealed result. Use that board, then start a replay to enter new scores.</p> : null}
+      </section> : null}
+
       <section className="grid items-stretch gap-3 xl:grid-cols-[minmax(420px,0.9fr)_minmax(520px,1fr)] xl:gap-5">
         <div className="flex min-w-0 flex-col gap-3 sm:gap-5">
           <StandingsTable
@@ -262,7 +279,7 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
         </div>
 
         <div className="flex min-w-0 flex-col gap-3 sm:gap-5">
-          <FixtureGrid puzzle={puzzle} feedback={visibleFeedback} busy={isHintPending || isSubmitPending || isAnswerRevealPending} className="h-full" />
+          <FixtureGrid puzzle={puzzle} feedback={visibleFeedback} busy={Boolean(revisionConflict) || isHintPending || isSubmitPending || isAnswerRevealPending} className="h-full" />
         </div>
       </section>
 
@@ -346,6 +363,7 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
           <button
             type="button"
             className="btn-secondary mt-5 w-full disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={Boolean(revisionConflict)}
             onClick={() => {
               setHintDialog(null)
               setHintNotice(null)

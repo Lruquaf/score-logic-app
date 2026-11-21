@@ -203,13 +203,13 @@ test('sign-out, guest play and sign-in preserve the account history and draft', 
   await expect(page.getByText('Signed-in player', { exact: true })).toBeVisible()
 })
 
-test('game pages attach the current CSP nonce to their inline scripts', async ({ page }) => {
+test('game pages attach the current CSP nonce to their inline scripts', async ({ page, baseURL }) => {
   for (const path of ['/campaign', '/daily', '/stats']) {
     const response = await page.goto(path)
     const csp = response?.headers()['content-security-policy'] ?? ''
     const nonce = csp.match(/'nonce-([^']+)'/)?.[1]
     expect(nonce).toBeTruthy()
-    if (process.env.E2E_BASE_URL) expect(csp).not.toContain("'unsafe-eval'")
+    if (process.env.E2E_EXPECT_PRODUCTION_CSP === 'true' || baseURL?.startsWith('https://')) expect(csp).not.toContain("'unsafe-eval'")
     await expect.poll(async () => page.locator('script:not([src])').evaluateAll((scripts, expected) =>
       scripts.some((script) => script.textContent?.trim()) && scripts
         .filter((script) => script.textContent?.trim()).every((script) => script.nonce === expected), nonce!
