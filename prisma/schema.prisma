@@ -63,6 +63,7 @@ model Puzzle {
   attempts               PuzzleAttempt[]
   submissions            PuzzleSubmission[]
   completions            PuzzleCompletion[]
+  commands               PuzzleCommand[]
   supersedes             Puzzle?                       @relation("PuzzleSupersession", fields: [supersedesId], references: [id], onDelete: Restrict)
   supersededBy           Puzzle?                       @relation("PuzzleSupersession")
   editorialEvents        PuzzleEditorialEvent[]
@@ -173,6 +174,7 @@ model User {
   name          String?
   image         String?
   isAnonymous   Boolean   @default(false)
+  nativeGuest   Boolean   @default(false)
   createdAt     DateTime  @default(now())
   lastActiveAt  DateTime  @default(now())
 
@@ -184,6 +186,8 @@ model User {
   completions PuzzleCompletion[]
   streak      DailyStreak?
   stats       UserStats?
+  nativeSessions NativeSession[]
+  commands       PuzzleCommand[]
 
   @@map("users")
 }
@@ -206,6 +210,8 @@ model UserPuzzleProgress {
   bestAttemptId    String?      @unique
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
+  revision         Int          @default(0)
+  requiresRevision Boolean      @default(false)
 
   user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   puzzle         Puzzle         @relation(fields: [puzzleId], references: [id])
@@ -216,6 +222,89 @@ model UserPuzzleProgress {
   @@unique([userId, puzzleId])
   @@index([userId, status])
   @@map("user_puzzle_progress")
+}
+
+// Commands and their canonical response are committed in the same gameplay transaction.
+model PuzzleCommand {
+  id          String   @id @default(uuid())
+  userId      String
+  puzzleId    String
+  commandId   String
+  type        String
+  payloadHash String   @db.VarChar(64)
+  response    Json?
+  createdAt   DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  puzzle Puzzle @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, commandId])
+  @@index([userId, puzzleId, createdAt])
+  @@map("puzzle_commands")
+}
+
+// SetNull is intentional: guest merge deletes its source user, while an encrypted
+// authentication receipt must remain usable to recover the already committed merge.
+model NativeSession {
+  id                 String   @id @default(uuid())
+  userId             String?
+  subjectUserId      String
+  isAnonymous        Boolean
+  refreshTokenHash   String   @unique @db.VarChar(64)
+  installationHash   String?  @unique @db.VarChar(64)
+  refreshExpiresAt   DateTime
+  absoluteExpiresAt  DateTime?
+  revokedAt          DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  lastUsedAt         DateTime @default(now())
+
+  user     User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+  receipts NativeAuthReceipt[]
+
+  @@index([userId, revokedAt])
+  @@index([subjectUserId])
+  @@index([refreshExpiresAt])
+  @@map("native_sessions")
+}
+
+model NativeAuthReceipt {
+  id                 String   @id @default(uuid())
+  scope              String
+  commandId          String
+  requestHash        String   @db.VarChar(64)
+  previousTokenHash  String?  @db.VarChar(64)
+  sessionId          String
+  responseCiphertext String   @db.Text
+  createdAt          DateTime @default(now())
+  expiresAt          DateTime
+
+  session NativeSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([scope, commandId])
+  @@index([previousTokenHash])
+  @@index([expiresAt])
+  @@map("native_auth_receipts")
+}
+
+// Minimal bootstrap anti-replay proof after deletion: no user id or credential.
+// Retained for at most the guest credential inactivity window, then prunable.
+model NativeInstallationTombstone {
+  installationHash String   @id @db.VarChar(64)
+  deletedAt        DateTime @default(now())
+  expiresAt        DateTime
+
+  @@index([expiresAt])
+  @@map("native_installation_tombstones")
+}
+
+model NativeDeletedAuthCommand {
+  commandHash String   @id @db.VarChar(64)
+  deletedAt   DateTime @default(now())
+  expiresAt   DateTime
+
+  @@index([expiresAt])
+  @@map("native_deleted_auth_commands")
 }
 
 model PuzzleAttempt {
@@ -461,4 +550,15 @@ enum AttemptEventType {
   SUBMITTED
   COMPLETED
   ABANDONED
+}
+
+// Unlinked capability receipt: no user id, email, password or raw secret.
+model NativeDeletionReceipt {
+  commandId      String   @id @db.Uuid
+  capabilityHash String   @db.VarChar(64)
+  createdAt      DateTime @default(now())
+  expiresAt      DateTime
+
+  @@index([expiresAt])
+  @@map("native_deletion_receipts")
 }
