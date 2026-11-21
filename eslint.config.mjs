@@ -13,6 +13,11 @@ export default defineConfig([
       'react-hooks/set-state-in-effect': 'off'
     }
   },
+  {
+    // Expo's web entry uses React Native Web rather than the Next.js router.
+    files: ['apps/mobile/**/*.{ts,tsx}'],
+    rules: { '@next/next/no-html-link-for-pages': 'off' }
+  },
   globalIgnores([
     '.next/**',
     '.next-dev/**',
@@ -24,6 +29,10 @@ export default defineConfig([
     'coverage/**',
     'playwright-report/**',
     'test-results/**',
+    'apps/mobile/.expo/**',
+    'apps/mobile/dist/**',
+    'apps/mobile/android/**',
+    'apps/mobile/ios/**',
     'next-env.d.ts'
   ])
 ])

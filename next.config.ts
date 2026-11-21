@@ -1,6 +1,6 @@
 import type { NextConfig } from 'next'
 import { PHASE_DEVELOPMENT_SERVER, PHASE_PRODUCTION_BUILD } from 'next/constants'
-import { withSentryConfig } from '@sentry/nextjs'
+import { withSentryConfig } from '@sentry/nextjs/config'
 
 export default function nextConfig(phase: string): NextConfig {
   const isDevelopmentServer = phase === PHASE_DEVELOPMENT_SERVER

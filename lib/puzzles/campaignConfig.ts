@@ -1,3 +1,4 @@
+import { analyzeModeFor } from '@/packages/contracts/src/policy'
 import type { CampaignBand, CampaignPack, PuzzlePublicDTO } from '@/lib/contracts/puzzle'
 import type { CampaignFeedbackMode } from '@/lib/contracts/submit'
 
@@ -201,10 +202,7 @@ export function campaignAnalyzeBoardModeFor(
     throw new Error(`Invalid campaign level ${campaignLevel}.`)
   }
 
-  if (campaignPack !== 'BEGINNER') return null
-  if (campaignLevel <= 3) return 'GUIDED'
-  if (campaignLevel <= 15) return 'ASSISTED'
-  return null
+  return analyzeModeFor({ campaignPack, campaignLevel })
 }
 
 export function getPuzzleCampaignPackConfig(

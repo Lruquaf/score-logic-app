@@ -45,6 +45,7 @@ export interface PuzzleProgressState {
 
 export interface PuzzleProgressEnvelope {
   puzzleId: string
+  revision?: number
   status: PuzzleProgressStatus
   attempts: number
   hintsUsed: number

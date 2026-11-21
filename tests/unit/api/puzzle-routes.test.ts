@@ -7,6 +7,16 @@ import {
 } from '@/lib/fixtures/samplePuzzle'
 import { computeStandings } from '@/lib/engine/generator'
 
+// These tests isolate the existing game rules/response mapping. Atomic revision,
+// receipt and lock behavior is exercised against PostgreSQL in native-api tests.
+vi.mock('@/lib/services/puzzle-mutations', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/services/puzzle-mutations')>('@/lib/services/puzzle-mutations')
+  return { ...actual, runPuzzleMutation: async (_user: string, _puzzle: string, operation: (tx: any) => Promise<unknown>) => {
+    const { prisma } = await import('@/lib/db/prisma')
+    return prisma.$transaction(operation)
+  } }
+})
+
 vi.mock('@/lib/auth/anonymous', () => ({
   getOptionalRequestUser: vi.fn(),
   ensureRequestUser: vi.fn()

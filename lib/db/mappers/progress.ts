@@ -5,11 +5,12 @@ import { hintTypeSchema, puzzleProgressEnvelopeSchema, puzzleProgressStateSchema
 import {
   mapPuzzleAttemptSummary,
   puzzleAttemptSummarySelect
-} from '@/lib/db/queries/attempts'
+} from '@/lib/db/mappers/attempt'
 
 type FullUserPuzzleProgressRecord = Prisma.UserPuzzleProgressGetPayload<{
   select: {
     puzzleId: true
+    revision: true
     status: true
     attempts: true
     hintsUsed: true
@@ -27,12 +28,12 @@ type FullUserPuzzleProgressRecord = Prisma.UserPuzzleProgressGetPayload<{
 
 export type UserPuzzleProgressRecord = Omit<
   FullUserPuzzleProgressRecord,
-  'currentAttempt' | 'firstAttempt' | 'bestAttempt'
+  'currentAttempt' | 'firstAttempt' | 'bestAttempt' | 'revision'
 > &
   Partial<
     Pick<
       FullUserPuzzleProgressRecord,
-      'currentAttempt' | 'firstAttempt' | 'bestAttempt'
+      'currentAttempt' | 'firstAttempt' | 'bestAttempt' | 'revision'
     >
   >
 
@@ -76,6 +77,7 @@ export function mapUserPuzzleProgressRecord(
 ): PuzzleProgressEnvelope {
   const envelope = {
     puzzleId: record.puzzleId,
+    revision: record.revision ?? 0,
     status: mapProgressStatus(record.status),
     attempts: record.attempts,
     hintsUsed: record.hintsUsed,

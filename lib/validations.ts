@@ -98,9 +98,9 @@ export const revealedScoreCellSchema = z.object({
 
 export const puzzleProgressStateSchema = z.object({
   puzzleId: puzzleIdSchema,
-  inputs: z.record(scoreInputSchema),
-  outcomes: z.record(matchOutcomeSchema.nullable()).default({}),
-  notes: z.record(matchNoteSchema).default({}),
+  inputs: z.record(z.string(), scoreInputSchema),
+  outcomes: z.record(z.string(), matchOutcomeSchema.nullable()).default({}),
+  notes: z.record(z.string(), matchNoteSchema).default({}),
   completedMatchIds: z.array(matchIdSchema),
   revealedMatchIds: z.array(matchIdSchema).default([]),
   revealedCells: z.array(revealedScoreCellSchema).default([]),
@@ -116,6 +116,7 @@ export const puzzleProgressStateSchema = z.object({
 
 export const puzzleProgressEnvelopeSchema = z.object({
   puzzleId: puzzleIdSchema,
+  revision: z.number().int().min(0).max(MAX_ELAPSED_TIME_SEC).default(0),
   status: puzzleProgressStatusSchema,
   attempts: z.number().int().min(0),
   hintsUsed: z.number().int().min(0),
@@ -160,9 +161,9 @@ const submitScoreInputSchema = z.object({
 
 export const submitPuzzleSchema = z.object({
   attemptId: z.string().uuid(),
-  inputs: z.record(submitScoreInputSchema).default({}),
-  outcomes: z.record(matchOutcomeSchema).default({}),
-  notes: z.record(matchNoteSchema).default({}),
+  inputs: z.record(z.string(), submitScoreInputSchema).default({}),
+  outcomes: z.record(z.string(), matchOutcomeSchema).default({}),
+  notes: z.record(z.string(), matchNoteSchema).default({}),
   timeTakenSec: z.number().int().min(0).max(MAX_ELAPSED_TIME_SEC),
   completedMatchIds: z.array(matchIdSchema).default([]),
   revealedMatchIds: z.array(matchIdSchema).default([]),
@@ -186,9 +187,9 @@ export const hintRequestSchema = z.object({
   requestId: z.string().uuid().optional(),
   expectedHintCount: z.number().int().min(0).optional(),
   hintType: hintTypeSchema,
-  currentInputs: z.record(scoreInputSchema).default({}),
-  currentOutcomes: z.record(matchOutcomeSchema.nullable()).default({}),
-  notes: z.record(matchNoteSchema).default({}),
+  currentInputs: z.record(z.string(), scoreInputSchema).default({}),
+  currentOutcomes: z.record(z.string(), matchOutcomeSchema.nullable()).default({}),
+  notes: z.record(z.string(), matchNoteSchema).default({}),
   completedMatchIds: z.array(matchIdSchema).default([]),
   revealedMatchIds: z.array(matchIdSchema).default([]),
   revealedCells: z.array(revealedScoreCellSchema).default([]),
@@ -201,7 +202,7 @@ export const hintRequestSchema = z.object({
 
 export const analyzeBoardRequestSchema = z.object({
   inputs: z
-    .record(scoreInputSchema)
+    .record(z.string(), scoreInputSchema)
     .refine((inputs) => Object.keys(inputs).length <= 6, {
       message: 'Board analysis accepts at most six match entries.'
     })
@@ -211,9 +212,9 @@ export const analyzeBoardRequestSchema = z.object({
 export const answerRevealSchema = z.object({
   attemptId: z.string().uuid(),
   elapsedTimeSec: z.number().int().min(0).max(MAX_ELAPSED_TIME_SEC).optional(),
-  currentInputs: z.record(scoreInputSchema).default({}),
-  currentOutcomes: z.record(matchOutcomeSchema.nullable()).default({}),
-  notes: z.record(matchNoteSchema).default({}),
+  currentInputs: z.record(z.string(), scoreInputSchema).default({}),
+  currentOutcomes: z.record(z.string(), matchOutcomeSchema.nullable()).default({}),
+  notes: z.record(z.string(), matchNoteSchema).default({}),
   hintsUsed: z.number().int().min(0).max(100).default(0),
   hintTypes: hintTypesSchema,
   isReplay: z.boolean().default(false)

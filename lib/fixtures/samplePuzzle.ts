@@ -161,6 +161,7 @@ export const sampleProgressState: PuzzleProgressState = {
 
 export const sampleProgressEnvelope: PuzzleProgressEnvelope = {
   puzzleId: SAMPLE_IDS.puzzles.daily,
+  revision: 0,
   status: 'IN_PROGRESS',
   attempts: 0,
   hintsUsed: 0,

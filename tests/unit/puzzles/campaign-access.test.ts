@@ -78,6 +78,11 @@ describe('campaign access policy', () => {
     expect(completedCatalog[1].isUnlocked).toBe(true)
   })
 
+  it('keeps the next level unlocked after revealing a replay of an already completed puzzle', () => {
+    const catalog = buildCampaignCatalog(beginnerPuzzles, [{ puzzleId: 'level-1', contentKey: 'campaign:beginner:1', status: 'COMPLETED', answerRevealed: true }])
+    expect(catalog[1].isUnlocked).toBe(true)
+  })
+
   it('keeps a previously opened level accessible', () => {
     const catalog = buildCampaignCatalog(beginnerPuzzles, [
       {

@@ -6,6 +6,7 @@ import type { NextRequest } from 'next/server'
 
 import { errorResponse } from '@/lib/api/http'
 import { getRedis, isRedisConfigured, isRedisRequired } from '@/lib/cache/redis'
+import { resolveNativeRequest } from '@/lib/auth/native/request'
 
 export interface RateLimitRule {
   name: string
@@ -186,6 +187,12 @@ export function getClientIdentifier(request: NextRequest) {
   return clientIp ? `ip:${hashIdentifier(clientIp)}` : 'unresolved-client'
 }
 
+export function getAuthClientIdentifier(request: NextRequest) {
+  const ip = resolveTrustedClientIp(request.headers.get('x-forwarded-for'), trustedProxyHops())
+  // Unverified cookies or bearer strings cannot create fresh authentication buckets.
+  return ip ? `auth-ip:${hashIdentifier(ip)}` : 'auth-unresolved-client'
+}
+
 function retryAfterSeconds(result: Pick<RateLimitResult, 'reset'>) {
   return Math.max(Math.ceil((result.reset - Date.now()) / 1000), 1)
 }
@@ -195,9 +202,10 @@ export async function enforceRateLimit(
   params: { rule: RateLimitRule; key?: string }
 ) {
   try {
+    const native = !params.key && request.headers.has('authorization') ? await resolveNativeRequest(request) : null
     const result = await evaluateRateLimit(
       params.rule,
-      params.key ?? getClientIdentifier(request)
+      params.key ?? (native ? `native:${hashIdentifier(native.userId)}` : getClientIdentifier(request))
     )
 
     if (result.success) return { response: null, result }

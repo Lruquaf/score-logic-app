@@ -8,10 +8,11 @@ import {
 } from '@/lib/db/mappers/progress'
 import type { HintType, PuzzleProgressEnvelope, PuzzleProgressState } from '@/lib/contracts/progress'
 import type { PuzzleProgressStatus } from '@/lib/contracts/progress'
-import { puzzleAttemptSummarySelect } from '@/lib/db/queries/attempts'
+import { puzzleAttemptSummarySelect } from '@/lib/db/mappers/attempt'
 
 export const userPuzzleProgressSelect = {
   puzzleId: true,
+  revision: true,
   status: true,
   attempts: true,
   hintsUsed: true,

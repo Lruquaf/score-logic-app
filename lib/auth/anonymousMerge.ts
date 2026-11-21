@@ -291,6 +291,8 @@ async function rebuildMergedProgress(
         userId: realUserId,
         puzzleId,
         ...snapshot,
+        revision: Math.max(0, ...(fallbackByPuzzle.get(puzzleId) ?? []).map(record => (record as MergeProgressFallback & { revision?: number }).revision ?? 0)) + 1,
+        requiresRevision: (fallbackByPuzzle.get(puzzleId) ?? []).some(record => (record as MergeProgressFallback & { requiresRevision?: boolean }).requiresRevision),
         currentState: progressJsonInput(snapshot.currentState)
       }
     })
@@ -335,7 +337,8 @@ async function normalizeFirstCompletionReceipts(
 export async function mergeAnonymousProgress(
   anonymousUserId: string,
   realUserId: string,
-  db: MergeDatabase = prisma
+  db: MergeDatabase = prisma,
+  options: { verifiedNativeGuest?: boolean } = {}
 ): Promise<AnonymousMergeResult> {
   if (!anonymousUserId || !realUserId || anonymousUserId === realUserId) {
     return emptyResult('skipped', anonymousUserId, realUserId)
@@ -364,14 +367,14 @@ export async function mergeAnonymousProgress(
     const [anonymousUser, realUser] = await Promise.all([
       tx.user.findUnique({
         where: { id: anonymousUserId },
-        select: { id: true, isAnonymous: true }
+        select: { id: true, isAnonymous: true, nativeGuest: true }
       }),
       tx.user.findUnique({
         where: { id: realUserId },
         select: { id: true, isAnonymous: true }
       })
     ])
-    if (!anonymousUser?.isAnonymous || !realUser || realUser.isAnonymous) {
+    if (!anonymousUser?.isAnonymous || anonymousUser.nativeGuest && !options.verifiedNativeGuest || !realUser || realUser.isAnonymous) {
       return emptyResult('skipped', anonymousUserId, realUserId)
     }
 

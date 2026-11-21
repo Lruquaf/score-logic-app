@@ -69,6 +69,9 @@ export function buildAuthConfig(request?: NextRequest): NextAuthConfig {
       async jwt({ token, user }) {
         if (user?.id) {
           token.userId = user.id
+        } else {
+          const id = typeof token.userId === 'string' ? token.userId : token.sub
+          if (!id || !await prisma.user.findUnique({ where: { id }, select: { id: true } })) return null
         }
 
         return token

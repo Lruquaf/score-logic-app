@@ -32,7 +32,9 @@ export interface CampaignAccessDecision {
 function isNormalCompletion(
   progress: Pick<CampaignAccessProgress, 'status' | 'answerRevealed'> | undefined
 ) {
-  return progress?.status === 'COMPLETED' && !progress.answerRevealed
+  // COMPLETED is the canonical earned achievement. A later replay can reveal
+  // its answer without revoking the original solve or the next level's access.
+  return progress?.status === 'COMPLETED'
 }
 
 export function buildCampaignCatalog(

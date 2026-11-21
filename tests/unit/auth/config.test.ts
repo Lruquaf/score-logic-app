@@ -14,7 +14,7 @@ vi.mock('@/lib/auth/env', () => ({
 }))
 
 vi.mock('@/lib/db/prisma', () => ({
-  prisma: {}
+  prisma: { user: { findUnique: vi.fn() } }
 }))
 
 describe('auth merge callback', () => {
@@ -60,5 +60,14 @@ describe('auth merge callback', () => {
       'anonymous-1',
       'real-1'
     )
+  })
+
+  it('invalidates an otherwise valid web JWT when its account has been deleted', async () => {
+    const { prisma } = await import('@/lib/db/prisma')
+    const { buildAuthConfig } = await import('@/lib/auth/config')
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null)
+    const callback = buildAuthConfig().callbacks!.jwt!
+    await expect(callback({ token: { userId: 'deleted-account' } } as never)).resolves.toBeNull()
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { id: 'deleted-account' }, select: { id: true } })
   })
 })

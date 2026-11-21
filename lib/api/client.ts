@@ -75,6 +75,8 @@ export interface SubmitPuzzleResponse {
 }
 
 export interface HintResponse {
+  revision?: number
+  progress?: PuzzleProgressEnvelope
   attempt: PuzzleAttemptSummary
   hint: {
     type: HintType
@@ -130,7 +132,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
   )
 }
 
-async function requestJson<T>(input: RequestInfo | URL, init?: RequestInit) {
+async function requestJson<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T & { revision?: number }> {
   const response = await fetch(input, {
     ...init,
     headers: {
@@ -139,7 +141,15 @@ async function requestJson<T>(input: RequestInfo | URL, init?: RequestInit) {
     }
   })
 
-  return parseResponse<T>(response)
+  const parsed = await parseResponse<T>(response)
+  const header = response.headers.get('x-scorelogic-revision')
+  const revision = header !== null && /^\d+$/.test(header) ? Number(header) : undefined
+  return revision !== undefined && Number.isSafeInteger(revision) && parsed && typeof parsed === 'object'
+    ? { ...parsed, revision } : parsed as T & { revision?: number }
+}
+
+function revisionHeaders(baseRevision: number | undefined): Record<string, string> {
+  return baseRevision === undefined ? {} : { 'x-scorelogic-base-revision': String(baseRevision) }
 }
 
 export function fetchDailyPuzzle() {
@@ -188,10 +198,12 @@ export function fetchCampaignPuzzles() {
 
 export function startPuzzleAttempt(
   puzzleId: string,
-  body: { kind: 'STANDARD' | 'REPLAY'; forceNew?: boolean }
+  body: { kind: 'STANDARD' | 'REPLAY'; forceNew?: boolean },
+  baseRevision?: number
 ) {
   return requestJson<{ attempt: PuzzleAttemptSummary }>(`/api/puzzles/${puzzleId}/attempt`, {
     method: 'POST',
+    headers: revisionHeaders(baseRevision),
     body: JSON.stringify(body)
   })
 }
@@ -199,10 +211,12 @@ export function startPuzzleAttempt(
 export function savePuzzleProgress(
   puzzleId: string,
   attemptId: string,
-  progress: PuzzleProgressState
+  progress: PuzzleProgressState,
+  baseRevision?: number
 ) {
   return requestJson<{ progress: PuzzleProgressEnvelope }>(`/api/puzzles/${puzzleId}/progress`, {
     method: 'PUT',
+    headers: revisionHeaders(baseRevision),
     body: JSON.stringify({ attemptId, progress })
   })
 }
@@ -222,14 +236,16 @@ export function submitPuzzle(
     hintsUsed?: number
     hintTypes?: HintType[]
     isReplay?: boolean
-  }
+  },
+  baseRevision?: number
 ) {
   const { idempotencyKey, ...payload } = body
 
   return requestJson<SubmitPuzzleResponse>(`/api/puzzles/${puzzleId}/submit`, {
     method: 'POST',
     headers: {
-      'Idempotency-Key': idempotencyKey
+      'Idempotency-Key': idempotencyKey,
+      ...revisionHeaders(baseRevision)
     },
     body: JSON.stringify(payload)
   })
@@ -253,10 +269,12 @@ export function requestPuzzleHint(
     answerRevealed?: boolean
     answerRevealedAt?: string | null
     isReplay?: boolean
-  }
+  },
+  baseRevision?: number
 ) {
   return requestJson<HintResponse>(`/api/puzzles/${puzzleId}/hint`, {
     method: 'POST',
+    headers: revisionHeaders(baseRevision),
     body: JSON.stringify(body)
   })
 }
@@ -272,10 +290,12 @@ export function revealPuzzleAnswer(
     hintsUsed?: number
     hintTypes?: HintType[]
     isReplay?: boolean
-  }
+  },
+  baseRevision?: number
 ) {
   return requestJson<AnswerRevealResponse>(`/api/puzzles/${puzzleId}/answer`, {
     method: 'POST',
+    headers: revisionHeaders(baseRevision),
     body: JSON.stringify(body)
   })
 }

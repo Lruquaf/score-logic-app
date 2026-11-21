@@ -18,9 +18,24 @@ export async function readBoundedJson(request: Request, maximumBytes: number): P
     throw new RequestBodyTooLargeError(maximumBytes)
   }
 
-  const body = await request.text()
-  if (new TextEncoder().encode(body).byteLength > maximumBytes) {
-    throw new RequestBodyTooLargeError(maximumBytes)
+  const reader = request.body?.getReader()
+  let body = ''
+  if (reader) {
+    const decoder = new TextDecoder()
+    let bytes = 0
+    try {
+      for (;;) {
+        const chunk = await reader.read()
+        if (chunk.done) break
+        bytes += chunk.value.byteLength
+        if (bytes > maximumBytes) {
+          await reader.cancel()
+          throw new RequestBodyTooLargeError(maximumBytes)
+        }
+        body += decoder.decode(chunk.value, { stream: true })
+      }
+      body += decoder.decode()
+    } finally { reader.releaseLock() }
   }
 
   try {

@@ -3,6 +3,7 @@ import type { NextRequest } from 'next/server'
 import { getToken } from 'next-auth/jwt'
 
 import { getAuthSecret } from '@/lib/auth/env'
+import { resolveNativeRequest } from '@/lib/auth/native/request'
 import { prisma } from '@/lib/db/prisma'
 import { captureServerError } from '@/lib/observability/server'
 
@@ -30,7 +31,7 @@ type UserReader = Pick<PrismaClient, 'user'>
 async function findUser(userId: string, db: UserReader = prisma) {
   return db.user.findUnique({
     where: { id: userId },
-    select: { id: true, isAnonymous: true }
+    select: { id: true, isAnonymous: true, nativeGuest: true }
   })
 }
 
@@ -89,6 +90,10 @@ export function clearAnonymousCookie() {
 export async function getOptionalRequestUser(
   request: NextRequest
 ): Promise<RequestUserResolution> {
+  if (request.headers.has('authorization')) {
+    const principal = await resolveNativeRequest(request)
+    if (principal) return { userId: principal.userId, isAnonymous: principal.isAnonymous }
+  }
   const sessionUserId = await resolveSessionUserId(request)
   if (sessionUserId) {
     const user = await findUser(sessionUserId)
@@ -128,7 +133,7 @@ export async function getOptionalRequestUser(
   }
 
   const anonymousUser = await findUser(cookieUserId)
-  if (!anonymousUser?.isAnonymous) {
+  if (!anonymousUser?.isAnonymous || anonymousUser.nativeGuest) {
     return { userId: null, isAnonymous: false }
   }
 
