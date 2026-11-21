@@ -1,0 +1,41 @@
+{
+  "scope": "android-internal-preview",
+  "date": "2026-11-20",
+  "applicationId": "dev.scorelogic.localpoc",
+  "displayName": "ScoreLogic Test",
+  "versionName": "0.1.0",
+  "versionCode": 2,
+  "nativeBuildType": "release",
+  "distribution": "internal test",
+  "storeReleaseApproved": false,
+  "signingIdentity": "development debug certificate, not production signing",
+  "certificateSha256": "fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c",
+  "artifactSha256": "a5ef35cbaab75aa8ea1063cfa04b490c21771b4aff35a36a340b175014d64576",
+  "apkBytes": 29856271,
+  "abi": "arm64-v8a",
+  "embeddedHermesBytes": 3684796,
+  "embeddedHermesSha256": "ad955714ab08c34abb0bfaac6aedd800618199afaa85a0cff9dafba1cc7e584c",
+  "metroRequired": false,
+  "apiOrigin": "https://score-logic-app-test.up.railway.app",
+  "backendDeploymentId": "d2c74ba7-3800-4c55-a1d6-708f8b8fd2f9",
+  "debuggable": false,
+  "cleartextEnabled": false,
+  "allowBackup": false,
+  "permissions": [
+    "android.permission.INTERNET",
+    "android.permission.VIBRATE",
+    "android.permission.ACCESS_NETWORK_STATE",
+    "android.permission.ACCESS_WIFI_STATE",
+    "dev.scorelogic.localpoc.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+  ],
+  "privateSourceBoundary": "generated release map inspected; private engine/database/auth/Prisma sources absent",
+  "sourceMapsPackaged": false,
+  "install": "passed: adb install -r returned Success",
+  "physicalStandaloneTest": {
+    "status": "passed",
+    "device": "Samsung SM-G970F / Android 12",
+    "reviewer": "product owner",
+    "evidence": "Owner disconnected USB and confirmed Home/Daily/Campaign load, one Hint and retained hint count after closing/reopening; task-local API/Metro had been stopped and reverse ports removed."
+  },
+  "launch": "passed: MainActivity launcher intent after task-local API/Metro stopped and USB reverse ports removed"
+}

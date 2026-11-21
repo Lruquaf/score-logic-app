@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="color-scheme" content="light">
+    <meta name="theme-color" content="#f7f5ef">
+    <title>ScoreLogic · Mobile UX preview</title>
+    <link rel="stylesheet" href="/prototype.css">
+    <script type="module" src="/app.mjs"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <aside class="preview-bar" aria-label="Prototype information">
+      <span>UX preview · Sample data</span>
+      <button type="button" data-action="settings">Preview settings</button>
+    </aside>
+    <div id="app"></div>
+    <dialog id="sheet" aria-modal="true" aria-labelledby="sheet-title"></dialog>
+    <p id="announcement" class="sr-only" role="status" aria-atomic="true"></p>
+  </body>
+</html>

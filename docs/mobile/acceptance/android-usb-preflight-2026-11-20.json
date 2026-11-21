@@ -1,0 +1,23 @@
+{
+  "node": "22.22.2",
+  "nodeSupported": true,
+  "sdkPresent": true,
+  "platform37": true,
+  "buildTools37": true,
+  "commandLineTools": true,
+  "ndk271": true,
+  "cmake322": true,
+  "jdk17": true,
+  "devices": [
+    {
+      "state": "device"
+    }
+  ],
+  "authorizedPhysicalDevices": 1,
+  "device": {
+    "model": "SM-G970F",
+    "android": "12",
+    "apiLevel": 31
+  },
+  "blockers": []
+}

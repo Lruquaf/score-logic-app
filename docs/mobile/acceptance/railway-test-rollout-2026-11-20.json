@@ -1,0 +1,62 @@
+{
+  "date": "2026-11-20",
+  "environment": "test",
+  "backendService": "score-logic-app",
+  "backendDeploymentId": "d2c74ba7-3800-4c55-a1d6-708f8b8fd2f9",
+  "databaseService": "Postgres-p5Y6",
+  "databaseDeploymentId": "f97f4ca5-8334-48a3-a882-df35422bb0b1",
+  "origin": "https://score-logic-app-test.up.railway.app",
+  "initialBlocker": "Railway trial expired; owner activated a plan, then deployment was accepted",
+  "backup": {
+    "createdAt": "2026-11-20T12:50:50.117636Z",
+    "dumpBytes": 266328,
+    "dumpSha256": "4c50edc946c6b421709c717c28ce3320a877b9916cb5ef27db2c17f48a640c99",
+    "encryptedSha256": "0e6191b534f439b45a54eaa4c5521e65c7ac0b262989c4a1ee0fdd6b416764ac",
+    "verified": [
+      "remote pg_restore full archive decode to /dev/null",
+      "SSH transfer SHA-256 match",
+      "AES-256-GCM encryption/decryption roundtrip"
+    ]
+  },
+  "backupRestoreDrill": false,
+  "migrationsBefore": 17,
+  "migrationsAfter": 22,
+  "newMigrations": [
+    "20261113000000_mobile_identity",
+    "20261113010000_native_installation_tombstones",
+    "20261113020000_native_guest_boundary",
+    "20261113030000_native_deleted_auth_commands",
+    "20261114000000_native_deletion_receipts"
+  ],
+  "puzzlesBefore": 167,
+  "puzzlesAfter": 175,
+  "campaignReady": 150,
+  "dailyHorizonReady": 15,
+  "contentMode": "test",
+  "healthStatus": 200,
+  "healthBody": {
+    "status": "ok",
+    "checks": {
+      "database": "up",
+      "content": "up",
+      "redis": "disabled"
+    },
+    "timestamp": "2026-11-20T12:55:07.011Z"
+  },
+  "unauthenticatedNativeStatsStatus": 401,
+  "dedicatedSyntheticGuestSmoke": {
+    "event": "native_api_smoke_deployed_test",
+    "realHttp": true,
+    "storage": "sqlite-disk-securestore-memory",
+    "publicReadContracts": true,
+    "analysis": true,
+    "hintReplyRecovered": true,
+    "hintsUsed": 2,
+    "solved": true,
+    "refresh": true,
+    "deleted": true,
+    "elapsedTimeSec": 1
+  },
+  "productionOperationsPerformed": false,
+  "physicalStandaloneAcceptance": "passed: owner confirmed without USB after local API/Metro shutdown; Home/Daily/Campaign, Hint and close/reopen retention"
+}

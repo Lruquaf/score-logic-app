@@ -1,0 +1,64 @@
+{
+  "scope": "android-development-artifact",
+  "date": "2026-11-20",
+  "applicationId": "dev.scorelogic.localpoc",
+  "versionName": "0.1.0",
+  "versionCode": 1,
+  "mode": "debug",
+  "releaseAcceptance": false,
+  "artifactSha256": "f322f31e3e81042ef086a1ca3361e7b9d2bf223b35d93d08a9a4ee6a34e1cddb",
+  "apkBytes": 77763598,
+  "abi": "arm64-v8a",
+  "signatureVerification": "apksigner verify; APK Signature Scheme v2",
+  "signingIdentity": "development debug certificate; not production signing",
+  "certificateSha256": "fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c",
+  "minSdk": 24,
+  "targetSdk": 36,
+  "compileSdk": 37,
+  "allowBackup": "false",
+  "permissions": [
+    "android.permission.SYSTEM_ALERT_WINDOW",
+    "android.permission.INTERNET",
+    "android.permission.VIBRATE",
+    "android.permission.ACCESS_NETWORK_STATE",
+    "android.permission.CHANGE_WIFI_MULTICAST_STATE",
+    "android.permission.ACCESS_LOCAL_NETWORK",
+    "android.permission.ACCESS_WIFI_STATE",
+    "dev.scorelogic.localpoc.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+  ],
+  "firstBuildSeconds": 489,
+  "finalPackagingSeconds": 11,
+  "physicalInstall": "passed: adb install -r returned Success on authorized SM-G970F / Android 12",
+  "visualAcceptance": {
+    "scope": "initial physical debug smoke only",
+    "home": "passed: owner confirmed",
+    "dailyLoad": "passed: owner confirmed",
+    "campaignLoad": "passed: owner confirmed",
+    "hint": "passed: owner confirmed close is free, one press gives one hint/cell, closes and stays closed after wait/tab roundtrip",
+    "persistence": "passed: actual process stop/relaunch; owner confirmed score 0, test match note and hint count 1 preserved",
+    "accessibility": "pending",
+    "font200": {
+      "status": "deferred at owner request",
+      "observation": "Owner reported half of Final Table visible; horizontal scroll/layout not fully assessed. UI work explicitly deferred.",
+      "originalScale": "1.0",
+      "testedScale": "2.0",
+      "restored": true
+    }
+  },
+  "performanceBudgetAcceptance": "pending",
+  "runtimeStartup": "passed: MainActivity launched, Fabric main running, actual app guest/daily requests HTTP 200",
+  "hintServerAudit": {
+    "puzzle": "Beginner level 1",
+    "hintEvents": 1,
+    "hintsUsed": 1,
+    "hintCommands": 1,
+    "scope": "isolated local physical-device guest"
+  },
+  "processRestart": {
+    "stoppedProcessConfirmed": true,
+    "activityRestart": "ok",
+    "guestRequestsBeforeRestart": 2,
+    "guestRequestsAfterRestart": 2
+  },
+  "javascriptDelivery": "Metro development server; APK hash alone does not pin the live JS revision"
+}
