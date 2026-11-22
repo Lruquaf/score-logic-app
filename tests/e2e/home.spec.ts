@@ -73,47 +73,69 @@ test('campaign puzzle opens in the playable workspace', async ({ page }) => {
   await expect(page.getByText('10/12 cells fixed')).toBeVisible()
 })
 
-test('an autosave that starts during Analyze Board keeps its snapshot', async ({ page }) => {
-  let holdSaves = false
-  const heldSaves: import('@playwright/test').Route[] = []
-  let markSaveHeld!: () => void
-  const saveHeld = new Promise<void>((resolve) => { markSaveHeld = resolve })
+/** Holds every autosave PUT after the first one, until `release` is called. */
+async function holdLaterAutosaves(page: import('@playwright/test').Page) {
+  const held: import('@playwright/test').Route[] = []
+  let hold = false
+  let markHeld!: () => void
+  const saveHeld = new Promise<void>((resolve) => { markHeld = resolve })
   await page.route('**/api/puzzles/*/progress', async (route) => {
-    if (!holdSaves || route.request().method() !== 'PUT') return route.continue()
-    heldSaves.push(route)
-    markSaveHeld()
+    if (!hold || route.request().method() !== 'PUT') return route.continue()
+    held.push(route)
+    markHeld()
   })
-  // The analysis answers only once an autosave is in flight, so the response
-  // lands while assistance is temporarily disabled.
-  await page.route('**/api/puzzles/*/analyze', async (route) => {
-    await saveHeld
-    await route.continue()
-  })
+  return {
+    start: () => { hold = true },
+    saveHeld,
+    release: async () => {
+      hold = false
+      await Promise.all(held.map((route) => route.continue()))
+    }
+  }
+}
 
+async function openCampaignBoardAfterInitialSave(page: import('@playwright/test').Page) {
   const initialSave = page.waitForResponse((r) => r.url().endsWith('/progress') && r.request().method() === 'PUT')
   await page.goto('/puzzles/ckscorepuzzlecamp000000001')
-  const analyze = page.getByRole('button', { name: 'Analyze board' })
   await initialSave
-  await expect(analyze).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Analyze board' })).toBeEnabled()
+}
 
-  // Only after the board loaded on real timers, a fake clock holds the 800 ms
-  // autosave debounce, so the save starts once the analysis is in flight.
-  await page.clock.install()
-  holdSaves = true
+test('Analyze Board keeps its snapshot while an autosave is in flight', async ({ page }) => {
+  const saves = await holdLaterAutosaves(page)
+  await openCampaignBoardAfterInitialSave(page)
+
+  saves.start()
   await page.locator('input[type="number"]:not([readonly])').first().fill('1')
-  const analysisSent = page.waitForRequest((r) => r.url().endsWith('/analyze'))
+  await saves.saveHeld
   // Filling scrolls the board; on phones the sticky header would then cover the button.
   await page.evaluate(() => window.scrollTo(0, 0))
-  await analyze.click()
-  await analysisSent
-  await page.clock.runFor(1_000)
+  await page.getByRole('button', { name: 'Analyze board' }).click()
   await expect(page.getByRole('heading', { name: 'Board Analysis' })).toBeVisible()
   await expect(page.getByText('11/12 cells fixed')).toBeVisible()
 
-  holdSaves = false
-  await Promise.all(heldSaves.map((route) => route.continue()))
-  await expect(analyze).toBeEnabled()
+  await saves.release()
   await expect(page.getByRole('heading', { name: 'Board Analysis' })).toBeVisible()
+})
+
+test('a Hint tap during an autosave opens the dialog and waits for the save', async ({ page }) => {
+  const saves = await holdLaterAutosaves(page)
+  await openCampaignBoardAfterInitialSave(page)
+
+  saves.start()
+  await page.locator('input[type="number"]:not([readonly])').first().fill('1')
+  await saves.saveHeld
+  await page.evaluate(() => window.scrollTo(0, 0))
+  await page.getByRole('button', { name: 'Hint', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Hint', exact: true })
+  const useHint = dialog.getByRole('button', { name: 'Use 1 hint' })
+  await expect(useHint).toBeDisabled()
+
+  await saves.release()
+  await expect(useHint).toBeEnabled()
+  await useHint.click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByRole('status').filter({ hasText: 'Hint:' })).toBeVisible()
 })
 
 test('campaign API opens each pack at level one and blocks direct level skips', async ({ request }) => {

@@ -45,6 +45,7 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
     isAnswerRevealPending,
     isSubmitPending,
     assistanceDisabled,
+    assistanceUnavailable,
     elapsedTimeSec,
     officialTimeTakenSec,
     victoryTimeTakenSec,
@@ -216,8 +217,9 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
         isAnswerPending={isAnswerRevealPending}
         answerRevealed={answerRevealed}
         assistanceDisabled={assistanceDisabled}
+        hintsUnavailable={assistanceUnavailable}
         onOpenHints={() => {
-          if (!assistanceDisabled) {
+          if (!assistanceUnavailable) {
             setHintDialog({ puzzleId: puzzle.id, session: ++hintSequence.current })
           }
         }}
@@ -228,7 +230,7 @@ export function DailyPuzzleExperience({ puzzleId }: DailyPuzzleExperienceProps) 
         visibleErrors={visibleErrorCount}
         analyzeBoardAction={
           analyzeBoardMode
-            ? <AnalyzeBoard puzzle={puzzle} mode={analyzeBoardMode} disabled={assistanceDisabled} />
+            ? <AnalyzeBoard puzzle={puzzle} mode={analyzeBoardMode} disabled={assistanceUnavailable} />
             : null
         }
         campaignNavigation={
