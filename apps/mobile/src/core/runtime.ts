@@ -5,10 +5,11 @@ import { ApiError, type Parser } from './http.ts'
 import { validIntent, type NavigationIntent } from './player.ts'
 import { StorageError } from './sqlite.ts'
 
-export type FailureKind = 'offline' | 'session' | 'maintenance' | 'storage' | 'request'
+export type FailureKind = 'offline' | 'session' | 'maintenance' | 'storage' | 'request' | 'upgrade'
 export function failureKind(error: unknown): FailureKind {
   if (error instanceof StorageError) return 'storage'
   if (error instanceof ApiError) {
+    if (error.status === 426 || error.code === 'UPGRADE_REQUIRED') return 'upgrade'
     if (error.code === 'INVALID_LOCAL_CREDENTIAL') return 'storage'
     if (error.status === 401 || ['OWNER_CHANGED', 'SESSION_REVOKED', 'REFRESH_EXPIRED', 'TOKEN_REUSE', 'INSTALLATION_DELETED'].includes(error.code)) return 'session'
     if (error.status >= 500 || error.code === 'INVALID_RESPONSE') return 'maintenance'
@@ -40,7 +41,7 @@ export class MobileRuntime {
   private publish(patch: Partial<RuntimeState>) { this.state = { ...this.state, ...patch }; this.listeners.forEach(listener => listener()) }
   report(error: unknown) {
     const issue = failureKind(error)
-    this.publish({ issue, message: error instanceof Error ? error.message : 'Could not connect. Your saved data is preserved.', ...(issue === 'session' || issue === 'storage' ? { phase: 'blocked' as const } : {}) })
+    this.publish({ issue, message: error instanceof Error ? error.message : 'Could not connect. Your saved data is preserved.', ...(issue === 'session' || issue === 'storage' || issue === 'upgrade' ? { phase: 'blocked' as const } : {}) })
   }
   async start() {
     if (this.starting) return this.starting
@@ -157,7 +158,12 @@ export class MobileRuntime {
       await this.finishDeletion()
     } catch (error) {
       const pending = await this.client.deletionRecovery()
-      if (pending) { this.publish({ phase: 'blocked', issue: 'request', message: 'Deletion could not yet be confirmed. Retry the same deletion; your recovery proof is preserved.' }) }
+      if (pending) {
+        const upgrade = failureKind(error) === 'upgrade'
+        this.publish(upgrade
+          ? { phase: 'blocked', issue: 'upgrade', message: error instanceof Error ? error.message : 'Update ScoreLogic to continue.' }
+          : { phase: 'blocked', issue: 'request', message: 'Deletion could not yet be confirmed. Retry the same deletion; your recovery proof is preserved.' })
+      }
       else if (error instanceof ApiError && error.status === 401 && error.code !== 'REAUTHENTICATION_REQUIRED') this.report(error)
       throw error
     } finally { this.changing = false; this.controller.lockEdits(false); this.publish({ transition: false }); this.controller.onForeground() }

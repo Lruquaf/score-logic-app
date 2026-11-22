@@ -53,6 +53,13 @@ describe('server environment validation', () => {
 
   })
 
+  it('validates NATIVE_MIN_APP_VERSION as optional x.y.z', () => {
+    const base = validProductionEnvironment
+    expect(() => validateServerEnvironment({ ...base, NATIVE_MIN_APP_VERSION: '1.2' }, 'production')).toThrow(/NATIVE_MIN_APP_VERSION/)
+    expect(validateServerEnvironment({ ...base, NATIVE_MIN_APP_VERSION: '1.2.0' }, 'production').nativeMinAppVersion).toBe('1.2.0')
+    expect(validateServerEnvironment(base, 'production').nativeMinAppVersion).toBeNull()
+  })
+
   it('accepts only the core production settings with optional services disabled', () => {
     const env = validateServerEnvironment({
       DATABASE_URL: validProductionEnvironment.DATABASE_URL,

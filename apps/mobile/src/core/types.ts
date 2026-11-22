@@ -20,7 +20,7 @@ export interface SessionData {
 }
 export interface Puzzle {
   id: string
-  mode: 'daily' | 'campaign'
+  mode: string
   difficulty: string
   effectiveDifficulty: string
   dailyDate: string | null
@@ -33,8 +33,8 @@ export interface Puzzle {
 }
 export interface Attempt {
   id: string
-  kind: 'STANDARD' | 'REPLAY'
-  status: 'ACTIVE' | 'SOLVED' | 'REVEALED' | 'ABANDONED'
+  kind: string
+  status: string
   startedAt: string
   completedAt: string | null
   elapsedTimeSec: number

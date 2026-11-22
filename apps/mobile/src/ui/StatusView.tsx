@@ -3,7 +3,7 @@ import { ActivityIndicator, Alert, ScrollView, Text, TextInput, View } from 'rea
 import type { FailureKind, MobileRuntime, RuntimeState } from '../core/runtime'
 import { Button, Heading, styles, colors } from './primitives'
 
-const titles: Record<FailureKind, string> = { offline: 'You are offline', session: 'Restore your session', maintenance: 'The service is temporarily unavailable', storage: 'Your saved data needs attention', request: 'Could not continue' }
+const titles: Record<FailureKind, string> = { offline: 'You are offline', session: 'Restore your session', maintenance: 'The service is temporarily unavailable', storage: 'Your saved data needs attention', request: 'Could not continue', upgrade: 'Update ScoreLogic to continue' }
 export function StatusView({ issue, message, retry, pending = false }: { issue: FailureKind | null; message?: string | null; retry(): void; pending?: boolean }) {
   return <View style={styles.center}>{pending ? <><Heading>Opening ScoreLogic</Heading><ActivityIndicator color={colors.field} accessibilityLabel="Restoring your session and saved data" /></> : <><Heading>{titles[issue ?? 'request']}</Heading><Text accessibilityRole="alert" style={styles.body}>{message ?? 'Reconnect and try again. Your saved data is preserved.'}</Text><Button title="Try again" onPress={retry} /></>}</View>
 }

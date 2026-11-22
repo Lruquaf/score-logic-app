@@ -1,3 +1,4 @@
+import { CAMPAIGN_PACK_VALUES, PROGRESS_STATUS_VALUES, PUZZLE_MODE_VALUES, isKnown } from '@scorelogic/contracts'
 import type { Draft, Progress, Puzzle, Snapshot, Side, Scores } from './types.ts'
 
 export function emptySnapshot(puzzle: Puzzle): Snapshot {
@@ -19,6 +20,7 @@ export function source(puzzle: Puzzle, snapshot: Snapshot, matchId: string, side
 }
 
 export function terminal(progress: Progress | null) {
+  if (progress && !progress.currentAttempt && !isKnown(PROGRESS_STATUS_VALUES, progress.status)) return true
   return progress?.currentAttempt ? progress.currentAttempt.status !== 'ACTIVE' : progress?.status === 'COMPLETED' || Boolean(progress?.answerRevealed)
 }
 
@@ -58,7 +60,14 @@ export function formatDuration(seconds: number) {
   return `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${Math.floor(seconds % 60).toString().padStart(2, '0')}`
 }
 
+export const UPDATE_REQUIRED_NOTICE = 'Update ScoreLogic to see everything in this puzzle.'
+
+export function hasUnknownCatalogItems(puzzles: { campaignPack: string }[]) {
+  return puzzles.some(item => !isKnown(CAMPAIGN_PACK_VALUES, item.campaignPack))
+}
+
 export function puzzleLabel(puzzle: Puzzle) {
+  if (!isKnown(PUZZLE_MODE_VALUES, puzzle.mode)) return 'Update required'
   return puzzle.mode === 'daily' ? `Daily · ${puzzle.dailyDate}` : `${puzzle.campaignPack?.toLowerCase()} · Level ${puzzle.campaignLevel}`
 }
 

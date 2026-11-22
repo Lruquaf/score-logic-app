@@ -112,7 +112,7 @@ export class SessionClient {
       await this.vault.remove('auth-pending')
       return response.data
     } catch (error) {
-      if (error instanceof ApiError && error.status >= 400 && error.status < 500 && ![408, 429].includes(error.status)) await this.vault.remove('auth-pending')
+      if (error instanceof ApiError && error.status >= 400 && error.status < 500 && ![408, 426, 429].includes(error.status)) await this.vault.remove('auth-pending')
       throw error
     }
   }

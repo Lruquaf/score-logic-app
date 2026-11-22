@@ -18,6 +18,7 @@ export interface ServerEnvironment {
   upstashRedisRestUrl: string | null
   upstashRedisRestToken: string | null
   rateLimitTrustedProxyHops: number
+  nativeMinAppVersion: string | null
   observabilityHashSalt: string | null
   sentryDsn: string | null
   otelExporterOtlpEndpoint: string | null
@@ -163,6 +164,7 @@ export function validateServerEnvironment(
     0,
     5
   )
+  const nativeMinAppVersion = readEnv(source, 'NATIVE_MIN_APP_VERSION')
   const observabilityHashSalt = readEnv(source, 'OBSERVABILITY_HASH_SALT')
   const sentryDsn = readEnv(source, 'SENTRY_DSN')
   const publicSentryDsn = readEnv(source, 'NEXT_PUBLIC_SENTRY_DSN')
@@ -243,6 +245,10 @@ export function validateServerEnvironment(
     issues.push('RATE_LIMIT_TRUSTED_PROXY_HOPS must be an integer between 0 and 5.')
   }
 
+  if (nativeMinAppVersion && !/^\d+\.\d+\.\d+$/.test(nativeMinAppVersion)) {
+    issues.push('NATIVE_MIN_APP_VERSION must be a semver version like 1.2.0.')
+  }
+
   if (observabilityHashSalt && observabilityHashSalt.length < 32) {
     issues.push('OBSERVABILITY_HASH_SALT must contain at least 32 characters.')
   }
@@ -300,6 +306,7 @@ export function validateServerEnvironment(
     upstashRedisRestUrl,
     upstashRedisRestToken,
     rateLimitTrustedProxyHops: rateLimitTrustedProxyHops ?? 0,
+    nativeMinAppVersion,
     observabilityHashSalt,
     sentryDsn,
     otelExporterOtlpEndpoint,

@@ -2,7 +2,7 @@ import React, { useEffect, useState, useSyncExternalStore } from 'react'
 import { Pressable, ScrollView, Text, View } from 'react-native'
 import { campaignResponseSchema, puzzleDataSchema, userProgressResponseSchema, userStatsDataSchema } from '@scorelogic/contracts'
 import { duration, packOrder } from '../../core/player'
-import { terminal } from '../../core/puzzle'
+import { hasUnknownCatalogItems, terminal } from '../../core/puzzle'
 import type { Services } from '../services'
 import { Button, Heading, styles, colors } from '../primitives'
 import { usePlayerResource } from './usePlayerResource'
@@ -31,7 +31,7 @@ export function CampaignScreen({ services, onGame }: { services: Services; onGam
   const [pack, setPack] = useState<string>('BEGINNER'), [locked, setLocked] = useState<string | null>(null)
   const puzzles = catalog.data?.puzzles.filter(item => item.campaignPack === pack) ?? []
   const progress = new Map(catalog.data?.progress.map(item => [item.puzzleId, item]))
-  return <ScrollView contentContainerStyle={styles.content}><Heading>Campaign</Heading><Text style={styles.body}>Every pack starts at level 1. Solve levels in order within a pack.</Text><ResourceNotice {...catalog} retry={catalog.refresh} />{catalog.data && !catalog.data.puzzles.length && <Text style={styles.body}>No campaign levels are available yet. Please try again later.</Text>}{packOrder.map(name => {
+  return <ScrollView contentContainerStyle={styles.content}><Heading>Campaign</Heading><Text style={styles.body}>Every pack starts at level 1. Solve levels in order within a pack.</Text><ResourceNotice {...catalog} retry={catalog.refresh} />{catalog.data && hasUnknownCatalogItems(catalog.data.puzzles) && <Text style={styles.secondary}>Some levels need a newer version of ScoreLogic.</Text>}{catalog.data && !catalog.data.puzzles.length && <Text style={styles.body}>No campaign levels are available yet. Please try again later.</Text>}{packOrder.map(name => {
     const items = catalog.data?.puzzles.filter(item => item.campaignPack === name) ?? []
     const completed = items.filter(item => progress.get(item.id)?.status === 'COMPLETED').length
     return <Pressable key={name} accessibilityRole="button" focusable tabIndex={0} accessibilityLabel={`${name.toLowerCase()} pack`} accessibilityState={{ selected: pack === name }} onPress={() => { setPack(name); setLocked(null) }} style={[styles.feature, { borderColor: colors.controlBorder }, pack === name && { borderColor: colors.field, borderWidth: 2 }]}><Text style={styles.body}>{name.toLowerCase()}</Text>{catalog.data && <Text style={styles.secondary}>{completed} solved · {items.length} levels available</Text>}</Pressable>
