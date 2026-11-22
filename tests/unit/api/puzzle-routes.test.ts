@@ -465,6 +465,45 @@ describe('puzzle API routes', () => {
     expect(json.error.details).toEqual({ reason: 'STALE_PROGRESS' })
   })
 
+  it('trusts the revision CAS over a behind device clock when a base revision is sent', async () => {
+    const { ensureRequestUser } = await import('@/lib/auth/anonymous')
+    const { getPuzzle } = await import('@/lib/db/queries/puzzles')
+    const { getPuzzleProgress, upsertPuzzleProgress } = await import('@/lib/db/queries/progress')
+    const { mapAttemptProgressState } = await import('@/lib/db/queries/attempts')
+    const { PUT } = await import('@/app/api/puzzles/[id]/progress/route')
+
+    vi.mocked(ensureRequestUser).mockResolvedValue({
+      userId: 'user-1',
+      isAnonymous: true
+    })
+    vi.mocked(getPuzzle).mockResolvedValue(sampleDailyPuzzlePrivate)
+    vi.mocked(getPuzzleProgress).mockResolvedValue(null)
+    vi.mocked(upsertPuzzleProgress).mockResolvedValue(sampleProgressEnvelope)
+    // Stored snapshot carries server time; the device clock is 5 minutes behind.
+    vi.mocked(mapAttemptProgressState).mockReturnValueOnce({
+      ...sampleProgressEnvelope.currentState!,
+      updatedAt: '2026-06-17T12:05:00.000Z'
+    })
+
+    const request = new NextRequest(`http://localhost/api/puzzles/${sampleDailyPuzzlePrivate.id}/progress`, {
+      method: 'PUT',
+      headers: { 'x-scorelogic-base-revision': '1' },
+      body: JSON.stringify({
+        attemptId: ATTEMPT_ID,
+        progress: {
+          ...sampleProgressEnvelope.currentState!,
+          updatedAt: '2026-06-17T12:00:00.000Z'
+        }
+      })
+    })
+
+    const response = await PUT(request, {
+      params: Promise.resolve({ id: sampleDailyPuzzlePrivate.id })
+    })
+
+    expect(response.status).toBe(200)
+  })
+
   it('submits a correct solution without exposing the solution payload', async () => {
     const { ensureRequestUser } = await import('@/lib/auth/anonymous')
     const { getPuzzlePrivateById } = await import('@/lib/db/queries/puzzles')
