@@ -90,17 +90,15 @@ test('an autosave that starts during Analyze Board keeps its snapshot', async ({
     await route.continue()
   })
 
-  // A fake clock holds the 800 ms autosave debounce, so the save starts only
-  // after the analysis request is already in flight.
-  await page.clock.install()
   const initialSave = page.waitForResponse((r) => r.url().endsWith('/progress') && r.request().method() === 'PUT')
   await page.goto('/puzzles/ckscorepuzzlecamp000000001')
   const analyze = page.getByRole('button', { name: 'Analyze board' })
-  await expect(analyze).toBeVisible()
-  await page.clock.runFor(1_000)
   await initialSave
   await expect(analyze).toBeEnabled()
 
+  // Only after the board loaded on real timers, a fake clock holds the 800 ms
+  // autosave debounce, so the save starts once the analysis is in flight.
+  await page.clock.install()
   holdSaves = true
   await page.locator('input[type="number"]:not([readonly])').first().fill('1')
   const analysisSent = page.waitForRequest((r) => r.url().endsWith('/analyze'))
