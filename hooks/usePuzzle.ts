@@ -587,16 +587,22 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     return () => window.clearTimeout(timeout)
   }, [puzzle, updatedAt, lastSyncedAt, status, phase, saveState, isReplayMode, saveMutation, hintMutation.isPending, answerRevealMutation.isPending, isRoutePuzzleActive, currentAttemptId, ownerKey, revisionConflict])
 
-  const assistanceDisabled =
+  // Unavailable: assistance cannot be used on this board right now at all.
+  const assistanceUnavailable =
     Boolean(revisionConflict) ||
-    saveMutation.isPending ||
     !currentAttemptId ||
-    hintMutation.isPending ||
-    answerRevealMutation.isPending ||
-    submitMutation.isPending ||
     answerRevealed ||
     phase === 'SOLVED' ||
     (status === 'COMPLETED' && !isReplayMode)
+  // Disabled: also blocked while a background save or another command is in
+  // flight. That busy state is transient, so it must not swallow a tap that
+  // only opens a dialog or reads the board.
+  const assistanceDisabled =
+    assistanceUnavailable ||
+    saveMutation.isPending ||
+    hintMutation.isPending ||
+    answerRevealMutation.isPending ||
+    submitMutation.isPending
 
   return {
     // React Query publishes fresh data before the synchronization effect updates
@@ -648,6 +654,7 @@ export function useDailyPuzzle(options: UsePuzzleOptions = {}) {
     isAnswerRevealPending: answerRevealMutation.isPending,
     isSubmitPending: submitMutation.isPending,
     assistanceDisabled,
+    assistanceUnavailable,
     requestHint: async (hintType: 'reveal') => {
       // React's pending render is asynchronous; guard this event synchronously.
       if (hintInFlight.current || !puzzle) return null

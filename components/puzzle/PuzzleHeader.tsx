@@ -17,6 +17,8 @@ interface PuzzleHeaderProps {
   isAnswerPending: boolean
   answerRevealed: boolean
   assistanceDisabled: boolean
+  /** Opening the hint dialog is free, so only a lasting block disables it. */
+  hintsUnavailable: boolean
   onOpenHints: () => void
   onRevealAnswer: () => void
   onSubmit: () => void
@@ -124,6 +126,7 @@ export function PuzzleHeader({
   isAnswerPending,
   answerRevealed,
   assistanceDisabled,
+  hintsUnavailable,
   onOpenHints,
   onRevealAnswer,
   onSubmit,
@@ -308,8 +311,8 @@ export function PuzzleHeader({
               type="button"
               className="group flex min-h-9 min-w-0 items-center justify-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--blue)]/25 bg-[var(--blue-soft)] px-2 py-2 text-xs font-bold text-[var(--blue)] shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] transition hover:-translate-y-0.5 hover:border-[var(--blue)]/44 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 sm:gap-2 sm:px-3"
               onClick={onOpenHints}
-              disabled={assistanceDisabled}
-              whileTap={!assistanceDisabled ? { scale: 0.98 } : undefined}
+              disabled={hintsUnavailable}
+              whileTap={!hintsUnavailable ? { scale: 0.98 } : undefined}
             >
               <span className="flex h-5 min-w-5 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--blue)]/22 bg-white/72 transition group-hover:bg-[var(--blue)] group-hover:text-white">
                 <HintIcon />

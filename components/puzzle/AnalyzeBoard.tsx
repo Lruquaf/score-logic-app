@@ -19,8 +19,7 @@ interface AnalyzeBoardProps {
   mode: CampaignAnalyzeBoardMode
   /**
    * Blocks starting a new analysis. The component stays mounted while disabled
-   * so a transient pause (autosave, hint, check) cannot drop an in-flight or
-   * open snapshot.
+   * so an in-flight or open snapshot is never dropped.
    */
   disabled?: boolean
 }
